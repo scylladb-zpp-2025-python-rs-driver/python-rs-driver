@@ -1,0 +1,13 @@
+[package]
+name = "scylla"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "scylla"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.25.1", features = ["extension-module"] }
+scylla = "1.3.1"
+tokio = { version = "1.42.0", features = ["full"] }

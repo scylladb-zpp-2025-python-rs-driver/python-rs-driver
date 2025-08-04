@@ -1,0 +1,31 @@
+[project]
+name = "scylla"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+dynamic = ["version"]
+
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+python-source = "python"
+features = ["pyo3/extension-module"]
+module-name = "scylla._rust"
+
+[dependency-groups]
+dev = ["pytest", "maturin"]
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "src/**/*.rs" },
+    { file = "python/scylla/**/*.py"},
+    { file = "python/scylla/**/*.pyi"},
+]
+config-settings = { build-args = '--profile=dev' }
