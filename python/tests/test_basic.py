@@ -1,11 +1,14 @@
 from scylla.session_builder import SessionBuilder;
+import pytest
 
-def test_cluster_connect():
+@pytest.mark.asyncio
+async def test_cluster_connect():
     builder = SessionBuilder(['172.42.0.2'], 9042)
-    session = builder.connect()
+    session = await builder.connect()
 
-def test_simple_query():
+@pytest.mark.asyncio
+async def test_simple_query():
     builder = SessionBuilder(['172.42.0.2'], 9042)
-    session = builder.connect()
-    result = session.execute("SELECT * FROM system.local")
+    session = await builder.connect()
+    result = await session.execute("SELECT * FROM system.local")
     print(result)

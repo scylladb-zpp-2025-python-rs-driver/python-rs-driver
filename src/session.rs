@@ -1,24 +1,34 @@
 use std::fmt::Write;
+use std::sync::Arc;
 
-use pyo3::{exceptions::PyRuntimeError, prelude::*, types::PyString};
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::prelude::*;
+use pyo3::types::PyString;
 use scylla::value::Row;
 
 use crate::RUNTIME;
 
 #[pyclass]
 pub(crate) struct Session {
-    pub(crate) _inner: scylla::client::session::Session,
+    pub(crate) _inner: Arc<scylla::client::session::Session>,
 }
 
 #[pymethods]
 impl Session {
-    fn execute(&self, request: Bound<'_, PyString>) -> PyResult<RequestResult> {
-        let request_str = request.to_str()?;
+    async fn execute(&self, request: Py<PyString>) -> PyResult<RequestResult> {
+        let request_string = Python::with_gil(|py| request.to_str(py))?.to_string();
+        let session_clone = Arc::clone(&self._inner);
         let result = RUNTIME
-            .block_on(async { self._inner.query_unpaged(request_str, &[]).await })
-            .map_err(|e| {
-                PyRuntimeError::new_err(format!("Failed to deserialize metadata: {}", e))
-            })?;
+            .spawn(async move {
+                session_clone
+                    .query_unpaged(request_string, &[])
+                    .await
+                    .map_err(|e| {
+                        PyRuntimeError::new_err(format!("Failed to deserialize metadata: {}", e))
+                    })
+            })
+            .await
+            .expect("Driver should not panic")?;
         return Ok(RequestResult { inner: result });
     }
 }

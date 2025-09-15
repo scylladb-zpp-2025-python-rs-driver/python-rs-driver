@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PySequence, PyString};
@@ -41,12 +43,16 @@ impl SessionBuilder {
         Ok(Self { config: cfg })
     }
 
-    fn connect(&self) -> PyResult<Session> {
-        let session_result = RUNTIME.block_on(async {
-            scylla::client::session::Session::connect(self.config.clone()).await
-        });
+    async fn connect(&self) -> PyResult<Session> {
+        let config = self.config.clone();
+        let session_result = RUNTIME
+            .spawn(async move { scylla::client::session::Session::connect(config).await })
+            .await
+            .expect("Driver should not panic");
         match session_result {
-            Ok(session) => Ok(Session { _inner: session }),
+            Ok(session) => Ok(Session {
+                _inner: Arc::new(session),
+            }),
             Err(e) => Err(PyRuntimeError::new_err(format!(
                 "Session creation err, e: {:?}, cp: {:?}",
                 e, self.config.known_nodes
