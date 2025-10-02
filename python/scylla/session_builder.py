@@ -1,1 +1,1 @@
-from scylla._rust.session_builder import *
+from ._rust.session_builder import *
