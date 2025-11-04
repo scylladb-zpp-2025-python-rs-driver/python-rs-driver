@@ -29,3 +29,11 @@ cache-keys = [
     { file = "python/scylla/**/*.pyi"},
 ]
 config-settings = { build-args = '--profile=dev' }
+
+[tool.basedpyright]
+reportMissingModuleSource = "none"
+reportUnknownVariableType = "none"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
+reportExplicitAny = "none"
+reportAny = "none"
