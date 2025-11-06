@@ -170,6 +170,11 @@ impl PyRowSerializationContext {
     }
 }
 
+// Create python dict
+// kind = ColumnType
+// ...
+// if kind: ColumnType != Native
+// element_type = dict - recursively calll this method
 fn extract_type_info(py: Python, column_type: &ColumnType) -> PyResult<PyObject> {
     let type_dict = pyo3::types::PyDict::new(py);
 
@@ -181,30 +186,18 @@ fn extract_type_info(py: Python, column_type: &ColumnType) -> PyResult<PyObject>
             match native_type {
                 NativeType::Int => {
                     type_dict.set_item("name", "int")?;
-                    type_dict.set_item("size", 4)?; // 4 bytes
-                    type_dict.set_item("signed", true)?;
-                    type_dict.set_item("wire_type", "int32")?;
                 }
                 NativeType::Text => {
                     type_dict.set_item("name", "text")?;
-                    type_dict.set_item("wire_type", "bytes")?;
-                    type_dict.set_item("encoding", "utf8")?;
                 }
                 NativeType::BigInt => {
                     type_dict.set_item("name", "bigint")?;
-                    type_dict.set_item("size", 8)?; // 8 bytes
-                    type_dict.set_item("signed", true)?;
-                    type_dict.set_item("wire_type", "int64")?;
                 }
                 NativeType::Double => {
                     type_dict.set_item("name", "double")?;
-                    type_dict.set_item("size", 8)?; // 8 bytes
-                    type_dict.set_item("wire_type", "double")?;
                 }
                 NativeType::Boolean => {
                     type_dict.set_item("name", "boolean")?;
-                    type_dict.set_item("size", 1)?; // 1 byte
-                    type_dict.set_item("wire_type", "boolean")?;
                 }
                 // Easily extendable - just add more native types here
                 _ => {
@@ -247,22 +240,21 @@ fn extract_type_info(py: Python, column_type: &ColumnType) -> PyResult<PyObject>
             }
         }
 
-        // Handle UDT types
+        // Dict of name + fields
+        // fields = List of name + type
+        // (which is extracted recursively as it also can be a composite type)
         ColumnType::UserDefinedType { frozen, definition } => {
-            type_dict.set_item("kind", "user_defined")?; // ✅ Correct kind for Python
-            type_dict.set_item("frozen", *frozen)?; // ✅ Add frozen like Collections
-            type_dict.set_item("name", &definition.name)?; // ✅ UDT name
-            type_dict.set_item("keyspace", &definition.keyspace)?; // ✅ Add keyspace info
+            type_dict.set_item("kind", "user_defined")?;
+            type_dict.set_item("frozen", *frozen)?;
+            type_dict.set_item("name", &definition.name)?;
+            type_dict.set_item("keyspace", &definition.keyspace)?;
 
-            // ✅ Create structured fields array (following Collection pattern)
-            let fields = pyo3::types::PyList::empty(py); // ✅ Full path like existing code
+            let fields = pyo3::types::PyList::empty(py);
 
-            // ✅ Iterate over field_types: Vec<(field_name, field_type)>
             for (field_name, field_type) in &definition.field_types {
-                let field_dict = pyo3::types::PyDict::new(py); // ✅ Full path like existing code
+                let field_dict = pyo3::types::PyDict::new(py);
                 field_dict.set_item("name", field_name.as_ref())?;
 
-                // ✅ Recursive call for field type - same pattern as Collections!
                 let field_type_info = extract_type_info(py, field_type)?;
                 field_dict.set_item("type", field_type_info)?;
 
@@ -272,11 +264,9 @@ fn extract_type_info(py: Python, column_type: &ColumnType) -> PyResult<PyObject>
             type_dict.set_item("fields", fields)?;
         }
 
-        // Handle Tuple types
         ColumnType::Tuple(element_types) => {
             type_dict.set_item("kind", "tuple")?;
 
-            // Create elements array with recursive type extraction
             let elements_list = pyo3::types::PyList::empty(py);
             for element_type in element_types {
                 let element_info = extract_type_info(py, element_type)?;
@@ -285,7 +275,6 @@ fn extract_type_info(py: Python, column_type: &ColumnType) -> PyResult<PyObject>
             type_dict.set_item("element_types", elements_list)?;
         }
 
-        // Default case for types not yet implemented
         _ => {
             type_dict.set_item("kind", "unknown")?;
             type_dict.set_item("debug", format!("{:?}", column_type))?;

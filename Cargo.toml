@@ -9,6 +9,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.25.1", features = ["extension-module", "experimental-async"] }
-scylla = {path = "../scylla-rust-driver/scylla"}
-scylla-cql = {path = "../scylla-rust-driver/scylla-cql"}
+scylla = {git = "https://github.com/jakub-graczyk/scylla-rust-driver.git", branch = "python-driver-prototype"}
+scylla-cql = {git = "https://github.com/jakub-graczyk/scylla-rust-driver.git", branch = "python-driver-prototype"}
 tokio = { version = "1.42.0", features = ["full"] }

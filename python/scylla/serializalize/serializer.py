@@ -3,10 +3,12 @@ Serialization module
 """
 
 import struct
-from typing import Any
 from dataclasses import dataclass
-from scylla._rust.session import PyPreparedStatement
+from typing import Any
+
 from typing_extensions import override
+
+from scylla._rust.session import PyPreparedStatement
 
 
 class SerializationError(Exception):
@@ -235,15 +237,15 @@ class UDTSerializer(TypeSerializer):
         if value is None:
             return b""
 
-        # UDT values can be provided as dict or object with attributes
+        # Handle dict as a "class instance"
         if isinstance(value, dict):
             field_values = value
         else:
-            # Try to extract values from object attributes or to_dict() method
+            # Default to to_dict if implemented by user
             if hasattr(value, "to_dict") and callable(getattr(value, "to_dict")):
                 field_values = value.to_dict()
             else:
-                # Extract from object attributes
+                # Extract class attributes
                 field_values = {}
                 for field_name, _ in self.field_specs:
                     if hasattr(value, field_name):
@@ -384,7 +386,7 @@ def serialize(values: list[Any], prepared: PyPreparedStatement) -> tuple[bytes, 
 
         # Handle empty values case
         if not values:
-            return (b"", 0)
+            raise SerializationError("Serialization failed: values not provided")
 
         # Serialize each value
         serialized_data = bytearray()
@@ -412,7 +414,6 @@ def serialize(values: list[Any], prepared: PyPreparedStatement) -> tuple[bytes, 
         return (bytes(serialized_data), len(values))
 
     except SerializationError:
-        # Re-raise SerializationError as-is
         raise
     except Exception as e:
         raise SerializationError(f"Serialization failed: {e}") from e
