@@ -34,7 +34,7 @@ class Person:
         }
 
 @pytest.mark.asyncio
-async def test_basic_serialization():
+async def test_execute_unpaged_python_variants():
     """Test basic type serialization with the new module"""
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
@@ -55,10 +55,22 @@ async def test_basic_serialization():
         "INSERT INTO test_ks.basic_types (id, name, score) VALUES (?, ?, ?)"
     )
 
-    test_values = [1, "Test Name", 95.5]
+    class SomeRow:
+        def __init__(self, id: int, name: str, score: float):
+            self.id = id
+            self.name = name
+            self.score = score
 
-    result = await session.execute_unpaged_python(prepared, test_values)
-    print(f"Basic serialization SUCCESS: {result}")
+    test_values_list = [1, "Test value list", 95.5]
+    test_values_tuple = (2, "Test value tuple", 96.0)
+    test_values_dict = {'id': 3, 'name': 'test values dict', 'score': 9.3}
+    test_values_object = SomeRow(4, "Test value object", 9.9)
+
+    await session.execute_unpaged_python(prepared, test_values_list)
+    await session.execute_unpaged_python(prepared, test_values_tuple)
+    await session.execute_unpaged_python(prepared, test_values_dict)
+    await session.execute_unpaged_python(prepared, test_values_object)
+
 
 
 @pytest.mark.asyncio

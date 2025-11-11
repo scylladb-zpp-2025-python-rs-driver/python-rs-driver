@@ -1,5 +1,5 @@
 use pyo3::prelude::{PyModule, PyModuleMethods};
-use pyo3::{Bound, PyResult, Python, pyclass, pymodule};
+use pyo3::{Bound, PyResult, Python, pyclass, pymodule, pymethods};
 use scylla::statement::prepared::PreparedStatement;
 use std::sync::Arc;
 
@@ -7,6 +7,17 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct PyPreparedStatement {
     pub _inner: Arc<PreparedStatement>,
+}
+
+#[pymethods]
+impl PyPreparedStatement {
+    pub fn get_columns_name(&self) -> Vec<String>{
+        self._inner
+            .get_variable_col_specs()
+            .iter()
+            .map(|col_spec| col_spec.name().to_string())
+            .collect()
+    }
 }
 
 #[pymodule]

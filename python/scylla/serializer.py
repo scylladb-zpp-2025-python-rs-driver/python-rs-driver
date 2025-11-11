@@ -230,8 +230,6 @@ class UDTSerializer(TypeSerializer):
 def create_serializer_from_col_type(col_type: Any) -> TypeSerializer:
     """Create a TypeSerializer"""
 
-    print(type(col_type).__name__)
-
     if isinstance(col_type, PyNativeType):
         if isinstance(col_type, Int):
             return IntSerializer()
