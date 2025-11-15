@@ -6,3 +6,8 @@ def test_imports():
     import scylla.session_builder as X
     from scylla import session as X
     from scylla import session_builder as X
+    from scylla.writers import PyCellWriter as X
+    from scylla.writers import PyRowWriter as X
+    from scylla.writers import PyRowSerializationContext as X
+    from scylla.writers import SerializationBuffer as X
+    from scylla.writers import PyCellValueBuilder as X
