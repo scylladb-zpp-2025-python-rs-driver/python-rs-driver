@@ -12,12 +12,14 @@ from ._rust.writers import *
 from ._rust.column_type import *
 
 INT32_MIN = -2_147_483_648
-INT32_MAX =  2_147_483_647
+INT32_MAX = 2_147_483_647
 INT64_MIN = -9_223_372_036_854_775_808
-INT64_MAX =  9_223_372_036_854_775_807
+INT64_MAX = 9_223_372_036_854_775_807
+
 
 class SerializationError(Exception):
     pass
+
 
 class TypeSerializer:
     """Base class for type specific serializers"""
@@ -39,7 +41,6 @@ class IntSerializer(TypeSerializer):
 
     @override
     def serialize_value(self, value: Any, cell_writer: PyCellWriter) -> None:
-
         int_val = int(value)
         if not (INT32_MIN <= int_val <= INT32_MAX):
             raise SerializationError(f"Int32 overflow: {int_val}")
@@ -56,7 +57,7 @@ class BigIntSerializer(TypeSerializer):
         long_val = int(value)
         if not (INT64_MIN <= long_val <= INT64_MAX):
             raise SerializationError(f"Int64 overflow: {long_val}")
-        val_to_bytes =  struct.pack(">q", long_val)
+        val_to_bytes = struct.pack(">q", long_val)
         cell_writer.set_value(val_to_bytes)
 
 
@@ -68,12 +69,13 @@ class TextSerializer(TypeSerializer):
         val_to_bytes = str(value).encode("utf-8")
         cell_writer.set_value(val_to_bytes)
 
+
 class DoubleSerializer(TypeSerializer):
     """Serializer for double"""
 
     @override
     def serialize_value(self, value: Any, cell_writer: PyCellWriter) -> None:
-        val_to_bytes =  struct.pack(">d", float(value))
+        val_to_bytes = struct.pack(">d", float(value))
         cell_writer.set_value(val_to_bytes)
 
 
@@ -95,17 +97,19 @@ class FloatSerializer(TypeSerializer):
         val_to_bytes = struct.pack(">f", float(value))
         cell_writer.set_value(val_to_bytes)
 
+
 class ListSerializer(TypeSerializer):
     """Serializer for list collections"""
 
     def __init__(self, element_serializer: TypeSerializer):
         self.element_serializer = element_serializer
+
     @override
     def serialize_value(self, value: Any, cell_writer: PyCellWriter) -> None:
         if not isinstance(value, (list, tuple)):
             raise SerializationError(f"Expected list/tuple, got {type(value)}")
 
-        builder = cell_writer.into_value_builder()
+        builder = cell_writer.create_value_builder()
 
         element_count_bytes = struct.pack(">i", len(value))
         builder.append_bytes(element_count_bytes)
@@ -114,6 +118,7 @@ class ListSerializer(TypeSerializer):
             self.element_serializer.serialize(element, builder.make_sub_writer())
 
         builder.finish()
+
 
 class SetSerializer(TypeSerializer):
     """Serializer for set collections"""
@@ -137,7 +142,7 @@ class MapSerializer(TypeSerializer):
     """Serializer for map collections"""
 
     def __init__(
-            self, key_serializer: TypeSerializer, value_serializer: TypeSerializer
+        self, key_serializer: TypeSerializer, value_serializer: TypeSerializer
     ):
         self.key_serializer = key_serializer
         self.value_serializer = value_serializer
@@ -148,8 +153,7 @@ class MapSerializer(TypeSerializer):
             raise SerializationError(f"Expected dict, got {type(value)}")
 
         # [int32 element_count] followed by key-value pairs
-        result = bytearray()
-        builder = cell_writer.into_value_builder()
+        builder = cell_writer.create_value_builder()
 
         # Write element count
         element_count_bytes = struct.pack(">i", len(value))
@@ -179,12 +183,13 @@ class TupleSerializer(TypeSerializer):
                 f"Tuple length mismatch: expected {len(self.element_serializers)}, got {len(value)}"
             )
 
-        builder = cell_writer.into_value_builder()
+        builder = cell_writer.create_value_builder()
 
         for val, serializer in zip(value, self.element_serializers):
             serializer.serialize(val, builder.make_sub_writer())
 
         builder.finish()
+
 
 class UDTSerializer(TypeSerializer):
     """Serializer for User Defined Types (UDTs)"""
@@ -213,10 +218,9 @@ class UDTSerializer(TypeSerializer):
                     else:
                         raise SerializationError(f"UDT missing field: {field_name}")
 
-        builder = cell_writer.into_value_builder()
+        builder = cell_writer.create_value_builder()
 
         for field_name, field_serializer in self.field_specs:
-
             writer = builder.make_sub_writer()
             if field_name not in field_values:
                 writer.set_null()
@@ -226,6 +230,7 @@ class UDTSerializer(TypeSerializer):
             field_serializer.serialize(field_value, writer)
 
         builder.finish()
+
 
 def create_serializer_from_col_type(col_type: Any) -> TypeSerializer:
     """Create a TypeSerializer"""
@@ -244,8 +249,10 @@ def create_serializer_from_col_type(col_type: Any) -> TypeSerializer:
         elif isinstance(col_type, BigInt):
             return BigIntSerializer()
         else:
-            raise SerializationError(f"Unsupported native type: {type(col_type).__name__}")
-        
+            raise SerializationError(
+                f"Unsupported native type: {type(col_type).__name__}"
+            )
+
     elif isinstance(col_type, PyCollectionType):
         if isinstance(col_type, List):
             element_serializer = create_serializer_from_col_type(col_type.column_type)
@@ -260,8 +267,10 @@ def create_serializer_from_col_type(col_type: Any) -> TypeSerializer:
             value_serializer = create_serializer_from_col_type(col_type.value_type)
             return MapSerializer(key_serializer, value_serializer)
         else:
-            raise SerializationError(f"Unsupported collection type: {type(col_type).__name__}")
-        
+            raise SerializationError(
+                f"Unsupported collection type: {type(col_type).__name__}"
+            )
+
     elif isinstance(col_type, PyTuple):
         element_types = col_type.element_types
         element_serializers = []
@@ -284,9 +293,11 @@ def create_serializer_from_col_type(col_type: Any) -> TypeSerializer:
             field_spec.append((field_name, field_serializer))
 
         return UDTSerializer(field_spec)
-    
+
     else:
         raise SerializationError(f"Unsupported type: {type(col_type).__name__}")
+
+
 class SerializedValues:
     buffer: SerializationBuffer
     ctx: PyRowSerializationContext
@@ -330,7 +341,7 @@ class SerializedValues:
             if element_count < 0 or element_count > 65535:
                 raise RuntimeError(
                     f"Element count must be in u16 range (0-65535), got {element_count}"
-                 )
+                )
 
             self.buffer.set_element_count(element_count)
 

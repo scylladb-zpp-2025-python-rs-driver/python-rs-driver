@@ -2,7 +2,7 @@ use crate::column_type::*;
 use crate::statements::PyPreparedStatement;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::{Bound, IntoPyObjectExt, PyResult, Python, pyclass, pymethods, pymodule};
+use pyo3::{Bound, PyResult, Python, pyclass, pymethods, pymodule};
 use scylla::_macro_internal::{CellWriter, ColumnType, RowSerializationContext};
 use scylla::cluster::metadata::{CollectionType, NativeType};
 use scylla::serialize::SerializationError;
@@ -59,7 +59,7 @@ impl PyRowSerializationContext {
         .len()
     }
 
-    pub fn get_columns(&self) -> PyResult<Vec<Py<PyAny>>> {
+    pub fn get_columns(&self) -> PyResult<Vec<Py<PyColumnType>>> {
         let context = RowSerializationContext::from_specs(
             self.prepared_statement.get_variable_col_specs().as_slice(),
         );
@@ -77,76 +77,43 @@ impl PyRowSerializationContext {
     }
 }
 
-fn extract_type(py: Python<'_>, column_type: &ColumnType) -> PyResult<Py<PyAny>> {
+fn extract_type(py: Python<'_>, column_type: &ColumnType) -> PyResult<Py<PyColumnType>> {
     match column_type {
         ColumnType::Native(native_type) => match native_type {
-            NativeType::Int => Py::new(
-                py,
-                PyClassInitializer::from(PyNativeType {}).add_subclass(Int {}),
-            )?
-            .into_py_any(py),
-            NativeType::Text => Py::new(
-                py,
-                PyClassInitializer::from(PyNativeType {}).add_subclass(Text {}),
-            )?
-            .into_py_any(py),
-            NativeType::Float => Py::new(
-                py,
-                PyClassInitializer::from(PyNativeType {}).add_subclass(Float {}),
-            )?
-            .into_py_any(py),
-            NativeType::Double => Py::new(
-                py,
-                PyClassInitializer::from(PyNativeType {}).add_subclass(Double {}),
-            )?
-            .into_py_any(py),
-            NativeType::Boolean => Py::new(
-                py,
-                PyClassInitializer::from(PyNativeType {}).add_subclass(Boolean {}),
-            )?
-            .into_py_any(py),
-            NativeType::BigInt => Py::new(
-                py,
-                PyClassInitializer::from(PyNativeType {}).add_subclass(BigInt {}),
-            )?
-            .into_py_any(py),
+            NativeType::Int => Py::new(py, Int::new())?.extract::<Py<PyColumnType>>(py),
+            NativeType::Double => Py::new(py, Double::new())?.extract::<Py<PyColumnType>>(py),
+            NativeType::Float => Py::new(py, Float::new())?.extract::<Py<PyColumnType>>(py),
+            NativeType::Text => Py::new(py, Text::new())?.extract::<Py<PyColumnType>>(py),
+            NativeType::Boolean => Py::new(py, Boolean::new())?.extract::<Py<PyColumnType>>(py),
+            NativeType::BigInt => Py::new(py, BigInt::new())?.extract::<Py<PyColumnType>>(py),
             _ => unimplemented!(),
         },
         ColumnType::Collection { frozen, typ } => match typ {
             CollectionType::List(element_type) => {
                 let column_type = extract_type(py, element_type)?;
-                Py::new(
-                    py,
-                    PyClassInitializer::from(PyCollectionType { frozen: *frozen })
-                        .add_subclass(List { column_type }),
-                )?
-                .into_py_any(py)
+                Py::new(py, List::new(*frozen, column_type))?.extract::<Py<PyColumnType>>(py)
             }
             CollectionType::Set(element_type) => {
                 let column_type = extract_type(py, element_type)?;
-                Py::new(
-                    py,
-                    PyClassInitializer::from(PyCollectionType { frozen: *frozen })
-                        .add_subclass(Set { column_type }),
-                )?
-                .into_py_any(py)
+                Py::new(py, Set::new(*frozen, column_type))?.extract::<Py<PyColumnType>>(py)
             }
             CollectionType::Map(key_type, value_type) => {
                 let key_type = extract_type(py, key_type)?;
                 let value_type = extract_type(py, value_type)?;
-                Py::new(
-                    py,
-                    PyClassInitializer::from(PyCollectionType { frozen: *frozen }).add_subclass(
-                        Map {
-                            key_type,
-                            value_type,
-                        },
-                    ),
-                )?
-                .into_py_any(py)
+                Py::new(py, Map::new(*frozen, key_type, value_type))?
+                    .extract::<Py<PyColumnType>>(py)
             }
             _ => unimplemented!(),
         },
+        ColumnType::Tuple(element_list) => {
+            let mut element_types = Vec::new();
+            for typ in element_list {
+                let element_type = extract_type(py, typ)?;
+                element_types.push(element_type);
+            }
+
+            Py::new(py, PyTuple::new(element_types))?.extract::<Py<PyColumnType>>(py)
+        }
         ColumnType::UserDefinedType { frozen, definition } => {
             let mut fields = Vec::new();
 
@@ -157,22 +124,14 @@ fn extract_type(py: Python<'_>, column_type: &ColumnType) -> PyResult<Py<PyAny>>
 
             Py::new(
                 py,
-                PyClassInitializer::from(PyUserDefinedType {
-                    name: definition.name.to_string(),
-                    frozen: *frozen,
-                    keyspace: definition.keyspace.to_string(),
-                    field_types: fields,
-                }),
+                PyUserDefinedType::new(
+                    definition.name.to_string(),
+                    *frozen,
+                    definition.keyspace.to_string(),
+                    fields,
+                ),
             )?
-            .into_py_any(py)
-        }
-        ColumnType::Tuple(element_list) => {
-            let mut element_types = Vec::new();
-            for typ in element_list {
-                let element_type = extract_type(py, typ)?;
-                element_types.push(element_type);
-            }
-            Py::new(py, PyClassInitializer::from(PyTuple { element_types }))?.into_py_any(py)
+            .extract::<Py<PyColumnType>>(py)
         }
         _ => unimplemented!(),
     }
@@ -275,11 +234,7 @@ impl PyCellWriter {
 
     pub fn set_value(&mut self, value: &[u8]) -> Result<(), PySerializationError> {
         let mut buff = self.buff.lock().unwrap();
-        let mut_writer = if self.write_size {
-            CellWriter::new(&mut buff)
-        } else {
-            CellWriter::new_without_size(&mut buff)
-        };
+        let mut_writer = self.do_with_writer(&mut buff);
 
         mut_writer.set_value(value)?;
         Ok(())
@@ -287,27 +242,30 @@ impl PyCellWriter {
 
     pub fn set_null(&mut self) {
         let mut buff = self.buff.lock().unwrap();
-        let mut_writer = if self.write_size {
-            CellWriter::new(&mut buff)
-        } else {
-            CellWriter::new_without_size(&mut buff)
-        };
+        let mut_writer = self.do_with_writer(&mut buff);
+
         mut_writer.set_null();
     }
 
     pub fn set_unset(&mut self) {
         let mut buff = self.buff.lock().unwrap();
+        let mut_writer = self.do_with_writer(&mut buff);
 
-        let mut_writer = if self.write_size {
-            CellWriter::new(&mut buff)
-        } else {
-            CellWriter::new_without_size(&mut buff)
-        };
         mut_writer.set_unset();
     }
 
-    pub fn into_value_builder(&self) -> PyCellValueBuilder {
+    pub fn create_value_builder(&self) -> PyCellValueBuilder {
         PyCellValueBuilder::new(self.buff.clone(), self.write_size)
+    }
+}
+
+impl PyCellWriter {
+    fn do_with_writer<'a>(&self, buff: &'a mut Vec<u8>) -> CellWriter<'a> {
+        if self.write_size {
+            CellWriter::new(buff)
+        } else {
+            CellWriter::new_without_size(buff)
+        }
     }
 }
 

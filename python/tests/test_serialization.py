@@ -33,6 +33,7 @@ class Person:
             "address": self.address.to_dict() if self.address else None,
         }
 
+
 @pytest.mark.asyncio
 async def test_execute_unpaged_python_variants():
     """Test basic type serialization with the new module"""
@@ -63,14 +64,13 @@ async def test_execute_unpaged_python_variants():
 
     test_values_list = [1, "Test value list", 95.5]
     test_values_tuple = (2, "Test value tuple", 96.0)
-    test_values_dict = {'id': 3, 'name': 'test values dict', 'score': 9.3}
+    test_values_dict = {"id": 3, "name": "test values dict", "score": 9.3}
     test_values_object = SomeRow(4, "Test value object", 9.9)
 
     await session.execute_unpaged_python(prepared, test_values_list)
     await session.execute_unpaged_python(prepared, test_values_tuple)
     await session.execute_unpaged_python(prepared, test_values_dict)
     await session.execute_unpaged_python(prepared, test_values_object)
-
 
 
 @pytest.mark.asyncio
@@ -198,6 +198,7 @@ async def test_structured_list_serialization():
     for test_values in test_cases:
         result = await session.execute_unpaged_python(prepared, test_values)
         print(f"Structured list test SUCCESS for {test_values}: {result}")
+
 
 @pytest.mark.asyncio
 async def test_serialization():
@@ -372,6 +373,7 @@ async def test_structured_serializer_direct():
     except Exception as e:
         print(f"Direct serializer test failed: {e}")
 
+
 @pytest.mark.asyncio
 async def test_udt_simple():
     # Build a session
@@ -420,6 +422,7 @@ async def test_udt_simple():
         prepared,
         [2, cat],
     )
+
 
 @pytest.mark.asyncio
 async def test_udt():

@@ -38,7 +38,7 @@ async def test_columns_native_types():
     assert len(columns) == len(expected_types), "Column count mismatch"
 
     for i, (col, expected_type, expected_serializer) in enumerate(
-            zip(columns, expected_types, expected_serializers)
+        zip(columns, expected_types, expected_serializers)
     ):
         t = type(col).__name__
         assert t == expected_type, f"Column {i}: got {t}, expected {expected_type}"
@@ -47,7 +47,8 @@ async def test_columns_native_types():
         serializer = create_serializer_from_col_type(col)
         assert isinstance(serializer, expected_serializer), (
             f"Column {i}: expected {expected_serializer.__name__}, got {type(serializer).__name__}"
-    )
+        )
+
 
 @pytest.mark.asyncio
 async def test_list_of_int_column():
@@ -82,13 +83,14 @@ async def test_list_of_int_column():
 
     id_col, nums_col = columns
 
+    assert isinstance(id_col, PyColumnType)
     assert isinstance(id_col, Int), f"Expected Int, got {type(id_col).__name__}"
     assert isinstance(id_col, PyNativeType)
 
     # Column 1: nums -> List(Int)
+    assert isinstance(nums_col, PyColumnType)
     assert isinstance(nums_col, List), f"Expected List, got {type(nums_col).__name__}"
     assert isinstance(nums_col, PyCollectionType)
     assert isinstance(nums_col.column_type, Int), (
         f"Expected List(Int), got List({type(nums_col.column_type).__name__})"
     )
-

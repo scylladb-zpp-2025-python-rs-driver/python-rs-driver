@@ -38,10 +38,10 @@ def _normalize_values(prepared: PyPreparedStatement, values: Any) -> list[Any]:
 
     return [values]
 
-async def execute_unpaged_python(
-        self: Session, prepared: PyPreparedStatement, values: Any
-) -> RequestResult:
 
+async def execute_unpaged_python(
+    self: Session, prepared: PyPreparedStatement, values: Any
+) -> RequestResult:
     try:
         values = _normalize_values(prepared, values)
         serialized_values = SerializedValues(prepared)
@@ -55,4 +55,4 @@ async def execute_unpaged_python(
         raise RuntimeError(f"Failed to serialize values: {e}") from e
 
 
-Session.execute_unpaged_python= execute_unpaged_python
+Session.execute_unpaged_python = execute_unpaged_python
