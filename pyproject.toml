@@ -18,7 +18,13 @@ features = ["pyo3/extension-module"]
 module-name = "scylla._rust"
 
 [dependency-groups]
-dev = ["pytest", "pytest-asyncio","maturin"]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "maturin",
+    "ruff",
+    "basedpyright",
+]
 
 [tool.uv]
 cache-keys = [
@@ -29,3 +35,14 @@ cache-keys = [
     { file = "python/scylla/**/*.pyi"},
 ]
 config-settings = { build-args = '--profile=dev' }
+
+[tool.ruff]
+line-length = 120
+
+[tool.basedpyright]
+typeCheckingMode = "strict"
+
+[tool.pytest.ini_options]
+markers = [
+    "requires_db: tests that require database",
+]
