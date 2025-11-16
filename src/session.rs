@@ -10,12 +10,20 @@ use scylla::frame::response::result::ColumnSpec;
 use scylla::frame::response::result::ColumnType;
 use scylla::serialize::row::RowSerializationContext;
 use scylla::value::Row;
+use scylla_cql::frame::request::query::PagingState;
+use scylla_cql::serialize::row::SerializedValues;
 
 use crate::RUNTIME;
 
 #[pyclass]
 pub(crate) struct Session {
     pub(crate) _inner: Arc<scylla::client::session::Session>,
+}
+
+#[pyclass]
+#[derive(Clone)]
+pub(crate) struct PyPreparedStatement {
+    pub(crate) _inner: Arc<scylla::statement::prepared::PreparedStatement>,
 }
 
 #[pymethods]
@@ -36,12 +44,48 @@ impl Session {
             .expect("Driver should not panic")?;
         return Ok(RequestResult { inner: result });
     }
-}
 
-#[pyclass]
-#[derive(Clone)]
-pub(crate) struct PyPreparedStatement {
-    pub(crate) _inner: Arc<scylla::statement::prepared::PreparedStatement>,
+    async fn prepare(&self, request: Py<PyString>) -> PyResult<PyPreparedStatement> {
+        let request_string = Python::with_gil(|py| request.to_str(py))?.to_string();
+        let session_clone = Arc::clone(&self._inner);
+        let result = RUNTIME
+            .spawn(async move {
+                session_clone.prepare(request_string).await.map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to deserialize metadata: {}", e))
+                })
+            })
+            .await
+            .expect("Driver should not panic")?;
+        return Ok(PyPreparedStatement {
+            _inner: (Arc::new(result)),
+        });
+    }
+
+    async fn _execute_raw_bytes(
+        &self,
+        prepared: PyPreparedStatement,
+        serialized_values: Vec<u8>,
+        element_count: u16,
+    ) -> PyResult<RequestResult> {
+        let prep = Arc::clone(&prepared._inner);
+        let session_clone = Arc::clone(&self._inner);
+
+        let ser = SerializedValues {
+            serialized_values: serialized_values,
+            element_count: element_count,
+        };
+
+        let (result, _) = RUNTIME
+            .spawn(async move {
+                session_clone
+                    .execute(&prep, &ser, None, PagingState::start())
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(format!("Failed to execute query: {}", e)))
+            })
+            .await
+            .expect("Driver should not panic")?;
+        return Ok(RequestResult { inner: result });
+    }
 }
 
 #[pyclass]
