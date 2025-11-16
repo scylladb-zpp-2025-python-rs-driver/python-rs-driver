@@ -200,6 +200,15 @@ async def test_context_udt_types():
 
     # Drop and recreate to ensure clean state
     _ = await session.execute("DROP TABLE IF EXISTS ctx_udt_types")
+    _ = await session.execute("DROP TYPE IF EXISTS address")
+
+    _ = await session.execute("""
+        CREATE TYPE address (
+            street text,
+            city text,
+            zip_code int
+        )
+    """)
 
     _ = await session.execute("""
         CREATE TABLE ctx_udt_types (
