@@ -14,7 +14,7 @@ __all__ = ["Session"]
 async def execute_with_column_spec(
     self: Session, prepared: PyPreparedStatement, values: ValueList
 ) -> RequestResult:
-    py_ctx = PyRowSerializationContext.from_prepared(prepared=prepared)
+    py_ctx = PyRowSerializationContext.from_prepared(prepared)
     row_ctx: RowSerializationContext = py_ctx.get_context()
 
     try:

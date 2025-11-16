@@ -54,7 +54,9 @@ def exact_type_check_native(
 
 @runtime_checkable
 class SerializeValue(Protocol):
-    def serialize_value(self, typ: column_type.ColumnType) -> bytes: ...
+    def serialize_value(
+        self, writer: bytearray, typ: column_type.ColumnType
+    ) -> None: ...
 
 
 class Int:
@@ -64,11 +66,11 @@ class Int:
 
         self._value: int = value
 
-    def serialize_value(self, typ: column_type.ColumnType) -> bytes:
+    def serialize_value(self, writer: bytearray, typ: column_type.ColumnType) -> None:
         exact_type_check_native(typ, column_type.Native(column_type.NativeType.INT))
 
-        raw_bytes = struct.pack(">i", self._value)
-        return struct.pack(">i", 4) + raw_bytes
+        writer.extend(struct.pack(">i", 4))
+        writer.extend(struct.pack(">i", self._value))
 
 
 class BigInt:
@@ -78,52 +80,54 @@ class BigInt:
 
         self._value: int = value
 
-    def serialize_value(self, typ: column_type.ColumnType) -> bytes:
+    def serialize_value(self, writer: bytearray, typ: column_type.ColumnType) -> None:
         exact_type_check_native(typ, column_type.Native(column_type.NativeType.BIGINT))
 
-        raw_bytes = struct.pack(">q", self._value)
-        return struct.pack(">i", 8) + raw_bytes
+        writer.extend(struct.pack(">i", 8))
+        writer.extend(struct.pack(">q", self._value))
 
 
 class Double:
     def __init__(self, value: float):
         self._value: float = value
 
-    def serialize_value(self, typ: column_type.ColumnType) -> bytes:
+    def serialize_value(self, writer: bytearray, typ: column_type.ColumnType) -> None:
         exact_type_check_native(typ, column_type.Native(column_type.NativeType.DOUBLE))
 
-        raw_bytes = struct.pack(">d", self._value)
-        return struct.pack(">i", 8) + raw_bytes
+        writer.extend(struct.pack(">i", 8))
+        writer.extend(struct.pack(">d", self._value))
 
 
 class Boolean:
     def __init__(self, value: bool):
         self._value: bool = value
 
-    def serialize_value(self, typ: column_type.ColumnType) -> bytes:
+    def serialize_value(self, writer: bytearray, typ: column_type.ColumnType) -> None:
         exact_type_check_native(typ, column_type.Native(column_type.NativeType.BOOLEAN))
 
-        raw_bytes = struct.pack(">B", 1 if self._value else 0)
-        return struct.pack(">i", 1) + raw_bytes
+        writer.extend(struct.pack(">i", 1))
+        writer.extend(struct.pack(">B", 1 if self._value else 0))
 
 
 class Text:
     def __init__(self, value: str):
         self._value: str = value
 
-    def serialize_value(self, typ: column_type.ColumnType) -> bytes:
+    def serialize_value(self, writer: bytearray, typ: column_type.ColumnType) -> None:
         exact_type_check_native(typ, column_type.Native(column_type.NativeType.TEXT))
 
         raw_bytes = self._value.encode("utf-8")
-        return struct.pack(">i", len(raw_bytes)) + raw_bytes
+        writer.extend(struct.pack(">i", len(raw_bytes)))
+        writer.extend(raw_bytes)
 
 
 def serialize_sequence(
+    writer: bytearray,
     rust_name: str,
     length: int,
     iterator: Iterator[SerializeValue],
     typ: column_type.ColumnType,
-) -> bytes:
+) -> None:
     elt: column_type.ColumnType
 
     if not (
@@ -144,13 +148,15 @@ def serialize_sequence(
             SetOrListSerializationErrorKind.TOO_MANY_ELEMENTS,
         )
 
-    result = bytearray()
-    result.extend(struct.pack(">i", length))
+    length_pos = len(writer)
+    writer.extend(struct.pack(">i", 0))  # fill later with total length
+
+    start_pos = len(writer)
+    writer.extend(struct.pack(">i", length))
 
     for el in iterator:
         try:
-            element_bytes = el.serialize_value(elt)
-            result.extend(element_bytes)
+            el.serialize_value(writer, elt)
         except Exception as err:
             raise mk_ser_err_named(
                 rust_name,
@@ -158,15 +164,15 @@ def serialize_sequence(
                 f"{SetOrListSerializationErrorKind.ELEMENT_SERIALIZATION_FAILED}: {err}",
             )
 
-    list_bytes = bytes(result)
-    return struct.pack(">i", len(list_bytes)) + list_bytes
+    total_length = len(writer) - start_pos
+    struct.pack_into(">i", writer, length_pos, total_length)
 
 
 class List:
     def __init__(self, elements: list[SerializeValue]):
         self._elements: list[SerializeValue] = elements
 
-    def serialize_value(self, typ: column_type.ColumnType) -> bytes:
+    def serialize_value(self, writer: bytearray, typ: column_type.ColumnType) -> None:
         if not isinstance(typ, column_type.Collection) and isinstance(
             typ, column_type.List
         ):
@@ -176,7 +182,8 @@ class List:
                 SetOrListTypeCheckErrorKind.NOT_SET_OR_LIST,
             )
 
-        return serialize_sequence(
+        serialize_sequence(
+            writer=writer,
             rust_name="List",
             length=len(self._elements),
             iterator=iter(self._elements),
@@ -188,11 +195,15 @@ class UserDefinedType:
     def __init__(self, field_values: Mapping[str, SerializeValue]):
         self._field_values: Mapping[str, SerializeValue] = field_values
 
-    def serialize_value(self, typ: column_type.ColumnType) -> bytes:
+    def serialize_value(self, writer: bytearray, typ: column_type.ColumnType) -> None:
         if not isinstance(typ, column_type.UserDefinedType):
             raise mk_typck_err_named("UserDefinedType", typ, "NotUserDefinedType")
 
-        result = bytearray()
+        length_pos = len(writer)
+        writer.extend(struct.pack(">i", 0))  # fill later with total length
+
+        start_pos = len(writer)
+
         for field_name, field_type in typ.definition.field_types:
             if field_name not in self._field_values:
                 raise mk_ser_err_named(
@@ -202,8 +213,7 @@ class UserDefinedType:
             field_value = self._field_values[field_name]
 
             try:
-                field_bytes = field_value.serialize_value(field_type)
-                result.extend(field_bytes)
+                field_value.serialize_value(writer, field_type)
             except Exception as err:
                 raise mk_ser_err_named(
                     "UserDefinedType",
@@ -211,8 +221,8 @@ class UserDefinedType:
                     f"FieldSerializationFailed: {field_name}: {err}",
                 )
 
-        udt_bytes = bytes(result)
-        return struct.pack(">i", len(udt_bytes)) + udt_bytes
+        total_length = len(writer) - start_pos
+        struct.pack_into(">i", writer, length_pos, total_length)
 
 
 class ValueList:
@@ -226,8 +236,7 @@ class ValueList:
         writer = bytearray()
         if len(self._values) != len(ctx.columns):
             raise SerializationError(
-                f"Value count mismatch: expected {len(ctx.columns)} values, "
-                f"got {len(self._values)}"
+                f"Value count mismatch: expected {len(ctx.columns)} values, got {len(self._values)}"
             )
 
         for i, (value, col_spec) in enumerate(zip(self._values, ctx.columns)):
@@ -237,8 +246,7 @@ class ValueList:
                 )
 
             try:
-                value_bytes = value.serialize_value(col_spec.typ)
-                writer.extend(value_bytes)
+                value.serialize_value(writer, col_spec.typ)
             except Exception as err:
                 raise SerializationError(
                     f"Failed to serialize value at index {i} (column '{col_spec.name}'): {err}"
