@@ -8,7 +8,13 @@ This project is in early devlopment. Not ready for production usage.
 
 ## Getting Started
 
-No documentation yet :(
+### Setting Up Git Hooks
+
+To ensure code quality, we recommend enabling the pre-commit hook that runs static checks and automatic fixes before each commit:
+
+```bash
+cp scripts/pre-commit.sh .git/hooks/pre-commit
+```
 
 ## Examples
 
