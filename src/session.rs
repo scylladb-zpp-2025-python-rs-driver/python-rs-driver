@@ -1,6 +1,7 @@
 use std::fmt::Write;
 use std::sync::Arc;
 
+use crate::serialize::row::PyAnyWrapperRow;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -17,18 +18,31 @@ pub(crate) struct Session {
 
 #[pymethods]
 impl Session {
-    async fn execute(&self, request: PyObject) -> PyResult<RequestResult> {
+    #[pyo3(signature = (request, values = None))]
+    async fn execute(
+        &self,
+        request: PyObject,
+        values: Option<Py<PyAny>>,
+    ) -> PyResult<RequestResult> {
         if let Ok(prepared) = Python::with_gil(|py| {
             let scylla_prepared = request.extract::<Py<PreparedStatement>>(py)?;
             Ok::<Py<PreparedStatement>, PyErr>(scylla_prepared)
         }) {
             let result = self
                 .session_spawn_on_runtime(async move |s| {
-                    s.execute_unpaged(&prepared.get()._inner, &[])
-                        .await
-                        .map_err(|e| {
-                            PyRuntimeError::new_err(format!("Failed execute_unpaged: {}", e))
-                        })
+                    if let Some(values) = values {
+                        s.execute_unpaged(&prepared.get()._inner, PyAnyWrapperRow(values))
+                            .await
+                            .map_err(|e| {
+                                PyRuntimeError::new_err(format!("Failed execute_unpaged: {}", e))
+                            })
+                    } else {
+                        s.execute_unpaged(&prepared.get()._inner, &[])
+                            .await
+                            .map_err(|e| {
+                                PyRuntimeError::new_err(format!("Failed execute_unpaged: {}", e))
+                            })
+                    }
                 })
                 .await?; // Propagate error form closure
             return Ok(RequestResult { inner: result });
@@ -40,9 +54,17 @@ impl Session {
         }) {
             let result = self
                 .session_spawn_on_runtime(async move |s| {
-                    s.query_unpaged(text, &[]).await.map_err(|e| {
-                        PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
-                    })
+                    if let Some(values) = values {
+                        s.query_unpaged(text, PyAnyWrapperRow(values))
+                            .await
+                            .map_err(|e| {
+                                PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
+                            })
+                    } else {
+                        s.query_unpaged(text, &[]).await.map_err(|e| {
+                            PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
+                        })
+                    }
                 })
                 .await?; // Propagate error form closure
             return Ok(RequestResult { inner: result });
@@ -60,6 +82,27 @@ impl Session {
             ))),
         }
     }
+
+    // async fn execute_with_values(
+    //     &self,
+    //     request: Py<PyString>,
+    //     values: Py<PyAny>,
+    // ) -> PyResult<RequestResult> {
+    //     let request_string = Python::with_gil(|py| request.to_str(py))?.to_string();
+    //     let session_clone = Arc::clone(&self._inner);
+    //     let result = RUNTIME
+    //         .spawn(async move {
+    //             session_clone
+    //                 .query_unpaged(request_string, PyAnyWrapperRow(values))
+    //                 .await
+    //                 .map_err(|e| {
+    //                     PyRuntimeError::new_err(format!("Failed to deserialize metadata: {}", e))
+    //                 })
+    //         })
+    //         .await
+    //         .expect("Driver should not panic")?;
+    //     Ok(RequestResult { inner: result })
+    // }
 }
 
 impl Session {
