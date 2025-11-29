@@ -8,6 +8,7 @@ use tokio::runtime::Runtime;
 mod deserialize;
 mod enums;
 mod execution_profile;
+mod serialize;
 mod session;
 mod session_builder;
 mod statement;
