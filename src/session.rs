@@ -1,36 +1,90 @@
-use std::fmt::Write;
-use std::sync::Arc;
-
+use crate::RUNTIME;
+use crate::serialize::row::{PyDictWrapperRow, PyListWrapperRow, PyTupleWrapperRow};
+use crate::statement::PreparedStatement;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::PyString;
+use pyo3::types::{PyDict, PyList, PyString, PyTuple};
 use scylla::value::Row;
+use std::fmt::Write;
+use std::sync::Arc;
 
-use crate::RUNTIME;
-use crate::statement::PreparedStatement;
+enum RowKind {
+    List(Py<PyList>),
+    Tuple(Py<PyTuple>),
+    Dict(Py<PyDict>),
+    None,
+}
 
 #[pyclass]
 pub(crate) struct Session {
     pub(crate) _inner: Arc<scylla::client::session::Session>,
 }
 
+fn try_into_row_kind(values: Option<Py<PyAny>>) -> PyResult<RowKind> {
+    if let Some(val) = values {
+        Python::with_gil(|py| {
+            let val: Bound<'_, PyAny> = val.into_bound(py);
+
+            let val = match val.downcast_into::<PyList>() {
+                Ok(val) => return Ok(RowKind::List(val.unbind())),
+                Err(e) => e.into_inner(),
+            };
+
+            let val = match val.downcast_into::<PyTuple>() {
+                Ok(val) => return Ok(RowKind::Tuple(val.unbind())),
+                Err(e) => e.into_inner(),
+            };
+
+            match val.downcast_into::<PyDict>() {
+                Ok(val) => return Ok(RowKind::Dict(val.unbind())),
+                Err(e) => e.into_inner(),
+            };
+
+            Err(PyErr::new::<PyTypeError, _>(
+                "Invalid row type: expected Python tuple, list or dict",
+            ))
+        })
+    } else {
+        Ok(RowKind::None)
+    }
+}
+
 #[pymethods]
 impl Session {
-    async fn execute(&self, request: PyObject) -> PyResult<RequestResult> {
+    #[pyo3(signature = (request, values = None))]
+    async fn execute(
+        &self,
+        request: PyObject,
+        values: Option<Py<PyAny>>,
+    ) -> PyResult<RequestResult> {
+        let row_kind = try_into_row_kind(values)?;
+
         if let Ok(prepared) = Python::with_gil(|py| {
             let scylla_prepared = request.extract::<Py<PreparedStatement>>(py)?;
             Ok::<Py<PreparedStatement>, PyErr>(scylla_prepared)
         }) {
             let result = self
                 .session_spawn_on_runtime(async move |s| {
-                    s.execute_unpaged(&prepared.get()._inner, &[])
-                        .await
-                        .map_err(|e| {
-                            PyRuntimeError::new_err(format!("Failed execute_unpaged: {}", e))
-                        })
+                    let res = match row_kind {
+                        RowKind::List(list) => {
+                            s.execute_unpaged(&prepared.get()._inner, PyListWrapperRow(list))
+                                .await
+                        }
+                        RowKind::Tuple(tuple) => {
+                            s.execute_unpaged(&prepared.get()._inner, PyTupleWrapperRow(tuple))
+                                .await
+                        }
+                        RowKind::Dict(dict) => {
+                            s.execute_unpaged(&prepared.get()._inner, PyDictWrapperRow(dict))
+                                .await
+                        }
+                        RowKind::None => s.execute_unpaged(&prepared.get()._inner, &[]).await,
+                    };
+
+                    res.map_err(|e| PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e)))
                 })
-                .await?; // Propagate error form closure
+                .await?; // Propagate error from closure
             return Ok(RequestResult { inner: result });
         }
 
@@ -40,11 +94,18 @@ impl Session {
         }) {
             let result = self
                 .session_spawn_on_runtime(async move |s| {
-                    s.query_unpaged(text, &[]).await.map_err(|e| {
-                        PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
-                    })
+                    let res = match row_kind {
+                        RowKind::List(list) => s.query_unpaged(text, PyListWrapperRow(list)).await,
+                        RowKind::Tuple(tuple) => {
+                            s.query_unpaged(text, PyTupleWrapperRow(tuple)).await
+                        }
+                        RowKind::Dict(dict) => s.query_unpaged(text, PyDictWrapperRow(dict)).await,
+                        RowKind::None => s.query_unpaged(text, &[]).await,
+                    };
+
+                    res.map_err(|e| PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e)))
                 })
-                .await?; // Propagate error form closure
+                .await?; // Propagate error from closure
             return Ok(RequestResult { inner: result });
         }
         Err(PyErr::new::<PyTypeError, _>("Invalid request type"))
