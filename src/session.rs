@@ -1,9 +1,12 @@
+use crate::cqlvalue_row::RustCqlRow;
+use crate::cqlvalue_to_py::cql_value_to_py;
+
 use std::fmt::Write;
 use std::sync::Arc;
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::types::PyString;
+use pyo3::types::{PyDict, PyString};
 use scylla::value::Row;
 
 use crate::RUNTIME;
@@ -70,6 +73,45 @@ impl RequestResult {
             writeln!(result).unwrap();
         }
         Ok(PyString::new(py, &result))
+    }
+
+    // Convert all rows to a list of dictionaries
+    pub fn rows_as_dicts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        // Convert the QueryResult into RowsResult
+        let rows_result = self
+            .inner
+            .clone()
+            .into_rows_result()
+            .map_err(|e| PyRuntimeError::new_err(format!("non-rows result: {e}")))?;
+
+        // Iterate over the rows and convert each to a dictionary
+        let rows_iter = rows_result
+            .rows::<RustCqlRow>()
+            .map_err(|e| PyRuntimeError::new_err(format!("Failed to deserialize rows: {e}")))?;
+
+        let mut out: Vec<PyObject> = Vec::new();
+
+        for row_res in rows_iter {
+            let row = row_res
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to deserialize row: {e}")))?;
+
+            let dict = PyDict::new(py);
+
+            for (name, opt_val) in row.columns {
+                let py_val = match opt_val {
+                    Some(ref cql) => cql_value_to_py(py, cql)?,
+                    None => py.None(),
+                };
+
+                dict.set_item(name, py_val).map_err(|e| {
+                    PyRuntimeError::new_err(format!("Failed to set dict item: {e}"))
+                })?;
+            }
+
+            out.push(dict.into());
+        }
+
+        Ok(out)
     }
 }
 
