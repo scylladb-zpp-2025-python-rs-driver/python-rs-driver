@@ -9,5 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.25.1", features = ["extension-module", "experimental-async"] }
-scylla = "1.3.1"
 tokio = { version = "1.42.0", features = ["full"] }
+scylla = { git = "https://github.com/patrycja-ziemkiewicz/scylla-rust-driver.git", branch = "feature/public-methods", package = "scylla" }
+scylla-cql = { git = "https://github.com/patrycja-ziemkiewicz/scylla-rust-driver.git", branch = "feature/public-methods", package = "scylla-cql" }
+
