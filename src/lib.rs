@@ -7,6 +7,9 @@ mod session;
 mod session_builder;
 mod utils;
 
+mod cqlvalue_row;
+mod cqlvalue_to_py;
+
 use crate::utils::add_submodule;
 
 pub static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| Runtime::new().unwrap());
