@@ -75,22 +75,22 @@ impl RequestResult {
         Ok(PyString::new(py, &result))
     }
 
-    // Convert all rows to a list of dictionaries
-    pub fn rows_as_dicts(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
-        // Convert the QueryResult into RowsResult
+    // Convert all rows to a Python list of dictionaries
+    pub fn rows_as_dicts(&self, py: Python<'_>) -> PyResult<PyObject> {
         let rows_result = self
             .inner
             .clone()
             .into_rows_result()
             .map_err(|e| PyRuntimeError::new_err(format!("non-rows result: {e}")))?;
 
-        // Iterate over the rows and convert each to a dictionary
+        // Iterate over the rows and onvert each to RustCqlRow
         let rows_iter = rows_result
             .rows::<RustCqlRow>()
             .map_err(|e| PyRuntimeError::new_err(format!("Failed to deserialize rows: {e}")))?;
 
-        let mut out: Vec<PyObject> = Vec::new();
+        let py_list = pyo3::types::PyList::empty(py);
 
+        // For each row, convert to a Python dict and append to the list
         for row_res in rows_iter {
             let row = row_res
                 .map_err(|e| PyRuntimeError::new_err(format!("Failed to deserialize row: {e}")))?;
@@ -108,10 +108,12 @@ impl RequestResult {
                 })?;
             }
 
-            out.push(dict.into());
+            py_list
+                .append(dict)
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to append to list: {e}")))?;
         }
 
-        Ok(out)
+        Ok(py_list.into())
     }
 }
 

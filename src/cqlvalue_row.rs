@@ -1,8 +1,8 @@
 use scylla::_macro_internal::{
     ColumnIterator, ColumnSpec, DeserializationError, DeserializeRow, TypeCheckError,
 };
+use scylla::deserialize::value::DeserializeValue;
 use scylla::value::CqlValue;
-use scylla_cql::deserialize::value::DeserializeValue;
 
 // A RustCqlRow represents a single row retrieved from a CQL query,
 // with each column stored as a tuple of (column_name, CqlValue).
