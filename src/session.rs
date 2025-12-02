@@ -1,12 +1,12 @@
 use std::fmt::Write;
 use std::sync::Arc;
 
+use crate::RUNTIME;
+use crate::serialize::PyAnyWrapperRow;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
 use scylla::value::Row;
-
-use crate::RUNTIME;
 
 #[pyclass]
 pub(crate) struct Session {
@@ -23,6 +23,27 @@ impl Session {
             .spawn(async move {
                 session_clone
                     .query_unpaged(request_string, &[])
+                    .await
+                    .map_err(|e| {
+                        PyRuntimeError::new_err(format!("Failed to deserialize metadata: {}", e))
+                    })
+            })
+            .await
+            .expect("Driver should not panic")?;
+        Ok(RequestResult { inner: result })
+    }
+
+    async fn execute_with_values(
+        &self,
+        request: Py<PyString>,
+        values: Py<PyAny>,
+    ) -> PyResult<RequestResult> {
+        let request_string = Python::with_gil(|py| request.to_str(py))?.to_string();
+        let session_clone = Arc::clone(&self._inner);
+        let result = RUNTIME
+            .spawn(async move {
+                session_clone
+                    .query_unpaged(request_string, PyAnyWrapperRow(values))
                     .await
                     .map_err(|e| {
                         PyRuntimeError::new_err(format!("Failed to deserialize metadata: {}", e))
