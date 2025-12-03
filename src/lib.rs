@@ -2,10 +2,11 @@ use std::sync::LazyLock;
 
 use pyo3::prelude::*;
 use tokio::runtime::Runtime;
-
+mod results;
 mod session;
 mod session_builder;
 mod utils;
+mod value;
 
 use crate::utils::add_submodule;
 
@@ -22,5 +23,6 @@ fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
         session_builder::session_builder,
     )?;
     add_submodule(py, module, "session", session::session)?;
+    add_submodule(py, module, "results", results::results)?;
     Ok(())
 }
