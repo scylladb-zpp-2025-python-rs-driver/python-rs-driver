@@ -1,8 +1,6 @@
 from .statement import PreparedStatement
+from .results import RequestResult
 
 class Session:
     async def execute(self, request: PreparedStatement | str) -> RequestResult: ...
     async def prepare(self, statement: str) -> PreparedStatement: ...
-
-class RequestResult:
-    def __str__(self) -> str: ...
