@@ -24,7 +24,6 @@ impl UnsetType {
     }
 }
 
-#[expect(dead_code)]
 impl UnsetType {
     pub(crate) fn get_instance(py: Python<'_>) -> PyResult<Py<UnsetType>> {
         Ok(UNSET_INSTANCE
