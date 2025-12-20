@@ -32,4 +32,4 @@ async def test_prepare_and_str():
     prepared = await session.prepare(query_str)
     result_prepared = await session.execute(prepared)
     result_str = await session.execute(query_str)
-    assert result_prepared.__str__() == result_str.__str__()
+    assert list(result_prepared.iter_rows()) == list(result_str.iter_rows())
