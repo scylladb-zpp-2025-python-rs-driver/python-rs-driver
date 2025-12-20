@@ -1,8 +1,10 @@
 use std::sync::LazyLock;
 
+use deserialize::results;
 use pyo3::prelude::*;
 use tokio::runtime::Runtime;
 
+mod deserialize;
 mod enums;
 mod execution_profile;
 mod session;
@@ -26,6 +28,7 @@ fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
         session_builder::session_builder,
     )?;
     add_submodule(py, module, "session", session::session)?;
+    add_submodule(py, module, "results", results::results)?;
     add_submodule(py, module, "statement", statement::statement)?;
     add_submodule(py, module, "enums", enums::enums)?;
     add_submodule(
