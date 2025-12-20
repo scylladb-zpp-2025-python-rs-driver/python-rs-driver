@@ -14,59 +14,47 @@ CqlNative = Union[
     # - BigInt
     # - Varint
     int,
-
     # CQL:
     # - Float
     # - Double
     float,
-
     # CQL:
     # - Ascii
     # - Text
     str,
-
     # CQL:
     # - Boolean
     bool,
-
     # CQL:
     # - Blob
     bytes,
-
     # CQL:
     # - Decimal
     Decimal,
-
     # CQL:
     # - Uuid
     # - Timeuuid
     UUID,
-
     # CQL:
     # - Inet (IPv4)
     ipaddress.IPv4Address,
-
     # CQL:
     # - Inet (IPv6)
     ipaddress.IPv6Address,
-
     # CQL:
     # - Date
     date,
-
     # CQL:
     # - Timestamp
     datetime,
-
     # CQL:
     # - Time
     time,
-
     # CQL:
     # - Duration
     relativedelta,
-
     # CQL:
+    # - Empty
     # - null
     None,
 ]
@@ -76,15 +64,12 @@ CqlCollection = Union[
     # - List
     # - Vector
     List["CqlValue"],
-
     # CQL:
     # - Set
     Set["CqlValue"],
-
     # CQL:
     # - Tuple
     Tuple["CqlValue", ...],
-
     # CQL:
     # - Map
     # - UserDefinedType (UDT)
