@@ -48,10 +48,15 @@ impl PreparedStatement {
         self._inner.get_consistency().map(Consistency::from_scylla)
     }
 
-    fn with_serial_consistency(&self, sc: SerialConsistency) -> PreparedStatement {
+    fn with_serial_consistency(&self, sc: SerialConsistency) -> PyResult<PreparedStatement> {
+        if sc == SerialConsistency::Unset {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Cannot create PreparedStatement with SerialConsistency.Unset",
+            ));
+        }
         let mut p = self._inner.clone();
-        p.set_serial_consistency(Some(sc.to_scylla()));
-        PreparedStatement { _inner: p }
+        p.set_serial_consistency(sc.to_scylla());
+        Ok(PreparedStatement { _inner: p })
     }
 
     fn without_serial_consistency(&self) -> PreparedStatement {
@@ -63,7 +68,7 @@ impl PreparedStatement {
     fn get_serial_consistency(&self) -> Option<SerialConsistency> {
         self._inner
             .get_serial_consistency()
-            .map(SerialConsistency::from_scylla)
+            .map(|sc| SerialConsistency::from_scylla(Some(sc)))
     }
 
     fn with_request_timeout(&self, timeout: PyObject) -> PyResult<PreparedStatement> {

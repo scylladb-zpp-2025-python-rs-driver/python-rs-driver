@@ -35,8 +35,12 @@ impl ExecutionProfile {
         }
 
         if let Some(serial_consistency) = serial_consistency {
-            profile_builder =
-                profile_builder.serial_consistency(Some(serial_consistency.to_scylla()));
+            if serial_consistency == SerialConsistency::Unset {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Serial consistency can't be set to SerialConsistency.Unset",
+                ));
+            }
+            profile_builder = profile_builder.serial_consistency(serial_consistency.to_scylla());
         }
 
         Ok(ExecutionProfile {
@@ -52,10 +56,8 @@ impl ExecutionProfile {
         Consistency::from_scylla(self._inner.get_consistency())
     }
 
-    pub(crate) fn get_serial_consistency(&self) -> Option<SerialConsistency> {
-        self._inner
-            .get_serial_consistency()
-            .map(SerialConsistency::from_scylla)
+    pub(crate) fn get_serial_consistency(&self) -> SerialConsistency {
+        SerialConsistency::from_scylla(self._inner.get_serial_consistency())
     }
 }
 

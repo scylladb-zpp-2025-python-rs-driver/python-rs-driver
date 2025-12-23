@@ -56,20 +56,23 @@ impl Consistency {
 pub(crate) enum SerialConsistency {
     Serial,
     LocalSerial,
+    Unset,
 }
 
 impl SerialConsistency {
-    pub(crate) fn to_scylla(self) -> statement::SerialConsistency {
+    pub(crate) fn to_scylla(self) -> Option<statement::SerialConsistency> {
         match self {
-            SerialConsistency::Serial => statement::SerialConsistency::Serial,
-            SerialConsistency::LocalSerial => statement::SerialConsistency::LocalSerial,
+            SerialConsistency::Serial => Some(statement::SerialConsistency::Serial),
+            SerialConsistency::LocalSerial => Some(statement::SerialConsistency::LocalSerial),
+            SerialConsistency::Unset => None,
         }
     }
 
-    pub(crate) fn from_scylla(consistency: statement::SerialConsistency) -> Self {
+    pub(crate) fn from_scylla(consistency: Option<statement::SerialConsistency>) -> Self {
         match consistency {
-            statement::SerialConsistency::Serial => SerialConsistency::Serial,
-            statement::SerialConsistency::LocalSerial => SerialConsistency::LocalSerial,
+            Some(statement::SerialConsistency::Serial) => SerialConsistency::Serial,
+            Some(statement::SerialConsistency::LocalSerial) => SerialConsistency::LocalSerial,
+            None => SerialConsistency::Unset,
         }
     }
 }
