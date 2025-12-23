@@ -3,6 +3,7 @@ use std::sync::LazyLock;
 use pyo3::prelude::*;
 use tokio::runtime::Runtime;
 
+mod serialize;
 mod session;
 mod session_builder;
 mod statement;
