@@ -31,7 +31,7 @@ impl SessionBuilder {
             let item = contact_points
                 .get_item(i)
                 .unwrap()
-                .downcast_into::<PyString>()?;
+                .cast_into::<PyString>()?;
             let s = item.to_str()?;
             if s.contains(":") {
                 cfg.add_known_node(s);
