@@ -2,8 +2,9 @@ use pyo3::PyErr;
 use pyo3::exceptions::PyRuntimeError;
 use scylla_cql::deserialize::DeserializationError;
 
-pub mod value;
+mod conversion;
 pub mod results;
+pub mod value;
 
 // NOTE:
 // This is temporary / placeholder error handling used to unblock the current work.

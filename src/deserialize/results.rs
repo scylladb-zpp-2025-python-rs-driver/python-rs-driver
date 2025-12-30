@@ -60,7 +60,6 @@ impl RequestResult {
     }
 }
 
-
 /// Iterator yielding deserialized rows from a query result.
 ///
 /// `RowsIterator` behaves like a standard Python iterator. Each iteration

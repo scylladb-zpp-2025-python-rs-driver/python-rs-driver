@@ -1,5 +1,6 @@
 use std::sync::LazyLock;
 
+use crate::deserialize::value;
 use deserialize::results;
 use pyo3::prelude::*;
 use tokio::runtime::Runtime;
@@ -38,5 +39,6 @@ fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
         execution_profile::execution_profile,
     )?;
     add_submodule(py, module, "types", types::types)?;
+    add_submodule(py, module, "value", value::value)?;
     Ok(())
 }
