@@ -17,8 +17,8 @@ pub(crate) struct Session {
 
 #[pymethods]
 impl Session {
-    async fn execute(&self, request: PyObject) -> PyResult<RequestResult> {
-        if let Ok(prepared) = Python::with_gil(|py| {
+    async fn execute(&self, request: Py<PyAny>) -> PyResult<RequestResult> {
+        if let Ok(prepared) = Python::attach(|py| {
             let scylla_prepared = request.extract::<Py<PreparedStatement>>(py)?;
             Ok::<Py<PreparedStatement>, PyErr>(scylla_prepared)
         }) {
@@ -34,7 +34,7 @@ impl Session {
             return Ok(RequestResult { inner: result });
         }
 
-        if let Ok(text) = Python::with_gil(|py| {
+        if let Ok(text) = Python::attach(|py| {
             let text = request.extract::<Py<PyString>>(py)?;
             Ok::<String, PyErr>(text.to_string())
         }) {
