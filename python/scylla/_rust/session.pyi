@@ -1,7 +1,8 @@
 from .statement import PreparedStatement
+from typing import Any, Optional
 
 class Session:
-    async def execute(self, request: PreparedStatement | str) -> RequestResult: ...
+    async def execute(self, request: PreparedStatement | str, values: Optional[Any] = None) -> RequestResult: ...
     async def prepare(self, statement: str) -> PreparedStatement: ...
 
 class RequestResult:
