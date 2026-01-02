@@ -2,7 +2,7 @@ import pytest
 from scylla.enums import Consistency, SerialConsistency
 from scylla.execution_profile import ExecutionProfile
 from scylla.session_builder import SessionBuilder
-from scylla.statement import PreparedStatement
+from scylla.statement import PreparedStatement, Statement
 from scylla.types import Unset
 
 
@@ -81,6 +81,163 @@ async def test_invalid_consistency_for_query():
     session = await builder.connect()
     with pytest.raises(RuntimeError) as exc_info:
         _ = await session.execute("SELECT * FROM system.local")
+        assert "Not enough nodes are alive to satisfy required consistency level" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_invalid_consistency_for_prepared_statement():
+    profile = ExecutionProfile(consistency=Consistency.Three)
+    builder = SessionBuilder(["127.0.0.2"], 9042, execution_profile=profile)
+    session = await builder.connect()
+    prepared = await session.prepare("SELECT * FROM system.local")
+    with pytest.raises(RuntimeError) as exc_info:
+        _ = await session.execute(prepared)
+        assert "Not enough nodes are alive to satisfy required consistency level" in str(exc_info.value)
+
+
+def test_statement_creation():
+    query = "SELECT * FROM system.local"
+    stmt = Statement(query)
+    assert isinstance(stmt, Statement)
+    assert stmt.contents == query
+
+
+def test_statement_with_and_get_consistency():
+    stmt = Statement("SELECT * FROM system.local")
+    expected_consistency = Consistency.All
+    stmt = stmt.with_consistency(expected_consistency)
+
+    actual_consistency = stmt.get_consistency()
+    assert isinstance(actual_consistency, Consistency)
+    assert actual_consistency == expected_consistency
+
+
+def test_statement_without_consistency():
+    stmt = Statement("SELECT * FROM system.local")
+    stmt = stmt.with_consistency(Consistency.Quorum)
+    stmt = stmt.without_consistency()
+
+    actual_consistency = stmt.get_consistency()
+    assert actual_consistency is None
+
+
+def test_statement_with_and_get_serial_consistency():
+    stmt = Statement("SELECT * FROM system.local")
+    expected_serial_consistency = SerialConsistency.LocalSerial
+    stmt = stmt.with_serial_consistency(expected_serial_consistency)
+
+    actual_serial_consistency = stmt.get_serial_consistency()
+    assert isinstance(actual_serial_consistency, SerialConsistency)
+    assert actual_serial_consistency == expected_serial_consistency
+
+
+def test_statement_without_serial_consistency():
+    stmt = Statement("SELECT * FROM system.local")
+    stmt = stmt.with_serial_consistency(SerialConsistency.Serial)
+    stmt = stmt.without_serial_consistency()
+
+    actual_serial_consistency = stmt.get_serial_consistency()
+    assert actual_serial_consistency is None
+
+
+def test_statement_with_and_get_request_timeout():
+    stmt = Statement("SELECT * FROM system.local")
+    expected_timeout = 7.25
+    stmt = stmt.with_request_timeout(expected_timeout)
+
+    actual_timeout = stmt.get_request_timeout()
+    assert isinstance(actual_timeout, float)
+    assert actual_timeout == expected_timeout
+
+
+def test_statement_with_timeout_set_to_none():
+    stmt = Statement("SELECT * FROM system.local")
+    stmt = stmt.with_request_timeout(None)
+
+    actual_timeout = stmt.get_request_timeout()
+    assert actual_timeout is None
+
+
+def test_statement_without_request_timeout():
+    stmt = Statement("SELECT * FROM system.local")
+    stmt = stmt.with_request_timeout(10.0)
+    stmt = stmt.without_request_timeout()
+
+    actual_timeout = stmt.get_request_timeout()
+    assert actual_timeout is Unset
+
+
+def test_statement_with_negative_timeout():
+    stmt = Statement("SELECT * FROM system.local")
+    with pytest.raises(ValueError) as exc_info:
+        stmt.with_request_timeout(-1.0)
+    assert "timeout must be a positive, finite number" in str(exc_info.value)
+
+
+def test_statement_with_zero_timeout():
+    stmt = Statement("SELECT * FROM system.local")
+    with pytest.raises(ValueError) as exc_info:
+        stmt.with_request_timeout(0.0)
+    assert "timeout must be a positive, finite number" in str(exc_info.value)
+
+
+def test_statement_with_nan_timeout():
+    stmt = Statement("SELECT * FROM system.local")
+    with pytest.raises(ValueError) as exc_info:
+        stmt.with_request_timeout(float("nan"))
+    assert "timeout must be a positive, finite number" in str(exc_info.value)
+
+
+def test_statement_with_infinity_timeout():
+    stmt = Statement("SELECT * FROM system.local")
+    with pytest.raises(ValueError) as exc_info:
+        stmt.with_request_timeout(float("inf"))
+    assert "timeout must be a positive, finite number" in str(exc_info.value)
+
+
+def test_statement_with_and_get_execution_profile():
+    stmt = Statement("SELECT * FROM system.local")
+    expected_timeout = 2.5
+    profile = ExecutionProfile(timeout=expected_timeout)
+    stmt = stmt.with_execution_profile(profile)
+
+    actual_profile = stmt.get_execution_profile()
+    assert isinstance(actual_profile, ExecutionProfile)
+    assert actual_profile.get_request_timeout() == expected_timeout
+
+
+def test_statement_without_execution_profile():
+    stmt = Statement("SELECT * FROM system.local")
+    profile = ExecutionProfile(timeout=3.0)
+    stmt = stmt.with_execution_profile(profile)
+    stmt = stmt.without_execution_profile()
+
+    actual_profile = stmt.get_execution_profile()
+    assert actual_profile is None
+
+
+def test_statement_chaining():
+    stmt = Statement("SELECT * FROM system.local")
+    stmt = (
+        stmt.with_consistency(Consistency.Quorum)
+        .with_serial_consistency(SerialConsistency.Serial)
+        .with_request_timeout(5.0)
+    )
+
+    assert stmt.get_consistency() == Consistency.Quorum
+    assert stmt.get_serial_consistency() == SerialConsistency.Serial
+    assert stmt.get_request_timeout() == 5.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_invalid_consistency_for_statement():
+    builder = SessionBuilder(["127.0.0.2"], 9042)
+    session = await builder.connect()
+    stmt = Statement("SELECT * FROM system.local").with_consistency(Consistency.Three)
+    with pytest.raises(RuntimeError) as exc_info:
+        _ = await session.execute(stmt)
         assert "Not enough nodes are alive to satisfy required consistency level" in str(exc_info.value)
 
 

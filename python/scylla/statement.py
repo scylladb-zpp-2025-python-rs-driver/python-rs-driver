@@ -1,3 +1,3 @@
-from ._rust.statement import PreparedStatement  # pyright: ignore[reportMissingModuleSource]
+from ._rust.statement import PreparedStatement, Statement  # pyright: ignore[reportMissingModuleSource]
 
-__all__ = ["PreparedStatement"]
+__all__ = ["PreparedStatement", "Statement"]

@@ -5,9 +5,11 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
+use scylla::statement;
 
 use crate::RUNTIME;
 use crate::statement::PreparedStatement;
+use crate::statement::Statement;
 
 #[pyclass]
 pub(crate) struct Session {
@@ -35,6 +37,24 @@ impl Session {
             });
         }
 
+        if let Ok(statement) = Python::attach(|py| {
+            let scylla_statement = request.extract::<Py<Statement>>(py)?;
+            Ok::<Py<Statement>, PyErr>(scylla_statement)
+        }) {
+            let result = self
+                .session_spawn_on_runtime(async move |s| {
+                    s.query_unpaged(statement.get()._inner.clone(), &[])
+                        .await
+                        .map_err(|e| {
+                            PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
+                        })
+                })
+                .await?; // Propagate error from closure
+            return Ok(RequestResult {
+                inner: Arc::new(result),
+            });
+        }
+
         if let Ok(text) = Python::attach(|py| {
             let text = request.extract::<Py<PyString>>(py)?;
             Ok::<String, PyErr>(text.to_string())
@@ -53,15 +73,18 @@ impl Session {
         Err(PyErr::new::<PyTypeError, _>("Invalid request type"))
     }
 
-    async fn prepare(&self, statement: String) -> PyResult<PreparedStatement> {
-        let session_clone = std::sync::Arc::clone(&self._inner);
-        match session_clone.prepare(statement).await {
-            Ok(prepared) => Ok(PreparedStatement { _inner: prepared }),
-            Err(e) => Err(PyErr::new::<PyRuntimeError, _>(format!(
-                "Failed to prepare statement: {}",
-                e
-            ))),
+    async fn prepare(&self, statement: Py<PyAny>) -> PyResult<PreparedStatement> {
+        if let Ok(statement) = Python::attach(|py| {
+            let scylla_statement = statement.extract::<Py<Statement>>(py)?;
+            Ok::<Py<Statement>, PyErr>(scylla_statement)
+        }) {
+            let scylla_statement = statement.get()._inner.clone();
+            return self.scylla_prepare(scylla_statement).await;
         }
+        if let Ok(text) = Python::attach(|py| statement.extract::<String>(py)) {
+            return self.scylla_prepare(text).await;
+        }
+        Err(PyErr::new::<PyTypeError, _>("Invalid statement type"))
     }
 }
 
@@ -80,6 +103,20 @@ impl Session {
             .spawn(async move { f(session_clone).await })
             .await
             .expect("Runtime failed to spawn task") // It's okay to panic here
+    }
+
+    async fn scylla_prepare(
+        &self,
+        statement: impl Into<statement::Statement>,
+    ) -> PyResult<PreparedStatement> {
+        let session_clone = std::sync::Arc::clone(&self._inner);
+        match session_clone.prepare(statement).await {
+            Ok(prepared) => Ok(PreparedStatement { _inner: prepared }),
+            Err(e) => Err(PyErr::new::<PyRuntimeError, _>(format!(
+                "Failed to prepare statement: {}",
+                e
+            ))),
+        }
     }
 }
 
