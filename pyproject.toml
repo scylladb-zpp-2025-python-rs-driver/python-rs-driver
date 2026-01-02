@@ -24,6 +24,7 @@ dev = [
     "maturin",
     "ruff",
     "basedpyright",
+    "python-dateutil",
 ]
 
 [tool.uv]
