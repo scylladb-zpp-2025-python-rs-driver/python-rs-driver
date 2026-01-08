@@ -109,8 +109,7 @@ impl Session {
         &self,
         statement: impl Into<statement::Statement>,
     ) -> PyResult<PreparedStatement> {
-        let session_clone = std::sync::Arc::clone(&self._inner);
-        match session_clone.prepare(statement).await {
+        match self._inner.prepare(statement).await {
             Ok(prepared) => Ok(PreparedStatement { _inner: prepared }),
             Err(e) => Err(PyErr::new::<PyRuntimeError, _>(format!(
                 "Failed to prepare statement: {}",
