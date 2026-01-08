@@ -1,4 +1,4 @@
-use pyo3::types::PyFloat;
+use pyo3::types::{PyFloat, PyString};
 use pyo3::{IntoPyObjectExt, prelude::*};
 use scylla::statement::prepared;
 use scylla::statement::unprepared;
@@ -113,8 +113,8 @@ impl Statement {
     }
 
     #[getter]
-    fn contents(&self) -> String {
-        self._inner.contents.clone()
+    fn contents<'py>(&self, py: Python<'py>) -> Bound<'py, PyString> {
+        PyString::new(py, &self._inner.contents)
     }
 
     fn with_execution_profile(&self, profile: ExecutionProfile) -> Statement {
