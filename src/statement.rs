@@ -1,4 +1,4 @@
-use pyo3::types::PyFloat;
+use pyo3::types::{PyFloat, PyString};
 use pyo3::{IntoPyObjectExt, prelude::*};
 use scylla::statement::prepared;
 use scylla::statement::unprepared;
@@ -94,7 +94,7 @@ impl PreparedStatement {
         match self._inner.get_request_timeout() {
             Some(t) if t == Duration::MAX => Ok(Python::attach(|py| py.None())),
             Some(t) => Python::attach(|py| PyFloat::new(py, t.as_secs_f64()).into_py_any(py)),
-            None => Python::attach(|py| UnsetType::get_instance(py).unwrap().into_py_any(py)),
+            None => Python::attach(|py| UnsetType::get_instance(py).into_py_any(py)),
         }
     }
 }
@@ -113,8 +113,8 @@ impl Statement {
     }
 
     #[getter]
-    fn contents(&self) -> String {
-        self._inner.contents.clone()
+    fn contents<'py>(&self, py: Python<'py>) -> Bound<'py, PyString> {
+        PyString::new(py, &self._inner.contents)
     }
 
     fn with_execution_profile(&self, profile: ExecutionProfile) -> Statement {
@@ -196,7 +196,7 @@ impl Statement {
         match self._inner.get_request_timeout() {
             Some(t) if t == Duration::MAX => Ok(Python::attach(|py| py.None())),
             Some(t) => Python::attach(|py| PyFloat::new(py, t.as_secs_f64()).into_py_any(py)),
-            None => Python::attach(|py| UnsetType::get_instance(py).unwrap().into_py_any(py)),
+            None => Python::attach(|py| UnsetType::get_instance(py).into_py_any(py)),
         }
     }
 }
