@@ -94,7 +94,7 @@ impl PreparedStatement {
         match self._inner.get_request_timeout() {
             Some(t) if t == Duration::MAX => Ok(Python::attach(|py| py.None())),
             Some(t) => Python::attach(|py| PyFloat::new(py, t.as_secs_f64()).into_py_any(py)),
-            None => Python::attach(|py| UnsetType::get_instance(py).unwrap().into_py_any(py)),
+            None => Python::attach(|py| UnsetType::get_instance(py).into_py_any(py)),
         }
     }
 }
@@ -196,7 +196,7 @@ impl Statement {
         match self._inner.get_request_timeout() {
             Some(t) if t == Duration::MAX => Ok(Python::attach(|py| py.None())),
             Some(t) => Python::attach(|py| PyFloat::new(py, t.as_secs_f64()).into_py_any(py)),
-            None => Python::attach(|py| UnsetType::get_instance(py).unwrap().into_py_any(py)),
+            None => Python::attach(|py| UnsetType::get_instance(py).into_py_any(py)),
         }
     }
 }
