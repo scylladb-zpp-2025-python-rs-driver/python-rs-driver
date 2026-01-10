@@ -1,7 +1,7 @@
 import ipaddress
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Dict, List, Union, Tuple, Any, Set, AsyncIterator, Optional
+from typing import Dict, List, Union, Tuple, Any, Set, Optional
 from uuid import UUID
 from dateutil.relativedelta import relativedelta
 
@@ -99,7 +99,6 @@ class RowFactory:
     """
 
     def __init__(self) -> None: ...
-
     def build(self, column_iterator: ColumnIterator) -> Dict[str, CqlValue]:
         """
         Build a row object from the provided column iterator.
@@ -131,6 +130,19 @@ class RowsIterator:
     def __iter__(self) -> RowsIterator: ...
     def __next__(self) -> Any: ...
 
+class PagingState:
+    """
+    Represents paging state for paged queries.
+
+    Used to continue a query from where the previous page ended.
+    """
+
+    def __init__(self) -> None:
+        """
+        Creates a new paging state starting from the first page.
+        """
+        ...
+
 class RequestResult:
     """
     Result of a query execution.
@@ -142,5 +154,38 @@ class RequestResult:
 
         An optional RowFactory can be provided to customize how rows
         are constructed.
+        """
+        ...
+
+class PagingRequestResult:
+    """
+    Result of a query execution.
+    """
+
+    def has_more_pages(self) -> bool:
+        """
+        Returns True if more pages are available.
+        """
+        ...
+
+    def paging_state(self) -> Optional[PagingState]:
+        """
+        Returns current paging state. Can be `None` if there are no more pages available.
+        """
+        ...
+
+    async def fetch_next_page(self) -> None:
+        """
+        Fetches the next page and updates the internal query result.
+        No-op if no more pages are available.
+        """
+        ...
+
+    def iter_page(
+        self,
+        factory: Optional[RowFactory] = None,
+    ) -> RowsIterator:
+        """
+        Returns an iterator over rows in the current page.
         """
         ...
