@@ -1,6 +1,6 @@
 from typing import Optional
 
-from .results import RequestResult, PagingState, PagingRequestResult
+from .results import RequestResult, PagingState, PagingRequestResult, AsyncRowsIterator
 from .statement import PreparedStatement, Statement
 
 class Session:
@@ -12,3 +12,8 @@ class Session:
         paging_state: Optional[PagingState] = None,
         page_size: Optional[int] = None,
     ) -> PagingRequestResult: ...
+    async def execute_async_paged(
+        self,
+        request: PreparedStatement | Statement | str,
+        page_size: Optional[int] = None,
+    ) -> AsyncRowsIterator: ...

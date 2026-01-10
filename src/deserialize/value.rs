@@ -9,6 +9,7 @@ use pyo3::types::{
     PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyNone, PySet, PyString, PyTuple,
 };
 use pyo3::{Bound, IntoPyObject, Py, PyAny, PyResult, Python, pyclass, pymethods, pymodule};
+use scylla_cql::_macro_internal::{ColumnIterator, ColumnSpec, DeserializeRow, TypeCheckError};
 use scylla_cql::deserialize::value::{
     BuiltinDeserializationErrorKind, FixedLengthBytesSequenceIterator, MapDeserializationErrorKind,
     SetOrListDeserializationErrorKind, mk_deser_err,
@@ -104,6 +105,43 @@ impl<'frame, 'metadata, 'py> PyDeserializeValue<'frame, 'metadata, 'py> for PyDe
 
 pub(crate) struct PyDeserializedValue {
     value: Py<PyAny>,
+}
+
+//NOTE
+//We can make use of this struct only if We will decide to not expose column iterator to users.
+//It is possible that it will be removed in future.
+pub(crate) struct PyDeserializedRow {
+    row: Py<PyDict>,
+}
+
+impl<'py> IntoPyObject<'py> for PyDeserializedRow {
+    type Target = PyDict;
+    type Output = Bound<'py, PyDict>;
+    type Error = Infallible;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(self.row.into_bound(py))
+    }
+}
+
+impl<'frame, 'metadata> DeserializeRow<'frame, 'metadata> for PyDeserializedRow {
+    fn type_check(_specs: &[ColumnSpec]) -> Result<(), TypeCheckError> {
+        Ok(())
+    }
+
+    fn deserialize(row: ColumnIterator<'frame, 'metadata>) -> Result<Self, DeserializationError> {
+        Python::attach(|py| {
+            let dict = PyDict::new(py);
+            for column in row {
+                let column = column?;
+                let py_value =
+                    PyDeserializedValue::deserialize_py(column.spec.typ(), column.slice, py)
+                        .map_err(DeserializationError::new)?;
+                dict.set_item(column.spec.name(), py_value)
+                    .map_err(DeserializationError::new)?;
+            }
+            Ok(PyDeserializedRow { row: dict.unbind() })
+        })
+    }
 }
 
 struct PyValueOrError {

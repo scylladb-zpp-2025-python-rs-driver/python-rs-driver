@@ -1,10 +1,14 @@
-use crate::deserialize::PyDeserializationError;
-use crate::deserialize::value::{PyDeserializeValue, PyDeserializedValue};
+use crate::deserialize::value::{PyDeserializeValue, PyDeserializedRow, PyDeserializedValue};
+use crate::deserialize::{IntoPyDeserError, PyDeserializationError};
 use crate::session::Session;
+use futures::StreamExt as _;
 use pyo3::exceptions::PyStopIteration;
 use pyo3::prelude::{PyDictMethods, PyModule, PyModuleMethods};
 use pyo3::types::{PyDict, PyString};
-use pyo3::{Bound, Py, PyAny, PyErr, PyRefMut, PyResult, Python, pyclass, pymethods, pymodule};
+use pyo3::{
+    Bound, Py, PyAny, PyErr, PyRef, PyRefMut, PyResult, Python, pyclass, pymethods, pymodule,
+};
+use scylla::client::pager::{QueryPager, TypedRowStream};
 use scylla::response::query_result::QueryResult;
 use scylla_cql::deserialize::FrameSlice;
 use scylla_cql::deserialize::result::RawRowIterator;
@@ -13,6 +17,7 @@ use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 use stable_deref_trait::StableDeref;
 use std::ops::Deref;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use yoke::{Yoke, Yokeable};
 
 /// Result of a single request to the database. It represents any kind of Result frame.
@@ -201,6 +206,53 @@ impl RowsIterator {
     }
 
     pub fn __iter__(slf: PyRefMut<'_, Self>) -> PyRefMut<'_, Self> {
+        slf
+    }
+}
+
+//TODO
+//0. Ask if there is significant performance difference between execute_iter and then iterating or constructing
+// iterator with execute_single_page that would fetch next page when current page is finished.
+//1. Implement API that will support custom row factories
+//2. Decide what should be provided into row factories (deserialized rows in form dict/tuple or column iterators)
+//3. If We will stick with column Iterators implement yoked columnIterators which cart would be rowLendingIterator
+// and somehow integrate it with existing columnIterator exposed to python (make it enum - will complicate the logic a lot)
+// think about other approaches (maybe making cart out of Bytes/Metadata?)
+#[pyclass]
+pub struct AsyncRowsIterator {
+    row_stream: Arc<Mutex<TypedRowStream<PyDeserializedRow>>>,
+}
+
+impl AsyncRowsIterator {
+    pub(crate) fn new(query_pager: QueryPager) -> Self {
+        AsyncRowsIterator {
+            row_stream: Arc::new(Mutex::new(
+                query_pager
+                    .rows_stream::<PyDeserializedRow>()
+                    .expect("Type check will never fail for PyDeserializedRow"),
+            )),
+        }
+    }
+}
+
+#[pymethods]
+impl AsyncRowsIterator {
+    pub fn __anext__(slf: PyRefMut<'_, Self>) -> PyResult<Bound<'_, PyAny>> {
+        let py = slf.py();
+        let stream = Arc::clone(&slf.row_stream);
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let mut row = stream.lock().await;
+            let res = row
+                .next()
+                .await
+                .ok_or_else(|| PyErr::new::<pyo3::exceptions::PyStopAsyncIteration, _>(""))?
+                .map_err(|err| err.into_py_deser())?;
+
+            Ok(res)
+        })
+    }
+
+    pub fn __aiter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 }
@@ -424,6 +476,7 @@ pub(crate) fn results(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult
     module.add_class::<RowsIterator>()?;
     module.add_class::<PyPagingState>()?;
     module.add_class::<PagingRequestResult>()?;
+    module.add_class::<AsyncRowsIterator>()?;
 
     Ok(())
 }

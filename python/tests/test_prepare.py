@@ -34,6 +34,7 @@ async def test_prepare_and_str():
     result_str = await session.execute(query_str)
     assert list(result_prepared.iter_rows()) == list(result_str.iter_rows())
 
+
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_and_get_page_size():

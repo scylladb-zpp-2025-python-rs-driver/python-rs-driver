@@ -54,6 +54,7 @@ async def test_prepare_and_str():
     assert next(result_prepared.iter_rows())["cluster_name"] == cluster_name_str
     assert cluster_name_str == next(result_statement.iter_rows())["cluster_name"]
 
+
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_statement_with_page_size():

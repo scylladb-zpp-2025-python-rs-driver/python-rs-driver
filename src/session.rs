@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use crate::RUNTIME;
-use crate::deserialize::results::{PagingRequestResult, PyPagingState, RequestResult};
+use crate::deserialize::results::{
+    AsyncRowsIterator, PagingRequestResult, PyPagingState, RequestResult,
+};
 use crate::statement::PreparedStatement;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
@@ -81,6 +83,35 @@ impl Session {
             prepared.clone(),
             result,
         ))
+    }
+
+    #[pyo3(signature = (request, page_size=None))]
+    async fn execute_async_paged(
+        &self,
+        request: Py<PyAny>,
+        page_size: Option<i32>,
+    ) -> PyResult<AsyncRowsIterator> {
+        let query_request = QueryRequest::extract_request(request)?;
+
+        let mut prepared = match query_request {
+            QueryRequest::Prepared(p) => p,
+            QueryRequest::Text(sql) => self.scylla_prepare(sql).await?._inner,
+            QueryRequest::Statement(s) => self.scylla_prepare(s).await?._inner,
+        };
+
+        if let Some(page_size) = page_size {
+            prepared.set_page_size(page_size)
+        }
+
+        let query_pager = self
+            .session_spawn_on_runtime(async move |s| {
+                s.execute_iter(prepared, &[])
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+            })
+            .await?;
+
+        Ok(AsyncRowsIterator::new(query_pager))
     }
 
     async fn prepare(&self, statement: Py<PyAny>) -> PyResult<PreparedStatement> {

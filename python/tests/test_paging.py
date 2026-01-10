@@ -45,29 +45,20 @@ async def table_factory(session: Session) -> AsyncGenerator[TableFactory, None]:
     for table in created_tables:
         await session.execute(f"DROP TABLE IF EXISTS {table};")
 
+
 async def insert_rows(
-        session: Session,
-        table: str,
-        count: int,
+    session: Session,
+    table: str,
+    count: int,
 ):
     for i in range(count):
-        await session.execute(
-            f"INSERT INTO {table} (id, x) VALUES ({i}, {i * 10});"
-        )
+        await session.execute(f"INSERT INTO {table} (id, x) VALUES ({i}, {i * 10});")
 
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-@pytest.mark.parametrize(
-    "total_rows,page_size",
-    [(25, 10), (100, 10), (100, 1), (20, 100), (0, 10)]
-)
-async def test_execute_paged_basic_flow(
-        session: Session,
-        table_factory: TableFactory,
-        total_rows: int,
-        page_size: int
-):
+@pytest.mark.parametrize("total_rows,page_size", [(25, 10), (100, 10), (100, 1), (20, 100), (0, 10)])
+async def test_execute_paged_basic_flow(session: Session, table_factory: TableFactory, total_rows: int, page_size: int):
     table = await table_factory(
         "id int PRIMARY KEY, x int",
         "paging_basic_table",
@@ -102,17 +93,12 @@ async def test_execute_paged_basic_flow(
 
     assert sorted(seen_ids) == list(range(total_rows))
 
+
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-@pytest.mark.parametrize(
-    "total_rows,page_size",
-    [(25, 10), (100, 10), (100, 1), (20, 100), (0, 10)]
-)
+@pytest.mark.parametrize("total_rows,page_size", [(25, 10), (100, 10), (100, 1), (20, 100), (0, 10)])
 async def test_execute_paged_basic_flow_for_unprepared_statements(
-        session: Session,
-        table_factory: TableFactory,
-        total_rows: int,
-        page_size: int
+    session: Session, table_factory: TableFactory, total_rows: int, page_size: int
 ):
     table = await table_factory(
         "id int PRIMARY KEY, x int",
@@ -142,5 +128,72 @@ async def test_execute_paged_basic_flow_for_unprepared_statements(
     assert len(page3) == total_rows - number_of_pages * page_size
 
     seen_ids.extend(row["id"] for row in page3)
+
+    assert sorted(seen_ids) == list(range(total_rows))
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+@pytest.mark.parametrize(
+    "total_rows,page_size",
+    [(25, 10), (100, 10), (100, 1), (20, 100), (0, 10)],
+)
+async def test_execute_async_paged_basic_flow(
+    session: Session,
+    table_factory: TableFactory,
+    total_rows: int,
+    page_size: int,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "paging_async_basic_table",
+    )
+
+    await insert_rows(session, table, total_rows)
+
+    prepared = await session.prepare(f"SELECT * FROM {table}")
+    prepared = prepared.with_page_size(page_size)
+
+    rows_iter = await session.execute_async_paged(prepared)
+
+    seen_ids: list[int] = []
+
+    async for row in rows_iter:
+        assert isinstance(row, dict)
+        assert "id" in row
+
+        seen_ids.append(row["id"])
+
+    assert sorted(seen_ids) == list(range(total_rows))
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+@pytest.mark.parametrize(
+    "total_rows,page_size",
+    [(25, 10), (100, 10), (100, 1), (20, 100), (0, 10)],
+)
+async def test_execute_async_paged_for_string_query(
+    session: Session,
+    table_factory: TableFactory,
+    total_rows: int,
+    page_size: int,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "paging_async_basic_table",
+    )
+
+    await insert_rows(session, table, total_rows)
+
+    rows_iter = await session.execute_async_paged(f"SELECT * FROM {table}", page_size=page_size)
+
+    seen_ids: list[int] = []
+
+    async for row in rows_iter:
+        assert isinstance(row, dict)
+        assert "id" in row
+
+        seen_ids.append(row["id"])
 
     assert sorted(seen_ids) == list(range(total_rows))

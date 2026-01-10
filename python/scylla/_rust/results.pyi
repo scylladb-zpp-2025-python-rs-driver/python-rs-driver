@@ -1,7 +1,7 @@
 import ipaddress
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Dict, List, Union, Tuple, Any, Set, Optional
+from typing import Dict, List, Union, Tuple, Any, Set, Optional, AsyncIterator
 from uuid import UUID
 from dateutil.relativedelta import relativedelta
 
@@ -189,3 +189,11 @@ class PagingRequestResult:
         Returns an iterator over rows in the current page.
         """
         ...
+
+class AsyncRowsIterator(AsyncIterator[Dict[str, Any]]):
+    """
+    Async iterator over rows.
+    """
+
+    def __aiter__(self) -> AsyncRowsIterator: ...
+    async def __anext__(self) -> Dict[str, Any]: ...

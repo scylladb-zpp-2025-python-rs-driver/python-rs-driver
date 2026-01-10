@@ -1,4 +1,4 @@
-from ._rust.results import (
+from ._rust.results import (  # pyright: ignore[reportMissingModuleSource]
     RowsIterator,
     RowFactory,
     RequestResult,
@@ -6,7 +6,8 @@ from ._rust.results import (
     Column,
     PagingRequestResult,
     PagingState,
-)  # pyright: ignore[reportMissingModuleSource]
+    AsyncRowsIterator,
+)
 
 __all__ = [
     "RowFactory",
@@ -16,4 +17,5 @@ __all__ = [
     "ColumnIterator",
     "PagingRequestResult",
     "PagingState",
+    "AsyncRowsIterator",
 ]
