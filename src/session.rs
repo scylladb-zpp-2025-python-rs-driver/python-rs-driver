@@ -1,17 +1,19 @@
 use std::sync::Arc;
 
-use crate::deserialize::results::RequestResult;
+use crate::RUNTIME;
+use crate::deserialize::results::{RequestResult};
+use crate::statement::PreparedStatement;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
 use scylla::statement;
 
-use crate::RUNTIME;
-use crate::statement::PreparedStatement;
 use crate::statement::Statement;
+use scylla::statement::unprepared;
 
 #[pyclass]
+#[derive(Clone)]
 pub(crate) struct Session {
     pub(crate) _inner: Arc<scylla::client::session::Session>,
 }
@@ -19,72 +21,31 @@ pub(crate) struct Session {
 #[pymethods]
 impl Session {
     async fn execute(&self, request: Py<PyAny>) -> PyResult<RequestResult> {
-        if let Ok(prepared) = Python::attach(|py| {
-            let scylla_prepared = request.extract::<Py<PreparedStatement>>(py)?;
-            Ok::<Py<PreparedStatement>, PyErr>(scylla_prepared)
-        }) {
-            let result = self
-                .session_spawn_on_runtime(async move |s| {
-                    s.execute_unpaged(&prepared.get()._inner, &[])
-                        .await
-                        .map_err(|e| {
-                            PyRuntimeError::new_err(format!("Failed execute_unpaged: {}", e))
-                        })
-                })
-                .await?; // Propagate error form closure
-            return Ok(RequestResult {
-                inner: Arc::new(result),
-            });
-        }
+        let query_request = ExecutableStatement::extract_request(request)?;
+        let result = self
+            .session_spawn_on_runtime(async move |s| {
+                match query_request {
+                    ExecutableStatement::Prepared(p) => s.execute_unpaged(&p, &[]).await,
+                    ExecutableStatement::Unprepared(q) => s.query_unpaged(q, &[]).await,
+                }
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+            })
+            .await?;
 
-        if let Ok(statement) = Python::attach(|py| {
-            let scylla_statement = request.extract::<Py<Statement>>(py)?;
-            Ok::<Py<Statement>, PyErr>(scylla_statement)
-        }) {
-            let result = self
-                .session_spawn_on_runtime(async move |s| {
-                    s.query_unpaged(statement.get()._inner.clone(), &[])
-                        .await
-                        .map_err(|e| {
-                            PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
-                        })
-                })
-                .await?; // Propagate error from closure
-            return Ok(RequestResult {
-                inner: Arc::new(result),
-            });
-        }
-
-        if let Ok(text) = Python::attach(|py| {
-            let text = request.extract::<Py<PyString>>(py)?;
-            Ok::<String, PyErr>(text.to_string())
-        }) {
-            let result = self
-                .session_spawn_on_runtime(async move |s| {
-                    s.query_unpaged(text, &[]).await.map_err(|e| {
-                        PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
-                    })
-                })
-                .await?; // Propagate error form closure
-            return Ok(RequestResult {
-                inner: Arc::new(result),
-            });
-        }
-        Err(PyErr::new::<PyTypeError, _>("Invalid request type"))
+        Ok(RequestResult {
+            inner: Arc::new(result),
+        })
     }
 
     async fn prepare(&self, statement: Py<PyAny>) -> PyResult<PreparedStatement> {
-        if let Ok(statement) = Python::attach(|py| {
-            let scylla_statement = statement.extract::<Py<Statement>>(py)?;
-            Ok::<Py<Statement>, PyErr>(scylla_statement)
-        }) {
-            let scylla_statement = statement.get()._inner.clone();
-            return self.scylla_prepare(scylla_statement).await;
+        let query_request = ExecutableStatement::extract_request(statement)?;
+
+        match query_request {
+            ExecutableStatement::Unprepared(s) => self.scylla_prepare(s).await,
+            ExecutableStatement::Prepared(_) => Err(PyErr::new::<PyTypeError, _>(
+                "Cannot prepare a PreparedStatement; expected a str or Statement".to_string(),
+            )),
         }
-        if let Ok(text) = Python::attach(|py| statement.extract::<String>(py)) {
-            return self.scylla_prepare(text).await;
-        }
-        Err(PyErr::new::<PyTypeError, _>("Invalid statement type"))
     }
 }
 
@@ -116,6 +77,37 @@ impl Session {
                 e
             ))),
         }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) enum ExecutableStatement {
+    Prepared(statement::prepared::PreparedStatement),
+    Unprepared(unprepared::Statement),
+}
+
+impl ExecutableStatement {
+    fn extract_request(request: Py<PyAny>) -> PyResult<ExecutableStatement> {
+        Python::attach(|py| {
+            if let Ok(prepared) = request.extract::<Py<PreparedStatement>>(py) {
+                return Ok(ExecutableStatement::Prepared(prepared.get()._inner.clone()));
+            }
+
+            if let Ok(text) = request.extract::<Py<PyString>>(py) {
+                return Ok(ExecutableStatement::Unprepared(text.to_str(py)?.into()));
+            }
+
+            if let Ok(statement) = request.extract::<Py<Statement>>(py) {
+                return Ok(ExecutableStatement::Unprepared(
+                    statement.get()._inner.clone(),
+                ));
+            }
+
+            Err(PyErr::new::<PyTypeError, _>(format!(
+                "Invalid request type: expected str | Statement | PreparedStatement, got {}",
+                request.into_bound(py).get_type().name()?
+            )))
+        })
     }
 }
 
