@@ -1,35 +1,69 @@
 use std::sync::Arc;
 
 use crate::deserialize::results::RequestResult;
+use crate::serialize::row::PyAnyWrapperRow;
+use crate::statement::PreparedStatement;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::PyString;
 use scylla::statement;
 
 use crate::RUNTIME;
-use crate::statement::PreparedStatement;
 use crate::statement::Statement;
+use pyo3::types::{PyDict, PyList, PyString, PyTuple};
 
 #[pyclass]
 pub(crate) struct Session {
     pub(crate) _inner: Arc<scylla::client::session::Session>,
 }
 
+fn try_into_row(values: Option<Py<PyAny>>) -> PyResult<Option<PyAnyWrapperRow>> {
+    let Some(val) = values else {
+        return Ok(None);
+    };
+
+    Python::attach(|py| {
+        let val: Bound<'_, PyAny> = val.into_bound(py);
+
+        if val.is_instance_of::<PyList>()
+            || val.is_instance_of::<PyTuple>()
+            || val.is_instance_of::<PyDict>()
+        {
+            return Ok(Some(PyAnyWrapperRow(val.unbind())));
+        }
+
+        let python_type_name = val.get_type().name()?;
+        let python_type_name = python_type_name.extract::<&str>()?;
+
+        Err(PyErr::new::<PyTypeError, _>(format!(
+            "Invalid row type: got {}, expected Python tuple, list or dict",
+            python_type_name
+        )))
+    })
+}
+
 #[pymethods]
 impl Session {
-    async fn execute(&self, request: Py<PyAny>) -> PyResult<RequestResult> {
+    #[pyo3(signature = (request, values = None))]
+    async fn execute(
+        &self,
+        request: Py<PyAny>,
+        values: Option<Py<PyAny>>,
+    ) -> PyResult<RequestResult> {
+        let row = try_into_row(values)?;
+
         if let Ok(prepared) = Python::attach(|py| {
             let scylla_prepared = request.extract::<Py<PreparedStatement>>(py)?;
             Ok::<Py<PreparedStatement>, PyErr>(scylla_prepared)
         }) {
             let result = self
                 .session_spawn_on_runtime(async move |s| {
-                    s.execute_unpaged(&prepared.get()._inner, &[])
-                        .await
-                        .map_err(|e| {
-                            PyRuntimeError::new_err(format!("Failed execute_unpaged: {}", e))
-                        })
+                    let res = match row {
+                        Some(row) => s.execute_unpaged(&prepared.get()._inner, row).await,
+                        None => s.execute_unpaged(&prepared.get()._inner, &[]).await,
+                    };
+
+                    res.map_err(|e| PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e)))
                 })
                 .await?; // Propagate error form closure
             return Ok(RequestResult {
@@ -43,11 +77,12 @@ impl Session {
         }) {
             let result = self
                 .session_spawn_on_runtime(async move |s| {
-                    s.query_unpaged(statement.get()._inner.clone(), &[])
-                        .await
-                        .map_err(|e| {
-                            PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
-                        })
+                    let res = match row {
+                        Some(row) => s.query_unpaged(statement.get()._inner.clone(), row).await,
+                        None => s.query_unpaged(statement.get()._inner.clone(), &[]).await,
+                    };
+
+                    res.map_err(|e| PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e)))
                 })
                 .await?; // Propagate error from closure
             return Ok(RequestResult {
@@ -61,9 +96,12 @@ impl Session {
         }) {
             let result = self
                 .session_spawn_on_runtime(async move |s| {
-                    s.query_unpaged(text, &[]).await.map_err(|e| {
-                        PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
-                    })
+                    let res = match row {
+                        Some(row) => s.query_unpaged(text, row).await,
+                        None => s.query_unpaged(text, &[]).await,
+                    };
+
+                    res.map_err(|e| PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e)))
                 })
                 .await?; // Propagate error form closure
             return Ok(RequestResult {
