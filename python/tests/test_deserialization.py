@@ -1,4 +1,4 @@
-from typing import Any, Callable, Awaitable, AsyncGenerator, Dict, Tuple, Set, List
+from typing import Any, Callable, Awaitable, AsyncGenerator, Dict, Tuple, Set, List, Union
 
 from scylla._rust.value import CqlEmpty  # pyright: ignore[reportMissingModuleSource]
 
@@ -446,7 +446,7 @@ async def test_inet_deserialization(
     session: Session,
     table_factory: TableFactory,
     row_id: int,
-    value: ipaddress.IPv6Address | ipaddress.IPv4Address,
+    value: Union[ipaddress.IPv6Address, ipaddress.IPv4Address],
     expected_type: type,
 ):
     row = await insert_and_fetch_single_row(
@@ -957,7 +957,7 @@ async def test_null_collections_deserialization(
     row_id: int,
     collection: str,
     table_name: str,
-    expected: List[int] | Set[int] | Dict[int, int],
+    expected: Union[List[int], Set[int], Dict[int, int]],
 ):
     row = await insert_and_fetch_single_row(
         session,
