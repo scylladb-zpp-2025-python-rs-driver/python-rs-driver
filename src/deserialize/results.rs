@@ -1,5 +1,5 @@
-use crate::deserialize::PyDeserializationError;
 use crate::deserialize::value::{PyDeserializeValue, PyDeserializedValue};
+use crate::errors::decode_err;
 use pyo3::exceptions::{PyRuntimeError, PyStopIteration};
 use pyo3::prelude::{PyDictMethods, PyModule, PyModuleMethods};
 use pyo3::types::{PyDict, PyString};
@@ -119,7 +119,7 @@ impl<'a> Cursor<'a> {
                 .column_iterator
                 .next()
                 .ok_or_else(|| PyErr::new::<PyStopIteration, _>(""))?
-                .map_err(PyDeserializationError::from)?;
+                .map_err(decode_err)?;
 
             let value = PyDeserializedValue::deserialize_py(raw_col.spec.typ(), raw_col.slice, py)?;
 
@@ -134,7 +134,7 @@ impl<'a> Cursor<'a> {
             .row_iterator
             .next()
             .ok_or_else(|| PyErr::new::<PyStopIteration, _>(""))?
-            .map_err(PyDeserializationError::from)?;
+            .map_err(decode_err)?;
 
         self.column_iterator = column_iterator;
         Ok(())
