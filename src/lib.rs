@@ -7,6 +7,7 @@ use tokio::runtime::Runtime;
 
 mod deserialize;
 mod enums;
+mod errors;
 mod execution_profile;
 mod session;
 mod session_builder;
@@ -32,6 +33,7 @@ fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(py, module, "results", results::results)?;
     add_submodule(py, module, "statement", statement::statement)?;
     add_submodule(py, module, "enums", enums::enums)?;
+    add_submodule(py, module, "errors", errors::errors)?;
     add_submodule(
         py,
         module,
