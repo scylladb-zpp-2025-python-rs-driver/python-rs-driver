@@ -2,14 +2,16 @@
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
+use pyo3::PyErr;
 
 // Python exception classes
 create_exception!(errors, ScyllaError, PyException);
 
-// create_exception!(errors, ExecutionErrorPy, ScyllaError);
-// create_exception!(errors, BadQueryErrorPy, ExecutionErrorPy);
-// create_exception!(errors, TimeoutErrorPy, ExecutionErrorPy);
-// create_exception!(errors, ConnectionErrorPy, ExecutionErrorPy);
+create_exception!(errors, ExecutionErrorPy, ScyllaError);
+create_exception!(errors, BadQueryErrorPy, ExecutionErrorPy);
+create_exception!(errors, RuntimeErrorPy, ExecutionErrorPy);
+create_exception!(errors, ConnectionErrorPy, ExecutionErrorPy);
 
 create_exception!(errors, DeserializationErrorPy, ScyllaError);
 create_exception!(errors, UnsupportedTypeErrorPy, DeserializationErrorPy);
@@ -18,20 +20,18 @@ create_exception!(errors, PyConversionFailedErrorPy, DeserializationErrorPy);
 create_exception!(errors, InternalErrorPy, DeserializationErrorPy);
 
 // Rust errors
-// #[derive(Debug)]
-// pub(crate) enum ExecutionError {
-//     /// Generic execution/connect/prepare failure when we don't yet classify it.
-//     Other(String),
+#[derive(Debug)]
+pub(crate) enum ExecutionError {
 
-//     /// Failed to establish a session (connect).
-//     Connect(String),
+    /// Failed during query execution at runtime.
+    Runtime(String),
 
-//     /// Query/prepare failed due to invalid query/statement or invalid input.
-//     BadQuery(String),
+    /// Failed to establish a session (connect).
+    Connect(String),
 
-//     /// Explicit request timeout exceeded.
-//     Timeout(Duration),
-// }
+    /// Query/prepare failed due to invalid query/statement or invalid input.
+    BadQuery(String),
+}
 
 #[derive(Debug)]
 pub(crate) enum DeserializationError {
@@ -49,19 +49,15 @@ pub(crate) enum DeserializationError {
 }
 
 // Mapping to Python exceptions
-// impl From<ExecutionError> for PyErr {
-//     fn from(e: ExecutionError) -> PyErr {
-//         match e {
-//             ExecutionError::Other(msg) => ExecutionErrorPy::new_err(msg),
-//             ExecutionError::Connect(msg) => ConnectionErrorPy::new_err(msg),
-//             ExecutionError::BadQuery(msg) => BadQueryErrorPy::new_err(msg),
-//             ExecutionError::Timeout(dur) => TimeoutErrorPy::new_err(format!(
-//                 "Request execution exceeded timeout of {}ms",
-//                 dur.as_millis()
-//             )),
-//         }
-//     }
-// }
+impl From<ExecutionError> for PyErr {
+    fn from(e: ExecutionError) -> PyErr {
+        match e {
+            ExecutionError::Runtime(msg) => RuntimeErrorPy::new_err(msg),
+            ExecutionError::Connect(msg) => ConnectionErrorPy::new_err(msg),
+            ExecutionError::BadQuery(msg) => BadQueryErrorPy::new_err(msg),
+        }
+    }
+}
 
 impl From<DeserializationError> for PyErr {
     fn from(e: DeserializationError) -> PyErr {
@@ -104,16 +100,38 @@ pub(crate) fn decode_err(e: scylla_cql::deserialize::DeserializationError) -> De
 
 /// Helper function to convert PyO3 conversion error to our DeserializationError
 pub(crate) fn py_conv_err(e: pyo3::PyErr) -> DeserializationError {
-    DeserializationError::PyConversionFailed(e.to_string())
+    DeserializationError::PyConversionFailed(format_pyerr(&e))
+}
+
+pub(crate) fn bad_query_err(e: pyo3::PyErr) -> ExecutionError {
+    ExecutionError::BadQuery(format_pyerr(&e))
+}
+
+fn format_pyerr(e: &pyo3::PyErr) -> String {
+    Python::attach(|py| {
+        // name() returns a Python string object (Bound<PyString>) in this PyO3 version
+        let ty_name = match e.get_type(py).name() {
+            Ok(n) => n.to_string_lossy().into_owned(),
+            Err(_) => "UnknownError".to_string(),
+        };
+
+        let msg = e.value(py).to_string();
+
+        if msg.is_empty() {
+            ty_name
+        } else {
+            format!("{ty_name}: {msg}")
+        }
+    })
 }
 
 #[pymodule]
 pub(crate) fn errors(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("ScyllaError", _py.get_type::<ScyllaError>())?;
-    // module.add("ExecutionError", _py.get_type::<ExecutionErrorPy>())?;
-    // module.add("BadQueryError", _py.get_type::<BadQueryErrorPy>())?;
-    // module.add("TimeoutError", _py.get_type::<TimeoutErrorPy>())?;
-    // module.add("ConnectionError", _py.get_type::<ConnectionErrorPy>())?;
+    module.add("ExecutionError", _py.get_type::<ExecutionErrorPy>())?;
+    module.add("RuntimeError", _py.get_type::<RuntimeErrorPy>())?;
+    module.add("BadQueryError", _py.get_type::<BadQueryErrorPy>())?;
+    module.add("ConnectionError", _py.get_type::<ConnectionErrorPy>())?;
     module.add(
         "DeserializationError",
         _py.get_type::<DeserializationErrorPy>(),

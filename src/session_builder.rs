@@ -8,6 +8,7 @@ use scylla::client::session::SessionConfig;
 use crate::RUNTIME;
 use crate::execution_profile::ExecutionProfile;
 use crate::session::Session;
+use crate::errors::ExecutionError;
 
 #[pyclass]
 struct SessionBuilder {
@@ -53,17 +54,17 @@ impl SessionBuilder {
         Ok(Self { config: cfg })
     }
 
-    async fn connect(&self) -> PyResult<Session> {
+    async fn connect(&self) -> Result<Session, ExecutionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
             .spawn(async move { scylla::client::session::Session::connect(config).await })
             .await
-            .expect("Driver should not panic");
+            .map_err(|e| ExecutionError::Runtime(format!("tokio join error while connecting: {e}")))?;
         match session_result {
             Ok(session) => Ok(Session {
                 _inner: Arc::new(session),
             }),
-            Err(e) => Err(PyRuntimeError::new_err(format!(
+            Err(e) => Err(ExecutionError::Connect(format!(
                 "Session creation err, e: {:?}, cp: {:?}",
                 e, self.config.known_nodes
             ))),
