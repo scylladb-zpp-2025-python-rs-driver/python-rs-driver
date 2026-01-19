@@ -7,10 +7,10 @@ use pyo3::types::PyString;
 use scylla::statement;
 
 use crate::RUNTIME;
-use crate::statement::PreparedStatement;
-use crate::statement::Statement;
 use crate::errors::ExecutionError;
 use crate::errors::bad_query_err;
+use crate::statement::PreparedStatement;
+use crate::statement::Statement;
 
 #[pyclass]
 pub(crate) struct Session {
@@ -71,9 +71,7 @@ impl Session {
                 inner: Arc::new(result),
             });
         }
-        Err(bad_query_err(
-            PyTypeError::new_err("Invalid request type"),
-        ))
+        Err(bad_query_err(PyTypeError::new_err("Invalid request type")))
     }
 
     async fn prepare(&self, statement: Py<PyAny>) -> Result<PreparedStatement, ExecutionError> {
@@ -87,9 +85,9 @@ impl Session {
         if let Ok(text) = Python::attach(|py| statement.extract::<String>(py)) {
             return self.scylla_prepare(text).await;
         }
-        Err(bad_query_err(
-            PyTypeError::new_err("Invalid statement type"),
-        ))
+        Err(bad_query_err(PyTypeError::new_err(
+            "Invalid statement type",
+        )))
     }
 }
 
