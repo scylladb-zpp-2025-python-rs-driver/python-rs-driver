@@ -1,16 +1,18 @@
 // src/errors.rs
+use pyo3::PyErr;
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
-use pyo3::PyErr;
+use pyo3::exceptions::PyRuntimeError;
+
 
 // Python exception classes
 create_exception!(errors, ScyllaError, PyException);
 
 create_exception!(errors, ExecutionErrorPy, ScyllaError);
 create_exception!(errors, BadQueryErrorPy, ExecutionErrorPy);
-create_exception!(errors, RuntimeErrorPy, ExecutionErrorPy);
+create_exception!(errors, RuntimeErrorPy, PyRuntimeError); // Inherits from PyRuntimeError to pass the tests expecting RuntimeError
 create_exception!(errors, ConnectionErrorPy, ExecutionErrorPy);
 
 create_exception!(errors, DeserializationErrorPy, ScyllaError);
@@ -22,7 +24,6 @@ create_exception!(errors, InternalErrorPy, DeserializationErrorPy);
 // Rust errors
 #[derive(Debug)]
 pub(crate) enum ExecutionError {
-
     /// Failed during query execution at runtime.
     Runtime(String),
 
