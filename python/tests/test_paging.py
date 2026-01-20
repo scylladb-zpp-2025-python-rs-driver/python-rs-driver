@@ -242,3 +242,73 @@ async def test_paging_state_resume(
     ids_second = {row["id"] for row in second_page}
 
     assert ids_first.isdisjoint(ids_second)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+@pytest.mark.parametrize(
+    "total_rows,page_size",
+    [(25, 10), (100, 10), (100, 1), (20, 100), (0, 10)],
+)
+async def test_execute_sync_paged_basic_flow(
+    session: Session,
+    table_factory: TableFactory,
+    total_rows: int,
+    page_size: int,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "paging_async_basic_table",
+    )
+
+    await insert_rows(session, table, total_rows)
+
+    prepared = await session.prepare(f"SELECT * FROM {table}")
+    prepared = prepared.with_page_size(page_size)
+
+    rows_iter = await session.execute(prepared)
+
+    seen_ids: list[Any] = []
+
+    for row in rows_iter.blocking_paging_iter():
+        assert isinstance(row, dict)
+        assert "id" in row
+
+        seen_ids.append(row["id"])
+
+    assert sorted(seen_ids) == list(range(total_rows))
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+@pytest.mark.parametrize(
+    "total_rows,page_size",
+    [(25, 10), (100, 10), (100, 1), (20, 100), (0, 10)],
+)
+async def test_execute_sync_paged_for_string_query(
+    session: Session,
+    table_factory: TableFactory,
+    total_rows: int,
+    page_size: int,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "paging_async_basic_table",
+    )
+
+    await insert_rows(session, table, total_rows)
+
+    statement = Statement(f"SELECT * FROM {table}")
+    statement = statement.with_page_size(page_size)
+
+    rows_iter = await session.execute(statement)
+
+    seen_ids: list[Any] = []
+
+    for row in rows_iter.blocking_paging_iter():
+        assert isinstance(row, dict)
+        assert "id" in row
+
+        seen_ids.append(row["id"])
+
+    assert sorted(seen_ids) == list(range(total_rows))
