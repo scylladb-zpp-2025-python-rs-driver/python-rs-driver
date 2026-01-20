@@ -18,6 +18,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use yoke::{Yoke, Yokeable};
+use crate::RUNTIME;
 
 /// Result of a request to the database. It represents any kind of Result frame.
 #[pyclass]
@@ -79,6 +80,17 @@ impl RequestResult {
         let py = slf.py();
 
         AsyncRowsIterator::new(
+            py,
+            slf.query_pager.clone(),
+            &slf.query_result,
+            slf.row_factory.clone_ref(py),
+        )
+    }
+
+    pub fn blocking_paging_iter<'py>(slf: PyRef<'py, Self>) -> PyResult<SyncRowsIterator> {
+        let py = slf.py();
+
+        SyncRowsIterator::new(
             py,
             slf.query_pager.clone(),
             &slf.query_result,
@@ -334,6 +346,41 @@ impl AsyncRowsIterator {
     }
 }
 
+#[pyclass]
+pub struct SyncRowsIterator {
+    query_pager: QueryPager,
+    rows_iterator: RowsIteratorKind,
+}
+
+impl SyncRowsIterator {
+    fn new(
+        py: Python<'_>,
+        query_pager: QueryPager,
+        query_result: &Arc<QueryResult>,
+        factory: Py<RowFactory>,
+    ) -> PyResult<Self> {
+        Ok(SyncRowsIterator {
+            query_pager,
+            rows_iterator: RowsIteratorKind::new(py, query_result, factory)?,
+        })
+    }
+}
+
+#[pymethods]
+impl SyncRowsIterator {
+    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    pub fn __next__(&mut self) -> PyResult<Py<PyAny>> {
+        RUNTIME.block_on(async {
+            next_row_with_paging(&mut self.rows_iterator, &mut self.query_pager)
+                .await
+                .unwrap_or(Err(PyErr::new::<PyStopIteration, _>("")))
+        })
+    }
+}
+
 async fn next_row_with_paging(
     rows_iterator: &mut RowsIteratorKind,
     query_pager: &mut QueryPager,
@@ -562,6 +609,7 @@ pub(crate) fn results(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult
     module.add_class::<PyPagingState>()?;
     module.add_class::<RequestResult>()?;
     module.add_class::<AsyncRowsIterator>()?;
+    module.add_class::<SyncRowsIterator>()?;
 
     Ok(())
 }

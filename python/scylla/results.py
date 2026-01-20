@@ -6,6 +6,7 @@ from ._rust.results import (  # pyright: ignore[reportMissingModuleSource]
     Column,
     PagingState,
     AsyncRowsIterator,
+    SyncRowsIterator
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "ColumnIterator",
     "PagingState",
     "AsyncRowsIterator",
+    "SyncRowsIterator"
 ]

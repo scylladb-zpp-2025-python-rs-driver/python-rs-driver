@@ -196,6 +196,18 @@ class RequestResult:
 
     def __aiter__(self) -> AsyncRowsIterator: ...
 
+    def blocking_paging_iter(self) -> SyncRowsIterator:
+        """
+        Returns a blocking iterator over all rows across pages.
+
+        The iterator transparently fetches subsequent pages as needed,
+        blocking the current thread until each page is available.
+
+        This method is intended for synchronous code paths where
+        asynchronous iteration (`async for`) cannot be used.
+        """
+    ...
+
 class AsyncRowsIterator(AsyncIterator[Any]):
     """
     Async iterator over rows.
@@ -203,3 +215,10 @@ class AsyncRowsIterator(AsyncIterator[Any]):
 
     def __aiter__(self) -> AsyncRowsIterator: ...
     async def __anext__(self) -> Any: ...
+
+class SyncRowsIterator:
+    """
+    Iterator over rows.
+    """
+    def __iter__(self) -> SyncRowsIterator: ...
+    def __next__(self) -> Any: ...
