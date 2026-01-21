@@ -97,6 +97,16 @@ impl PreparedStatement {
             None => Python::attach(|py| UnsetType::get_instance(py).into_py_any(py)),
         }
     }
+
+    fn with_page_size(&self, page_size: i32) -> PreparedStatement {
+        let mut p = self._inner.clone();
+        p.set_page_size(page_size);
+        PreparedStatement { _inner: p }
+    }
+
+    fn get_page_size(&self) -> i32 {
+        self._inner.get_page_size()
+    }
 }
 
 #[pyclass(frozen)]
@@ -198,6 +208,16 @@ impl Statement {
             Some(t) => Python::attach(|py| PyFloat::new(py, t.as_secs_f64()).into_py_any(py)),
             None => Python::attach(|py| UnsetType::get_instance(py).into_py_any(py)),
         }
+    }
+
+    fn with_page_size(&self, page_size: i32) -> Statement {
+        let mut s = self._inner.clone();
+        s.set_page_size(page_size);
+        Statement { _inner: s }
+    }
+
+    fn get_page_size(&self) -> i32 {
+        self._inner.get_page_size()
     }
 }
 
