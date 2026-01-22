@@ -1,7 +1,7 @@
 use crate::deserialize::PyDeserializationError;
 use crate::deserialize::conversion::{CqlDurationWrapper, CqlVarintWrapper};
-use bigdecimal_04::BigDecimal;
-use chrono_04::{DateTime, NaiveTime, Utc};
+use bigdecimal::BigDecimal;
+use chrono::{DateTime, NaiveTime, Utc};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::{PyDictMethods, PyListMethods, PyModule, PyModuleMethods, PySetMethods};
 use pyo3::sync::PyOnceLock;
@@ -606,7 +606,7 @@ fn deser_cql_py_value<'py, 'metadata, 'frame>(
                     }
                     // CQL Date → Python datetime.date
                     NativeType::Date => {
-                        let date: chrono_04::NaiveDate = CqlDate::deserialize(typ, Some(v))?
+                        let date: chrono::NaiveDate = CqlDate::deserialize(typ, Some(v))?
                             .try_into()
                             .map_err(DeserializationError::new)?;
 
