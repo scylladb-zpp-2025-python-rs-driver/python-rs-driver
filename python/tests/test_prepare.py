@@ -32,7 +32,7 @@ async def test_prepare_and_str():
     prepared = await session.prepare(query_str)
     result_prepared = await session.execute(prepared)
     result_str = await session.execute(query_str)
-    assert list(result_prepared.iter_current_page()) == list(result_str.iter_current_page())
+    assert await result_prepared.all() == await result_str.all()
 
 
 @pytest.mark.asyncio
