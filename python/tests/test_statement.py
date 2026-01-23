@@ -35,7 +35,12 @@ async def test_prepare_and_execute():
     assert isinstance(prepare_with_statement, PreparedStatement)
     result_str = await session.execute(prepared_with_str)
     result_statement = await session.execute(prepare_with_statement)
-    assert next(result_str.iter_current_page())["cluster_name"] == next(result_statement.iter_current_page())["cluster_name"]
+
+    row_str = await result_str.single_row()
+    row_statement = await result_statement.single_row()
+    assert row_str is not None
+    assert row_statement is not None
+    assert row_str["cluster_name"] == row_statement["cluster_name"]
 
 
 @pytest.mark.asyncio
@@ -50,9 +55,17 @@ async def test_prepare_and_str():
     result_statement = await session.execute(statement)
     result_str = await session.execute(query_str)
 
-    cluster_name_str = next(result_str.iter_current_page())["cluster_name"]
-    assert next(result_prepared.iter_current_page())["cluster_name"] == cluster_name_str
-    assert cluster_name_str == next(result_statement.iter_current_page())["cluster_name"]
+    row_str = await result_str.single_row()
+    row_prepared = await result_prepared.single_row()
+    row_statement = await result_statement.single_row()
+
+    assert row_str is not None
+    assert row_prepared is not None
+    assert row_statement is not None
+
+    cluster_name_str = row_str["cluster_name"]
+    assert row_prepared["cluster_name"] == cluster_name_str
+    assert cluster_name_str == row_statement["cluster_name"]
 
 
 @pytest.mark.asyncio
