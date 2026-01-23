@@ -246,3 +246,91 @@ async def test_paging_state_resume(
     ids_second = {row["id"] for row in second_page}
 
     assert ids_first.isdisjoint(ids_second)
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+@pytest.mark.parametrize("total_rows,page_size", [(0, 10), (5, 2), (25, 10), (1000, 10)])
+async def test_paging_all_returns_all_rows(
+        session: Session,
+        table_factory: TableFactory,
+        total_rows: int,
+        page_size: int,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "paging_all_table",
+    )
+
+    await insert_rows(session, table, total_rows)
+
+    prepared = await session.prepare(f"SELECT * FROM {table}")
+    prepared = prepared.with_page_size(page_size)
+
+    result = await session.execute(prepared)
+
+    rows = await result.all()
+    print(rows)
+
+    assert isinstance(rows, list)
+    assert len(rows) == total_rows
+
+    ids = [row["id"] for row in rows]
+    assert sorted(ids) == list(range(total_rows))
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_paging_one_returns_none_for_empty_result(
+        session: Session,
+        table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "paging_one_empty_table",
+    )
+
+    prepared = await session.prepare(f"SELECT * FROM {table}")
+    result = await session.execute(prepared)
+
+    row = await result.single_row()
+
+    assert row is None
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_paging_one_returns_first_row(
+        session: Session,
+        table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "paging_one_table",
+    )
+
+    await insert_rows(session, table, 1)
+
+    prepared = await session.prepare(f"SELECT * FROM {table}")
+    prepared = prepared.with_page_size(2)
+
+    result = await session.execute(prepared)
+
+    row = await result.single_row()
+
+    assert row is not None
+    assert row["id"] == 0
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_first_for_non_rows_result_returns_none(session: Session, table_factory: TableFactory,):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "paging_one_table",
+    )
+    result = await session.execute(
+        f"INSERT INTO {table} (id, x) VALUES (1000, 42)"
+    )
+
+    row_first = await result.single_row()
+    row_all = await result.all()
+
+    assert row_first is None
+    assert row_all == []
