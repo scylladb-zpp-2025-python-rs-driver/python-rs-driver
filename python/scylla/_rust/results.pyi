@@ -184,6 +184,33 @@ class RequestResult:
 
     def __aiter__(self) -> AsyncRowsIterator: ...
 
+    async def single_row(self) -> Any | None:
+        """
+        Returns the first row starting from the current state.
+
+        Fetches the first available row from the current page onwards,
+        automatically retrieving additional pages as needed.
+        Returns None if no more rows are available.
+
+        Returns
+        -------
+        Any | None
+            The first row as a Python object, or None if no more rows exist.
+        """
+        ...
+
+    async def all(self) -> List[Any]:
+        """
+        Return all rows of the result set as a list.
+
+        This method eagerly fetches all remaining pages and materializes
+        the entire result set in memory. It should be used with care
+        for large queries.
+        """
+        ...
+
+
+
 class AsyncRowsIterator(AsyncIterator[Any]):
     """
     Async iterator over rows with automatic paging.

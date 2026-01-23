@@ -3,8 +3,8 @@ use crate::deserialize::{IntoPyDeserError, PyDeserializationError};
 use crate::serialize::value_list::PyAnyWrapperValueList;
 use crate::session::{ExecutableStatement, Session};
 use pyo3::exceptions::{PyStopAsyncIteration, PyStopIteration};
-use pyo3::prelude::{PyDictMethods, PyModule, PyModuleMethods};
-use pyo3::types::{PyDict, PyString};
+use pyo3::prelude::{PyDictMethods, PyListMethods, PyModule, PyModuleMethods};
+use pyo3::types::{PyDict, PyList, PyNone, PyString};
 use pyo3::{
     Bound, Py, PyAny, PyErr, PyRef, PyRefMut, PyResult, Python, pyclass, pymethods, pymodule,
 };
@@ -122,6 +122,80 @@ impl RequestResult {
             &self.query_result,
             self.row_factory.clone(),
         )
+    }
+
+    /// Returns the first row starting from the current state.
+    ///
+    /// Fetches the first available row from the current page onwards,
+    /// automatically retrieving additional pages as needed.
+    /// Returns `None` if no more rows are available.
+    ///
+    /// # Returns
+    ///
+    /// The first row as a Python object from current state, or `None` if no more rows exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if fetching or deserialization fails.
+    pub async fn single_row(&self) -> PyResult<Py<PyAny>> {
+        let mut query_pager_clone = self.query_pager.clone();
+        let mut rows_iterator = Python::attach(|py| {
+            RowsIteratorKind::new(py, &self.query_result, self.row_factory.clone())
+        })?;
+
+        next_row_with_paging(&mut rows_iterator, &mut query_pager_clone)
+            .await
+            .unwrap_or(Ok(Python::attach(|py| PyNone::get(py).to_owned().into())))
+    }
+
+    /// Returns all rows from all pages with automatic paging.
+    ///
+    /// Fetches and returns all available rows across all pages as a Python list,
+    /// automatically retrieving additional pages as needed.
+    ///
+    /// # Returns
+    ///
+    /// A list containing all rows as Python objects.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if fetching or deserialization fails.
+    pub async fn all(&self) -> PyResult<Py<PyList>> {
+        let mut query_pager_clone = self.query_pager.clone();
+
+        let (mut rows_iterator, list) =
+            Python::attach(|py| -> PyResult<(RowsIteratorKind, Py<PyList>)> {
+                Ok((
+                    RowsIteratorKind::new(py, &self.query_result, self.row_factory.clone())?,
+                    PyList::empty(py).into(),
+                ))
+            })?;
+
+        // Drain all rows from the current page, then fetch the next page.
+        // This is done to hold the GIL for longer and avoid frequent reacquisition.
+
+        let mut next_page: Option<QueryResult> = None;
+        loop {
+            Python::attach(|py| -> PyResult<()> {
+                if let Some(next_page) = next_page.take() {
+                    rows_iterator.update(py, Arc::new(next_page))?;
+                }
+
+                while let Some(res_row) = rows_iterator.next(py) {
+                    list.bind(py).append(res_row?)?;
+                }
+
+                Ok(())
+            })?;
+
+            if let Some(res) = query_pager_clone.fetch_next_page().await {
+                next_page = Some(res?);
+            } else {
+                break;
+            }
+        }
+
+        Ok(list)
     }
 }
 
