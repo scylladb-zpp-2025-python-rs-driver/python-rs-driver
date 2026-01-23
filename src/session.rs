@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::RUNTIME;
-use crate::deserialize::results::{RequestResult};
+use crate::deserialize::results::{PyPagingState, QueryPager, RequestResult};
 use crate::statement::PreparedStatement;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
@@ -10,7 +10,9 @@ use pyo3::types::PyString;
 use scylla::statement;
 
 use crate::statement::Statement;
+use scylla::response::query_result::QueryResult;
 use scylla::statement::unprepared;
+use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 
 #[pyclass]
 #[derive(Clone)]
@@ -20,21 +22,18 @@ pub(crate) struct Session {
 
 #[pymethods]
 impl Session {
-    async fn execute(&self, request: Py<PyAny>) -> PyResult<RequestResult> {
-        let query_request = ExecutableStatement::extract_request(request)?;
-        let result = self
-            .session_spawn_on_runtime(async move |s| {
-                match query_request {
-                    ExecutableStatement::Prepared(p) => s.execute_unpaged(&p, &[]).await,
-                    ExecutableStatement::Unprepared(q) => s.query_unpaged(q, &[]).await,
-                }
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
-            })
-            .await?;
-
-        Ok(RequestResult {
-            inner: Arc::new(result),
-        })
+    #[pyo3(signature = (request, paging_state=None, paged=true))]
+    async fn execute(
+        &self,
+        request: Py<PyAny>,
+        paging_state: Option<Py<PyPagingState>>,
+        paged: bool,
+    ) -> PyResult<RequestResult> {
+        if paged {
+            self.execute_paged(request, paging_state).await
+        } else {
+            self.execute_unpaged(request).await
+        }
     }
 
     async fn prepare(&self, statement: Py<PyAny>) -> PyResult<PreparedStatement> {
@@ -50,6 +49,47 @@ impl Session {
 }
 
 impl Session {
+    async fn execute_unpaged(&self, request: Py<PyAny>) -> PyResult<RequestResult> {
+        let query_request = ExecutableStatement::extract_request(request)?;
+        let result = self
+            .session_spawn_on_runtime(async move |s| {
+                match query_request {
+                    ExecutableStatement::Prepared(p) => s.execute_unpaged(&p, &[]).await,
+                    ExecutableStatement::Unprepared(q) => s.query_unpaged(q, &[]).await,
+                }
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+            })
+            .await?;
+
+        RequestResult::new(result, QueryPager::unpaged())
+    }
+
+    async fn execute_paged(
+        &self,
+        request: Py<PyAny>,
+        paging_state: Option<Py<PyPagingState>>,
+    ) -> PyResult<RequestResult> {
+        let query_request = ExecutableStatement::extract_request(request)?;
+
+        //Ensure the query is prepared so it can be efficiently reused while fetching pages.
+
+        let prepared = match query_request {
+            ExecutableStatement::Prepared(p) => p,
+            ExecutableStatement::Unprepared(s) => self.scylla_prepare(s).await?._inner,
+        };
+
+        let paging_state = if let Some(state) = paging_state {
+            Python::attach(|py| state.borrow(py).inner.clone())
+        } else {
+            PagingState::start()
+        };
+
+        let (result, paging_response) = self
+            .execute_single_page(paging_state, prepared.clone())
+            .await?;
+
+        RequestResult::new(result, QueryPager::paged(paging_response, self, &prepared))
+    }
     async fn session_spawn_on_runtime<F, Fut, R>(&self, f: F) -> PyResult<R>
     where
         // closure: takes Arc<scylla::client::session::Session> and returns a future
@@ -77,6 +117,19 @@ impl Session {
                 e
             ))),
         }
+    }
+
+    pub(crate) async fn execute_single_page(
+        &self,
+        paging_state: PagingState,
+        prepared: scylla::statement::prepared::PreparedStatement,
+    ) -> Result<(QueryResult, PagingStateResponse), PyErr> {
+        self.session_spawn_on_runtime(async move |s| {
+            s.execute_single_page(&prepared, &[], paging_state)
+                .await
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        })
+        .await
     }
 }
 

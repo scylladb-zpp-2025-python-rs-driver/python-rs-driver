@@ -1,7 +1,7 @@
 import ipaddress
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Dict, List, Union, Tuple, Any, Set, Optional
+from typing import Dict, List, Union, Tuple, Any, Set, AsyncIterator
 from uuid import UUID
 from dateutil.relativedelta import relativedelta
 
@@ -99,7 +99,6 @@ class RowFactory:
     """
 
     def __init__(self) -> None: ...
-
     def build(self, column_iterator: ColumnIterator) -> Dict[str, CqlValue]:
         """
         Build a row object from the provided column iterator.
@@ -120,7 +119,7 @@ class Column:
         """Deserialized value of the column."""
         ...
 
-class RowsIterator:
+class SinglePageIterator:
     """
     Iterator over result rows.
 
@@ -128,19 +127,78 @@ class RowsIterator:
     mapping column names to values.
     """
 
-    def __iter__(self) -> RowsIterator: ...
+    def __iter__(self) -> SinglePageIterator: ...
     def __next__(self) -> Any: ...
+
+class PagingState:
+    """
+    Represents paging state for paged queries.
+
+    Used to continue a query from where the previous page ended.
+    """
+
+    def __init__(self) -> None:
+        """
+        Creates a new paging state starting from the first page.
+        """
+        ...
 
 class RequestResult:
     """
     Result of a query execution.
     """
 
-    def iter_rows(self, factory: Optional[RowFactory] = None) -> RowsIterator:
+    def has_more_pages(self) -> bool:
         """
-        Return an iterator over result rows.
-
-        An optional RowFactory can be provided to customize how rows
-        are constructed.
+        Returns True if more pages are available.
         """
         ...
+
+    def paging_state(self) -> PagingState | None:
+        """
+        Returns current paging state. Can be `None` if there are no more pages available.
+        """
+        ...
+
+    async def fetch_next_page(self) -> None:
+        """
+        Fetches the next page and updates the internal query result.
+        No-op if no more pages are available.
+        """
+        ...
+
+    def iter_page(
+        self,
+        factory: RowFactory | None = None,
+    ) -> SinglePageIterator:
+        """
+        Returns an iterator over rows in the current page.
+
+        If a factory is provided, it is used to construct row objects
+        for this iterator only.
+        """
+        ...
+
+    def set_factory(self, factory: RowFactory) -> None:
+        """
+        Sets the default row factory used to construct row objects.
+
+        The factory will be used by subsequent calls to `iter_page()`
+        and by async iteration (`async for`).
+
+        Parameters
+        ----------
+        factory : RowFactory
+            Row factory used to build row objects from column iterators.
+        """
+        ...
+
+    def __aiter__(self) -> AsyncRowsIterator: ...
+
+class AsyncRowsIterator(AsyncIterator[Any]):
+    """
+    Async iterator over rows.
+    """
+
+    def __aiter__(self) -> AsyncRowsIterator: ...
+    async def __anext__(self) -> Any: ...
