@@ -206,7 +206,26 @@ class RequestResult:
         This method is intended for synchronous code paths where
         asynchronous iteration (`async for`) cannot be used.
         """
-    ...
+        ...
+
+    async def first(self) -> Any:
+        """
+        Returns the first row of the result, or None if the result is empty.
+        Does not consume or validate the remaining rows.
+        """
+        ...
+
+    async def all(self) -> List[Any]:
+        """
+        Return all rows of the result set as a list.
+
+        This method eagerly fetches all remaining pages and materializes
+        the entire result set in memory. It should be used with care
+        for large queries.
+        """
+        ...
+
+
 
 class AsyncRowsIterator(AsyncIterator[Any]):
     """
