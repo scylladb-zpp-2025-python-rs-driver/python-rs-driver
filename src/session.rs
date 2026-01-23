@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::deserialize::results::RequestResult;
+use crate::deserialize::results::{PyPagingState, QueryPager, RequestResult};
 use crate::serialize::value_list::PyAnyWrapperValueList;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
@@ -10,8 +10,10 @@ use scylla::statement;
 use crate::RUNTIME;
 use crate::statement::PreparedStatement;
 use crate::statement::Statement;
-use scylla::statement::unprepared;
 use pyo3::types::{PyDict, PyList, PyString, PyTuple};
+use scylla::response::query_result::QueryResult;
+use scylla::statement::unprepared;
+use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 
 #[pyclass]
 #[derive(Clone)]
@@ -54,34 +56,21 @@ fn is_empty_row(row: &Bound<'_, PyAny>) -> bool {
 
 #[pymethods]
 impl Session {
-    #[pyo3(signature = (request, values = None))]
-    async fn execute(&self, request: Py<PyAny>, values: Option<Py<PyAny>>) -> PyResult<RequestResult> {
+    #[pyo3(signature = (request, values=None, paging_state=None, paged=true))]
+    async fn execute(
+        &self,
+        request: Py<PyAny>,
+        values: Option<Py<PyAny>>,
+        paging_state: Option<Py<PyPagingState>>,
+        paged: bool,
+    ) -> PyResult<RequestResult> {
         let value_list = values.map(try_into_value_list).transpose()?;
 
-        let query_request = ExecutableStatement::extract_request(request)?;
-        let result = self
-            .session_spawn_on_runtime(async move |s| {
-                match query_request {
-                    ExecutableStatement::Prepared(p) =>{
-                        match value_list {
-                            Some(row) => s.execute_unpaged(&p, row).await,
-                            None => s.execute_unpaged(&p, &[]).await,
-                        }
-                    }
-                    ExecutableStatement::Unprepared(q) => {
-                        match value_list {
-                            Some(row) => s.query_unpaged(q, row).await,
-                            None => s.query_unpaged(q, &[]).await,
-                        }
-                    }
-                }
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
-            })
-            .await?;
-
-        Ok(RequestResult {
-            inner: Arc::new(result),
-        })
+        if paged {
+            self.execute_paged(request, paging_state, value_list).await
+        } else {
+            self.execute_unpaged(request, value_list).await
+        }
     }
 
     async fn prepare(&self, statement: Py<PyAny>) -> PyResult<PreparedStatement> {
@@ -97,6 +86,51 @@ impl Session {
 }
 
 impl Session {
+    async fn execute_unpaged(
+        &self,
+        request: Py<PyAny>,
+        value_list: Option<PyAnyWrapperValueList>,
+    ) -> PyResult<RequestResult> {
+        let query_request = ExecutableStatement::extract_request(request)?;
+        let result = self
+            .session_spawn_on_runtime(async move |s| {
+                match query_request {
+                    ExecutableStatement::Prepared(p) => match value_list {
+                        Some(row) => s.execute_unpaged(&p, row).await,
+                        None => s.execute_unpaged(&p, &[]).await,
+                    },
+                    ExecutableStatement::Unprepared(q) => match value_list {
+                        Some(row) => s.query_unpaged(q, row).await,
+                        None => s.query_unpaged(q, &[]).await,
+                    },
+                }
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+            })
+            .await?;
+
+        RequestResult::new(result, QueryPager::unpaged())
+    }
+
+    async fn execute_paged(
+        &self,
+        request: Py<PyAny>,
+        paging_state: Option<Py<PyPagingState>>,
+        value_list: Option<PyAnyWrapperValueList>,
+    ) -> PyResult<RequestResult> {
+        let query_request = ExecutableStatement::extract_request(request)?;
+
+        let paging_state = if let Some(state) = paging_state {
+            Python::attach(|py| state.borrow(py).inner.clone())
+        } else {
+            PagingState::start()
+        };
+
+        let (result, paging_response) = self
+            .execute_single_page(paging_state, query_request.clone(), value_list.clone())
+            .await?;
+
+        RequestResult::new(result, QueryPager::paged(paging_response, self, query_request, value_list))
+    }
     async fn session_spawn_on_runtime<F, Fut, R>(&self, f: F) -> PyResult<R>
     where
         // closure: takes Arc<scylla::client::session::Session> and returns a future
@@ -124,6 +158,28 @@ impl Session {
                 e
             ))),
         }
+    }
+
+    pub(crate) async fn execute_single_page(
+        &self,
+        paging_state: PagingState,
+        query_request: ExecutableStatement,
+        value_list: Option<PyAnyWrapperValueList>,
+    ) -> Result<(QueryResult, PagingStateResponse), PyErr> {
+        self.session_spawn_on_runtime(async move |s| {
+            match query_request {
+                ExecutableStatement::Prepared(p) => match value_list {
+                    Some(row) => s.execute_single_page(&p, row, paging_state).await,
+                    None => s.execute_single_page(&p, &[], paging_state).await,
+                },
+                ExecutableStatement::Unprepared(q) => match value_list {
+                    Some(row) => s.query_single_page(q, row, paging_state).await,
+                    None => s.query_single_page(q, &[], paging_state).await,
+                },
+            }
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        })
+        .await
     }
 }
 

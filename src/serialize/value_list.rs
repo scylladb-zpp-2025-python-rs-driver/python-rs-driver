@@ -24,6 +24,15 @@ pub(crate) struct PyAnyWrapperValueList {
     pub(crate) is_empty: bool,
 }
 
+impl Clone for PyAnyWrapperValueList {
+    fn clone(&self) -> Self {
+        PyAnyWrapperValueList {
+            inner: Python::attach(|py| self.inner.clone_ref(py)),
+            is_empty: self.is_empty,
+        }
+    }
+}
+
 impl Deref for PyAnyWrapperValueList {
     type Target = Py<PyAny>;
     fn deref(&self) -> &Self::Target {
