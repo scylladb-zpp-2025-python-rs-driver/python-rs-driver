@@ -1,5 +1,5 @@
-use crate::deserialize::PyDeserializationError;
 use crate::deserialize::value::{PyDeserializeValue, PyDeserializedValue};
+use crate::errors::{DeserializationErrorSegment, DriverDeserializationError};
 use pyo3::exceptions::{PyRuntimeError, PyStopIteration};
 use pyo3::prelude::{PyDictMethods, PyModule, PyModuleMethods};
 use pyo3::types::{PyDict, PyString};
@@ -110,6 +110,7 @@ impl RowsIterator {
 struct Cursor<'a> {
     row_iterator: RawRowIterator<'a, 'a>,
     column_iterator: ColumnIterator<'a, 'a>,
+    row_index: usize,
 }
 
 impl<'a> Cursor<'a> {
@@ -119,11 +120,17 @@ impl<'a> Cursor<'a> {
                 .column_iterator
                 .next()
                 .ok_or_else(|| PyErr::new::<PyStopIteration, _>(""))?
-                .map_err(PyDeserializationError::from)?;
+                .map_err(DriverDeserializationError::scylla)?;
 
-            let value = PyDeserializedValue::deserialize_py(raw_col.spec.typ(), raw_col.slice, py)?;
+            let col_name_str = raw_col.spec.name().to_string();
 
-            let column_name = PyString::new(py, raw_col.spec.name()).unbind();
+            let value = PyDeserializedValue::deserialize_py(raw_col.spec.typ(), raw_col.slice, py)
+                .map_err(|e| {
+                    e.with_context(DeserializationErrorSegment::Column(col_name_str.clone()))
+                        .with_context(DeserializationErrorSegment::Row(self.row_index))
+                })?;
+
+            let column_name = PyString::new(py, &col_name_str).unbind();
 
             Ok(Column { column_name, value })
         })
@@ -134,9 +141,11 @@ impl<'a> Cursor<'a> {
             .row_iterator
             .next()
             .ok_or_else(|| PyErr::new::<PyStopIteration, _>(""))?
-            .map_err(PyDeserializationError::from)?;
+            .map_err(DriverDeserializationError::scylla)?;
 
         self.column_iterator = column_iterator;
+        // row_index is used for error context
+        self.row_index = self.row_index.wrapping_add(1);
         Ok(())
     }
 }
@@ -196,6 +205,7 @@ impl RowColumnCursor {
             Ok(Cursor {
                 row_iterator,
                 column_iterator,
+                row_index: usize::MAX, // Will be incremented to 0 on first next_row call
             })
         })?;
 

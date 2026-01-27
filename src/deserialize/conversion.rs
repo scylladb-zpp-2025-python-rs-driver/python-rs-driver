@@ -27,6 +27,9 @@ impl<'py> IntoPyObject<'py> for CqlVarintWrapper<'_> {
         let bytes = self.val.as_signed_bytes_be_slice();
         unsafe {
             let val = ffi::_PyLong_FromByteArray(bytes.as_ptr(), bytes.len(), 0, 1);
+            if val.is_null() {
+                return Err(PyErr::fetch(py));
+            }
 
             Ok(Bound::from_owned_ptr(py, val).cast_into()?)
         }
