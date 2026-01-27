@@ -5,6 +5,7 @@ use scylla::statement::unprepared;
 use std::time::Duration;
 
 use crate::enums::{Consistency, SerialConsistency};
+use crate::errors::{DriverExecutionError, ExecutionOp, ExecutionSource};
 use crate::execution_profile::ExecutionProfile;
 use crate::types::UnsetType;
 
@@ -70,12 +71,21 @@ impl PreparedStatement {
             .map(SerialConsistency::to_python)
     }
 
-    fn with_request_timeout(&self, timeout: Option<f64>) -> PyResult<PreparedStatement> {
+    fn with_request_timeout(
+        &self,
+        timeout: Option<f64>,
+    ) -> Result<PreparedStatement, DriverExecutionError> {
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
-            return Err(pyo3::exceptions::PyValueError::new_err(
+            // User provided an invalid timeout
+            let cause = pyo3::exceptions::PyValueError::new_err(
                 "timeout must be a positive, finite number (in seconds)",
+            );
+            return Err(DriverExecutionError::bad_query(
+                ExecutionOp::ConfigureStatement,
+                Some(ExecutionSource::PyErr(cause)),
+                "invalid timeout",
             ));
         }
 
@@ -90,11 +100,24 @@ impl PreparedStatement {
         PreparedStatement { _inner: p }
     }
 
-    fn get_request_timeout(&self) -> PyResult<Py<PyAny>> {
+    fn get_request_timeout(&self) -> Result<Py<PyAny>, DriverExecutionError> {
         match self._inner.get_request_timeout() {
             Some(t) if t == Duration::MAX => Ok(Python::attach(|py| py.None())),
-            Some(t) => Python::attach(|py| PyFloat::new(py, t.as_secs_f64()).into_py_any(py)),
-            None => Python::attach(|py| UnsetType::get_instance(py).into_py_any(py)),
+            Some(t) => Python::attach(|py| PyFloat::new(py, t.as_secs_f64()).into_py_any(py))
+                .map_err(|e| {
+                    DriverExecutionError::runtime(
+                        ExecutionOp::ConfigureStatement,
+                        Some(ExecutionSource::PyErr(e)),
+                        "failed to convert timeout to Python float",
+                    )
+                }),
+            None => Python::attach(|py| UnsetType::get_instance(py).into_py_any(py)).map_err(|e| {
+                DriverExecutionError::runtime(
+                    ExecutionOp::ConfigureStatement,
+                    Some(ExecutionSource::PyErr(e)),
+                    "failed to get Unset instance",
+                )
+            }),
         }
     }
 }
@@ -172,12 +195,21 @@ impl Statement {
             .map(SerialConsistency::to_python)
     }
 
-    fn with_request_timeout(&self, timeout: Option<f64>) -> PyResult<Statement> {
+    fn with_request_timeout(
+        &self,
+        timeout: Option<f64>,
+    ) -> Result<Statement, DriverExecutionError> {
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
-            return Err(pyo3::exceptions::PyValueError::new_err(
+            // User provided an invalid timeout
+            let cause = pyo3::exceptions::PyValueError::new_err(
                 "timeout must be a positive, finite number (in seconds)",
+            );
+            return Err(DriverExecutionError::bad_query(
+                ExecutionOp::ConfigureStatement,
+                Some(ExecutionSource::PyErr(cause)),
+                "invalid timeout",
             ));
         }
 
@@ -192,11 +224,24 @@ impl Statement {
         Statement { _inner: s }
     }
 
-    fn get_request_timeout(&self) -> PyResult<Py<PyAny>> {
+    fn get_request_timeout(&self) -> Result<Py<PyAny>, DriverExecutionError> {
         match self._inner.get_request_timeout() {
             Some(t) if t == Duration::MAX => Ok(Python::attach(|py| py.None())),
-            Some(t) => Python::attach(|py| PyFloat::new(py, t.as_secs_f64()).into_py_any(py)),
-            None => Python::attach(|py| UnsetType::get_instance(py).into_py_any(py)),
+            Some(t) => Python::attach(|py| PyFloat::new(py, t.as_secs_f64()).into_py_any(py))
+                .map_err(|e| {
+                    DriverExecutionError::runtime(
+                        ExecutionOp::ConfigureStatement,
+                        Some(ExecutionSource::PyErr(e)),
+                        "failed to convert timeout to Python float",
+                    )
+                }),
+            None => Python::attach(|py| UnsetType::get_instance(py).into_py_any(py)).map_err(|e| {
+                DriverExecutionError::runtime(
+                    ExecutionOp::ConfigureStatement,
+                    Some(ExecutionSource::PyErr(e)),
+                    "failed to get Unset instance",
+                )
+            }),
         }
     }
 }

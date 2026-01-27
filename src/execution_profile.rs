@@ -3,6 +3,7 @@ use scylla::client;
 use std::time::Duration;
 
 use crate::enums::{Consistency, SerialConsistency};
+use crate::errors::{DriverExecutionError, ExecutionOp, ExecutionSource};
 
 #[pyclass(frozen)]
 #[derive(Clone)]
@@ -22,14 +23,19 @@ impl ExecutionProfile {
         timeout: Option<f64>,
         consistency: Consistency,
         serial_consistency: Option<SerialConsistency>,
-    ) -> PyResult<Self> {
+    ) -> Result<Self, DriverExecutionError> {
         let mut profile_builder = client::execution_profile::ExecutionProfile::builder();
 
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
-            return Err(pyo3::exceptions::PyValueError::new_err(
+            let cause = pyo3::exceptions::PyValueError::new_err(
                 "timeout must be a positive, finite number (in seconds)",
+            );
+            return Err(DriverExecutionError::bad_query(
+                ExecutionOp::BuildExecutionProfile,
+                Some(ExecutionSource::PyErr(cause)),
+                "invalid timeout value",
             ));
         }
 
