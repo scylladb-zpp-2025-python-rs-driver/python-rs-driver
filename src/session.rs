@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
 use crate::deserialize::results::RequestResult;
-use crate::serialize::value_list::PyAnyWrapperValueList;
+use crate::serialize::value_list::PyValueList;
+use crate::statement::PreparedStatement;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use scylla::statement;
 
 use crate::RUNTIME;
-use crate::statement::PreparedStatement;
 use crate::statement::Statement;
 use pyo3::types::{PyDict, PyList, PyString, PyTuple};
 use scylla::statement::unprepared;
@@ -18,7 +18,7 @@ pub(crate) struct Session {
     pub(crate) _inner: Arc<scylla::client::session::Session>,
 }
 
-fn try_into_value_list(values: Py<PyAny>) -> PyResult<PyAnyWrapperValueList> {
+fn try_into_value_list(values: Py<PyAny>) -> PyResult<PyValueList> {
     Python::attach(|py| {
         let val: Bound<'_, PyAny> = values.into_bound(py);
 
@@ -27,7 +27,7 @@ fn try_into_value_list(values: Py<PyAny>) -> PyResult<PyAnyWrapperValueList> {
             || val.is_instance_of::<PyDict>()
         {
             let is_empty = is_empty_row(&val);
-            return Ok(PyAnyWrapperValueList {
+            return Ok(PyValueList {
                 inner: val.unbind(),
                 is_empty,
             });
