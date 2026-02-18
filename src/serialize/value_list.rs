@@ -19,19 +19,19 @@ use crate::serialize::value::{PyAnyWrapper, PythonDriverSerializationError};
 // TODO: Refactor this wrapper into an enum with variants for `PyList`, `PyTuple`, and `PyDict`.
 // Currently, the type is checked in `session::try_into_value_list`, but this information
 // is lost when stored as `PyAny`.
-pub(crate) struct PyAnyWrapperValueList {
+pub(crate) struct PyValueList {
     pub(crate) inner: Py<PyAny>,
     pub(crate) is_empty: bool,
 }
 
-impl Deref for PyAnyWrapperValueList {
+impl Deref for PyValueList {
     type Target = Py<PyAny>;
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
-impl PyAnyWrapperValueList {
+impl PyValueList {
     fn length_equality_check<T: Any>(
         val_list_len: usize,
         cols_len: usize,
@@ -110,7 +110,7 @@ impl PyAnyWrapperValueList {
     }
 }
 
-impl SerializeRow for PyAnyWrapperValueList {
+impl SerializeRow for PyValueList {
     fn serialize(
         &self,
         ctx: &RowSerializationContext<'_>,
