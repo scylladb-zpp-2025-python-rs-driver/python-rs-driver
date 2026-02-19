@@ -160,13 +160,10 @@ where
 }
 
 impl Session {
-    async fn run_on_runtime<F, Fut, R>(&self, f: F) -> PyResult<R>
+    async fn run_on_runtime<F, R>(&self, f: F) -> PyResult<R>
     where
         // closure: takes Arc<scylla::client::session::Session> and returns a future
-        F: FnOnce(Arc<scylla::client::session::Session>) -> Fut + Send + 'static,
-        // for spawn we need Send + 'static
-        Fut: Future<Output = PyResult<R>> + Send + 'static,
-        R: Send + 'static,
+        F: AsyncFnOnce(Arc<scylla::client::session::Session>) -> PyResult<R>,
     {
         let session_clone = Arc::clone(&self._inner);
 
