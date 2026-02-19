@@ -208,7 +208,6 @@ impl DefaultPolicy {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub(crate) struct PyLoadBalancingPolicy {
     pub(crate) _inner: Py<PyAny>,
 }
@@ -232,7 +231,6 @@ impl<'py> IntoPyObject<'py> for PyLoadBalancingPolicy {
 }
 
 impl PyLoadBalancingPolicy {
-    #[allow(dead_code)]
     fn extract_node_shards(
         py: Python,
         python_fallback: &Bound<'_, PyAny>,
