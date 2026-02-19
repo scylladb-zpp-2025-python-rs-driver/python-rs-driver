@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::ops::Deref;
 
 use pyo3::exceptions::{PyKeyError, PyTypeError};
 use pyo3::prelude::*;
@@ -22,13 +21,6 @@ use crate::serialize::value::{PyAnyWrapper, PythonDriverSerializationError};
 pub(crate) struct PyValueList {
     pub(crate) inner: Py<PyAny>,
     pub(crate) is_empty: bool,
-}
-
-impl Deref for PyValueList {
-    type Target = Py<PyAny>;
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
 }
 
 impl PyValueList {
@@ -120,7 +112,7 @@ impl SerializeRow for PyValueList {
         row_writer: &mut RowWriter,
     ) -> Result<(), SerializationError> {
         Python::attach(|py| {
-            let val = self.bind(py);
+            let val = self.inner.bind(py);
 
             if let Ok(sequence) = val.cast::<PySequence>() {
                 Self::serialize_sequence(sequence, ctx, row_writer)
