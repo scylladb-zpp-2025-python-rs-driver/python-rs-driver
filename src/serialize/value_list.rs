@@ -23,86 +23,83 @@ pub(crate) struct PyValueList {
     pub(crate) is_empty: bool,
 }
 
-impl PyValueList {
-    fn length_equality_check<T: Any>(
-        val_list_len: usize,
-        cols_len: usize,
-    ) -> Result<(), SerializationError> {
-        if val_list_len != cols_len {
-            return Err(SerializationError::new(mk_typck_err_val_list::<T>(
-                BuiltinTypeCheckErrorKind::WrongColumnCount {
-                    rust_cols: val_list_len,
-                    cql_cols: cols_len,
-                },
-            )));
-        }
-
-        Ok(())
+fn length_equality_check<T: Any>(
+    val_list_len: usize,
+    cols_len: usize,
+) -> Result<(), SerializationError> {
+    if val_list_len != cols_len {
+        return Err(SerializationError::new(mk_typck_err_val_list::<T>(
+            BuiltinTypeCheckErrorKind::WrongColumnCount {
+                rust_cols: val_list_len,
+                cql_cols: cols_len,
+            },
+        )));
     }
 
-    fn serialize_element<'a>(
-        col: &ColumnSpec,
-        val: &Bound<PyAny>,
-        row_writer: &'a mut RowWriter<'_>,
-    ) -> Result<WrittenCellProof<'a>, SerializationError> {
-        let wrapper = PyAnyWrapper::new(val);
-        let sub_writer = row_writer.make_cell_writer();
-        SerializeValue::serialize(&wrapper, col.typ(), sub_writer)
+    Ok(())
+}
+
+fn serialize_element<'a>(
+    col: &ColumnSpec,
+    val: &Bound<PyAny>,
+    row_writer: &'a mut RowWriter<'_>,
+) -> Result<WrittenCellProof<'a>, SerializationError> {
+    let wrapper = PyAnyWrapper::new(val);
+    let sub_writer = row_writer.make_cell_writer();
+    SerializeValue::serialize(&wrapper, col.typ(), sub_writer)
+}
+
+fn serialize_sequence<'py>(
+    value_list: &Bound<'py, PySequence>,
+    ctx: &RowSerializationContext<'_>,
+    row_writer: &mut RowWriter,
+) -> Result<(), SerializationError> {
+    let len = value_list
+        .len()
+        .map_err(|e| SerializationError::new(PythonDriverSerializationError::PythonError(e)))?;
+
+    length_equality_check::<PySequence>(len, ctx.columns().len())?;
+
+    let iter = value_list
+        .try_iter()
+        .map_err(|e| SerializationError::new(PythonDriverSerializationError::PythonError(e)))?;
+
+    for (col, val) in ctx.columns().iter().zip(iter) {
+        let val = val
+            .map_err(|e| SerializationError::new(PythonDriverSerializationError::PythonError(e)))?;
+        serialize_element(col, &val, row_writer)?;
     }
 
-    fn serialize_sequence<'py>(
-        value_list: &Bound<'py, PySequence>,
-        ctx: &RowSerializationContext<'_>,
-        row_writer: &mut RowWriter,
-    ) -> Result<(), SerializationError> {
-        let len = value_list
-            .len()
-            .map_err(|e| SerializationError::new(PythonDriverSerializationError::PythonError(e)))?;
+    Ok(())
+}
 
-        Self::length_equality_check::<PySequence>(len, ctx.columns().len())?;
+fn serialize_mapping<'py>(
+    value_list: &Bound<'py, PyMapping>,
+    ctx: &RowSerializationContext<'_>,
+    row_writer: &mut RowWriter,
+) -> Result<(), SerializationError> {
+    let py = value_list.py();
+    let dict_len = value_list
+        .len()
+        .map_err(|e| SerializationError::new(PythonDriverSerializationError::PythonError(e)))?;
+    length_equality_check::<PyDict>(dict_len, ctx.columns().len())?;
 
-        let iter = value_list
-            .try_iter()
-            .map_err(|e| SerializationError::new(PythonDriverSerializationError::PythonError(e)))?;
-
-        for (col, val) in ctx.columns().iter().zip(iter) {
-            let val = val.map_err(|e| {
+    for col in ctx.columns().iter() {
+        let item: Bound<PyAny> = value_list.get_item(col.name()).map_err(|e| {
+            if e.is_instance_of::<PyKeyError>(py) {
+                SerializationError::new(mk_typck_err_val_list::<PyDict>(
+                    BuiltinTypeCheckErrorKind::ValueMissingForColumn {
+                        name: col.name().into(),
+                    },
+                ))
+            } else {
                 SerializationError::new(PythonDriverSerializationError::PythonError(e))
-            })?;
-            Self::serialize_element(col, &val, row_writer)?;
-        }
-
-        Ok(())
+            }
+        })?;
+        serialize_element(col, &item, row_writer)?;
     }
 
-    fn serialize_mapping<'py>(
-        value_list: &Bound<'py, PyMapping>,
-        ctx: &RowSerializationContext<'_>,
-        row_writer: &mut RowWriter,
-    ) -> Result<(), SerializationError> {
-        let py = value_list.py();
-        let dict_len = value_list
-            .len()
-            .map_err(|e| SerializationError::new(PythonDriverSerializationError::PythonError(e)))?;
-        Self::length_equality_check::<PyDict>(dict_len, ctx.columns().len())?;
-
-        for col in ctx.columns().iter() {
-            let item: Bound<PyAny> = value_list.get_item(col.name()).map_err(|e| {
-                if e.is_instance_of::<PyKeyError>(py) {
-                    SerializationError::new(mk_typck_err_val_list::<PyDict>(
-                        BuiltinTypeCheckErrorKind::ValueMissingForColumn {
-                            name: col.name().into(),
-                        },
-                    ))
-                } else {
-                    SerializationError::new(PythonDriverSerializationError::PythonError(e))
-                }
-            })?;
-            Self::serialize_element(col, &item, row_writer)?;
-        }
-
-        Ok(())
-    }
+    Ok(())
 }
 
 impl SerializeRow for PyValueList {
@@ -115,9 +112,9 @@ impl SerializeRow for PyValueList {
             let val = self.inner.bind(py);
 
             if let Ok(sequence) = val.cast::<PySequence>() {
-                Self::serialize_sequence(sequence, ctx, row_writer)
+                serialize_sequence(sequence, ctx, row_writer)
             } else if let Ok(mapping) = val.cast::<PyMapping>() {
-                Self::serialize_mapping(mapping, ctx, row_writer)
+                serialize_mapping(mapping, ctx, row_writer)
             } else {
                 Err(SerializationError::new(PyTypeError::new_err(
                     "expected Python tuple, list or dict",
