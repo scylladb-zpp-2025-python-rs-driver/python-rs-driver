@@ -8,7 +8,6 @@ pub(crate) struct Sharder {
 }
 
 impl Sharder {
-    #[allow(dead_code)]
     pub(crate) fn from_rust(inner: scylla::routing::Sharder) -> Self {
         Self { _inner: inner }
     }
