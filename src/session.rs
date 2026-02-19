@@ -33,7 +33,7 @@ impl Session {
         // to `unwrap_or_default()` here.
         let values = values.unwrap_or_default();
         let result = self
-            .session_spawn_on_runtime(async move |s| {
+            .spawn_on_runtime(async move |s| {
                 match statement {
                     ExecutableStatement::Prepared(p) => s.execute_unpaged(&p, values).await,
                     ExecutableStatement::Unprepared(q) => s.query_unpaged(q, values).await,
@@ -58,7 +58,7 @@ impl Session {
 }
 
 impl Session {
-    async fn session_spawn_on_runtime<F, Fut, R>(&self, f: F) -> PyResult<R>
+    async fn spawn_on_runtime<F, Fut, R>(&self, f: F) -> PyResult<R>
     where
         // closure: takes Arc<scylla::client::session::Session> and returns a future
         F: FnOnce(Arc<scylla::client::session::Session>) -> Fut + Send + 'static,
