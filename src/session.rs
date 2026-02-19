@@ -17,7 +17,7 @@ use scylla::statement::unprepared;
 
 #[pyclass]
 pub(crate) struct Session {
-    pub(crate) _inner: Arc<scylla::client::session::Session>,
+    pub(crate) _inner: scylla::client::session::Session,
 }
 
 #[pymethods]
