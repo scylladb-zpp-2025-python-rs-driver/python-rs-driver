@@ -1,18 +1,22 @@
 use std::sync::Arc;
 
-use crate::deserialize::results::RequestResult;
+use crate::deserialize::results::{PyPagingState, QueryPager, RequestResult};
 use crate::serialize::value_list::PyAnyWrapperValueList;
-use crate::statement::PreparedStatement;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use scylla::statement;
 
 use crate::RUNTIME;
+use crate::statement::PreparedStatement;
 use crate::statement::Statement;
 use pyo3::types::{PyDict, PyList, PyString, PyTuple};
+use scylla::response::query_result::QueryResult;
+use scylla::statement::unprepared;
+use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 
 #[pyclass]
+#[derive(Clone)]
 pub(crate) struct Session {
     pub(crate) _inner: Arc<scylla::client::session::Session>,
 }
@@ -52,89 +56,81 @@ fn is_empty_row(row: &Bound<'_, PyAny>) -> bool {
 
 #[pymethods]
 impl Session {
-    #[pyo3(signature = (request, values = None))]
+    #[pyo3(signature = (request, values=None, paging_state=None, paged=true))]
     async fn execute(
         &self,
         request: Py<PyAny>,
         values: Option<Py<PyAny>>,
+        paging_state: Option<Py<PyPagingState>>,
+        paged: bool,
     ) -> PyResult<RequestResult> {
         let value_list = values.map(try_into_value_list).transpose()?;
 
-        if let Ok(prepared) = Python::attach(|py| {
-            let scylla_prepared = request.extract::<Py<PreparedStatement>>(py)?;
-            Ok::<Py<PreparedStatement>, PyErr>(scylla_prepared)
-        }) {
-            let result = self
-                .session_spawn_on_runtime(async move |s| {
-                    let res = match value_list {
-                        Some(row) => s.execute_unpaged(&prepared.get()._inner, row).await,
-                        None => s.execute_unpaged(&prepared.get()._inner, &[]).await,
-                    };
-
-                    res.map_err(|e| PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e)))
-                })
-                .await?; // Propagate error form closure
-            return Ok(RequestResult {
-                inner: Arc::new(result),
-            });
+        if paged {
+            self.execute_paged(request, paging_state, value_list).await
+        } else {
+            self.execute_unpaged(request, value_list).await
         }
-
-        if let Ok(statement) = Python::attach(|py| {
-            let scylla_statement = request.extract::<Py<Statement>>(py)?;
-            Ok::<Py<Statement>, PyErr>(scylla_statement)
-        }) {
-            let result = self
-                .session_spawn_on_runtime(async move |s| {
-                    let res = match value_list {
-                        Some(row) => s.query_unpaged(statement.get()._inner.clone(), row).await,
-                        None => s.query_unpaged(statement.get()._inner.clone(), &[]).await,
-                    };
-
-                    res.map_err(|e| PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e)))
-                })
-                .await?; // Propagate error from closure
-            return Ok(RequestResult {
-                inner: Arc::new(result),
-            });
-        }
-
-        if let Ok(text) = Python::attach(|py| {
-            let text = request.extract::<Py<PyString>>(py)?;
-            Ok::<String, PyErr>(text.to_string())
-        }) {
-            let result = self
-                .session_spawn_on_runtime(async move |s| {
-                    let res = match value_list {
-                        Some(row) => s.query_unpaged(text, row).await,
-                        None => s.query_unpaged(text, &[]).await,
-                    };
-
-                    res.map_err(|e| PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e)))
-                })
-                .await?; // Propagate error form closure
-            return Ok(RequestResult {
-                inner: Arc::new(result),
-            });
-        }
-        Err(PyErr::new::<PyTypeError, _>("Invalid request type"))
     }
 
     async fn prepare(&self, statement: Py<PyAny>) -> PyResult<PreparedStatement> {
-        if let Ok(statement) = Python::attach(|py| {
-            let scylla_statement = statement.extract::<Py<Statement>>(py)?;
-            Ok::<Py<Statement>, PyErr>(scylla_statement)
-        }) {
-            let scylla_statement = statement.get()._inner.clone();
-            return self.scylla_prepare(scylla_statement).await;
+        let query_request = ExecutableStatement::extract_request(statement)?;
+
+        match query_request {
+            ExecutableStatement::Unprepared(s) => self.scylla_prepare(s).await,
+            ExecutableStatement::Prepared(_) => Err(PyErr::new::<PyTypeError, _>(
+                "Cannot prepare a PreparedStatement; expected a str or Statement".to_string(),
+            )),
         }
-        if let Ok(text) = Python::attach(|py| statement.extract::<String>(py)) {
-            return self.scylla_prepare(text).await;
-        }
-        Err(PyErr::new::<PyTypeError, _>("Invalid statement type"))
     }
 }
 
 impl Session {
+    async fn execute_unpaged(
+        &self,
+        request: Py<PyAny>,
+        value_list: Option<PyAnyWrapperValueList>,
+    ) -> PyResult<RequestResult> {
+        let query_request = ExecutableStatement::extract_request(request)?;
+        let result = self
+            .session_spawn_on_runtime(async move |s| {
+                match query_request {
+                    ExecutableStatement::Prepared(p) => match value_list {
+                        Some(row) => s.execute_unpaged(&p, row).await,
+                        None => s.execute_unpaged(&p, &[]).await,
+                    },
+                    ExecutableStatement::Unprepared(q) => match value_list {
+                        Some(row) => s.query_unpaged(q, row).await,
+                        None => s.query_unpaged(q, &[]).await,
+                    },
+                }
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+            })
+            .await?;
+
+        RequestResult::new(result, QueryPager::unpaged())
+    }
+
+    async fn execute_paged(
+        &self,
+        request: Py<PyAny>,
+        paging_state: Option<Py<PyPagingState>>,
+        value_list: Option<PyAnyWrapperValueList>,
+    ) -> PyResult<RequestResult> {
+        let query_request = ExecutableStatement::extract_request(request)?;
+
+        let paging_state = if let Some(state) = paging_state {
+            Python::attach(|py| state.borrow(py).inner.clone())
+        } else {
+            PagingState::start()
+        };
+
+        let (result, paging_response) = self
+            .execute_single_page(paging_state, query_request.clone(), value_list.clone())
+            .await?;
+
+        RequestResult::new(result, QueryPager::paged(paging_response, self, query_request, value_list))
+    }
     async fn session_spawn_on_runtime<F, Fut, R>(&self, f: F) -> PyResult<R>
     where
         // closure: takes Arc<scylla::client::session::Session> and returns a future
@@ -162,6 +158,59 @@ impl Session {
                 e
             ))),
         }
+    }
+
+    pub(crate) async fn execute_single_page(
+        &self,
+        paging_state: PagingState,
+        query_request: ExecutableStatement,
+        value_list: Option<PyAnyWrapperValueList>,
+    ) -> Result<(QueryResult, PagingStateResponse), PyErr> {
+        self.session_spawn_on_runtime(async move |s| {
+            match query_request {
+                ExecutableStatement::Prepared(p) => match value_list {
+                    Some(row) => s.execute_single_page(&p, row, paging_state).await,
+                    None => s.execute_single_page(&p, &[], paging_state).await,
+                },
+                ExecutableStatement::Unprepared(q) => match value_list {
+                    Some(row) => s.query_single_page(q, row, paging_state).await,
+                    None => s.query_single_page(q, &[], paging_state).await,
+                },
+            }
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        })
+        .await
+    }
+}
+
+#[derive(Clone)]
+pub(crate) enum ExecutableStatement {
+    Prepared(statement::prepared::PreparedStatement),
+    Unprepared(unprepared::Statement),
+}
+
+impl ExecutableStatement {
+    fn extract_request(request: Py<PyAny>) -> PyResult<ExecutableStatement> {
+        Python::attach(|py| {
+            if let Ok(prepared) = request.extract::<Py<PreparedStatement>>(py) {
+                return Ok(ExecutableStatement::Prepared(prepared.get()._inner.clone()));
+            }
+
+            if let Ok(text) = request.extract::<Py<PyString>>(py) {
+                return Ok(ExecutableStatement::Unprepared(text.to_str(py)?.into()));
+            }
+
+            if let Ok(statement) = request.extract::<Py<Statement>>(py) {
+                return Ok(ExecutableStatement::Unprepared(
+                    statement.get()._inner.clone(),
+                ));
+            }
+
+            Err(PyErr::new::<PyTypeError, _>(format!(
+                "Invalid request type: expected str | Statement | PreparedStatement, got {}",
+                request.into_bound(py).get_type().name()?
+            )))
+        })
     }
 }
 
