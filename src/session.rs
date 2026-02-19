@@ -3,10 +3,12 @@ use std::sync::Arc;
 use crate::deserialize::results::RequestResult;
 use crate::serialize::value_list::PyAnyWrapperValueList;
 use crate::statement::PreparedStatement;
+use pin_project::pin_project;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use scylla::statement;
+use tokio::runtime::Runtime;
 
 use crate::RUNTIME;
 use crate::statement::Statement;
@@ -134,6 +136,29 @@ impl Session {
     }
 }
 
+#[pin_project]
+struct WithRuntime<'runtime, Fut> {
+    runtime: &'runtime Runtime,
+    #[pin]
+    future: Fut,
+}
+
+impl<'runtime, Fut, R> Future for WithRuntime<'runtime, Fut>
+where
+    Fut: Future<Output = R>,
+{
+    type Output = R;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let this = self.project();
+        let _guard = this.runtime.enter();
+        this.future.poll(cx)
+    }
+}
+
 impl Session {
     async fn run_on_runtime<F, Fut, R>(&self, f: F) -> PyResult<R>
     where
@@ -145,10 +170,12 @@ impl Session {
     {
         let session_clone = Arc::clone(&self._inner);
 
-        RUNTIME
-            .spawn(async move { f(session_clone).await })
-            .await
-            .expect("Runtime failed to spawn task") // It's okay to panic here
+        let future = f(session_clone);
+        WithRuntime {
+            runtime: &RUNTIME,
+            future,
+        }
+        .await
     }
 
     async fn scylla_prepare(
