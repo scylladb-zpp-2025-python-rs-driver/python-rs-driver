@@ -10,45 +10,12 @@ use scylla::statement;
 
 use crate::RUNTIME;
 use crate::statement::Statement;
-use pyo3::types::{PyDict, PyList, PyString, PyTuple};
+use pyo3::types::PyString;
 use scylla::statement::unprepared;
 
 #[pyclass]
 pub(crate) struct Session {
     pub(crate) _inner: Arc<scylla::client::session::Session>,
-}
-
-fn try_into_value_list(values: Py<PyAny>) -> PyResult<PyValueList> {
-    Python::attach(|py| {
-        let val: Bound<'_, PyAny> = values.into_bound(py);
-
-        if val.is_instance_of::<PyList>()
-            || val.is_instance_of::<PyTuple>()
-            || val.is_instance_of::<PyDict>()
-        {
-            let is_empty = is_empty_row(&val);
-            return Ok(PyValueList {
-                inner: val.unbind(),
-                is_empty,
-            });
-        }
-
-        let python_type_name = val.get_type().name()?;
-        let python_type_name = python_type_name.extract::<&str>()?;
-
-        Err(PyErr::new::<PyTypeError, _>(format!(
-            "Invalid row type: got {}, expected Python tuple, list or dict",
-            python_type_name
-        )))
-    })
-}
-
-fn is_empty_row(row: &Bound<'_, PyAny>) -> bool {
-    if row.is_none() {
-        return true;
-    }
-
-    row.len().map(|len| len == 0).unwrap_or(false)
 }
 
 #[pymethods]
@@ -57,18 +24,16 @@ impl Session {
     async fn execute(
         &self,
         statement: ExecutableStatement,
-        values: Option<Py<PyAny>>,
+        values: Option<PyValueList>,
     ) -> PyResult<RequestResult> {
-        let value_list = values.map(try_into_value_list).transpose()?;
-
         let result = self
             .session_spawn_on_runtime(async move |s| {
                 match statement {
-                    ExecutableStatement::Prepared(p) => match value_list {
+                    ExecutableStatement::Prepared(p) => match values {
                         Some(row) => s.execute_unpaged(&p, row).await,
                         None => s.execute_unpaged(&p, &[]).await,
                     },
-                    ExecutableStatement::Unprepared(q) => match value_list {
+                    ExecutableStatement::Unprepared(q) => match values {
                         Some(row) => s.query_unpaged(q, row).await,
                         None => s.query_unpaged(q, &[]).await,
                     },

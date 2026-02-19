@@ -4,7 +4,7 @@ use std::ops::Deref;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
-use pyo3::{Bound, Py, PyAny};
+use pyo3::{Bound, BoundObject, Py, PyAny};
 
 use scylla::errors::SerializationError;
 use scylla::frame::response::result::ColumnSpec;
@@ -145,4 +145,37 @@ pub(crate) fn mk_typck_err_val_list<T>(
         rust_name: std::any::type_name::<T>(),
         kind: kind.into(),
     })
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyValueList {
+    type Error = PyErr;
+
+    fn extract(val: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if val.is_instance_of::<PyList>()
+            || val.is_instance_of::<PyTuple>()
+            || val.is_instance_of::<PyDict>()
+        {
+            let is_empty = is_empty_row(&val);
+            return Ok(PyValueList {
+                inner: val.unbind(),
+                is_empty,
+            });
+        }
+
+        let python_type_name = val.get_type().name()?;
+        let python_type_name = python_type_name.extract::<&str>()?;
+
+        Err(PyErr::new::<PyTypeError, _>(format!(
+            "Invalid row type: got {}, expected Python tuple, list or dict",
+            python_type_name
+        )))
+    }
+}
+
+fn is_empty_row(row: &Bound<'_, PyAny>) -> bool {
+    if row.is_none() {
+        return true;
+    }
+
+    row.len().map(|len| len == 0).unwrap_or(false)
 }
