@@ -3,10 +3,12 @@ use std::sync::Arc;
 use crate::deserialize::results::RequestResult;
 use crate::serialize::value_list::PyAnyWrapperValueList;
 use crate::statement::PreparedStatement;
+use pin_project::pin_project;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use scylla::statement;
+use tokio::runtime::Runtime;
 
 use crate::RUNTIME;
 use crate::statement::Statement;
@@ -14,7 +16,7 @@ use pyo3::types::{PyDict, PyList, PyString, PyTuple};
 
 #[pyclass]
 pub(crate) struct Session {
-    pub(crate) _inner: Arc<scylla::client::session::Session>,
+    pub(crate) _inner: scylla::client::session::Session,
 }
 
 fn try_into_value_list(values: Py<PyAny>) -> PyResult<PyAnyWrapperValueList> {
@@ -65,7 +67,7 @@ impl Session {
             Ok::<Py<PreparedStatement>, PyErr>(scylla_prepared)
         }) {
             let result = self
-                .session_spawn_on_runtime(async move |s| {
+                .run_on_runtime(async move |s| {
                     let res = match value_list {
                         Some(row) => s.execute_unpaged(&prepared.get()._inner, row).await,
                         None => s.execute_unpaged(&prepared.get()._inner, &[]).await,
@@ -84,7 +86,7 @@ impl Session {
             Ok::<Py<Statement>, PyErr>(scylla_statement)
         }) {
             let result = self
-                .session_spawn_on_runtime(async move |s| {
+                .run_on_runtime(async move |s| {
                     let res = match value_list {
                         Some(row) => s.query_unpaged(statement.get()._inner.clone(), row).await,
                         None => s.query_unpaged(statement.get()._inner.clone(), &[]).await,
@@ -103,7 +105,7 @@ impl Session {
             Ok::<String, PyErr>(text.to_string())
         }) {
             let result = self
-                .session_spawn_on_runtime(async move |s| {
+                .run_on_runtime(async move |s| {
                     let res = match value_list {
                         Some(row) => s.query_unpaged(text, row).await,
                         None => s.query_unpaged(text, &[]).await,
@@ -134,21 +136,40 @@ impl Session {
     }
 }
 
-impl Session {
-    async fn session_spawn_on_runtime<F, Fut, R>(&self, f: F) -> PyResult<R>
-    where
-        // closure: takes Arc<scylla::client::session::Session> and returns a future
-        F: FnOnce(Arc<scylla::client::session::Session>) -> Fut + Send + 'static,
-        // for spawn we need Send + 'static
-        Fut: Future<Output = PyResult<R>> + Send + 'static,
-        R: Send + 'static,
-    {
-        let session_clone = Arc::clone(&self._inner);
+#[pin_project]
+struct WithRuntime<'runtime, Fut> {
+    runtime: &'runtime Runtime,
+    #[pin]
+    future: Fut,
+}
 
-        RUNTIME
-            .spawn(async move { f(session_clone).await })
-            .await
-            .expect("Runtime failed to spawn task") // It's okay to panic here
+impl<'runtime, Fut, R> Future for WithRuntime<'runtime, Fut>
+where
+    Fut: Future<Output = R>,
+{
+    type Output = R;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let this = self.project();
+        let _guard = this.runtime.enter();
+        this.future.poll(cx)
+    }
+}
+
+impl Session {
+    async fn run_on_runtime<F, R>(&self, f: F) -> PyResult<R>
+    where
+        F: AsyncFnOnce(&scylla::client::session::Session) -> PyResult<R>,
+    {
+        let future = f(&self._inner);
+        WithRuntime {
+            runtime: &RUNTIME,
+            future,
+        }
+        .await
     }
 
     async fn scylla_prepare(
