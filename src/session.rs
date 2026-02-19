@@ -16,7 +16,7 @@ use pyo3::types::{PyDict, PyList, PyString, PyTuple};
 
 #[pyclass]
 pub(crate) struct Session {
-    pub(crate) _inner: Arc<scylla::client::session::Session>,
+    pub(crate) _inner: scylla::client::session::Session,
 }
 
 fn try_into_value_list(values: Py<PyAny>) -> PyResult<PyAnyWrapperValueList> {
