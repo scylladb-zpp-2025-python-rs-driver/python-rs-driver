@@ -15,9 +15,11 @@ use scylla::serialize::writers::{RowWriter, WrittenCellProof};
 
 use crate::serialize::value::{PyAnyWrapper, PythonDriverSerializationError};
 
+#[derive(Default)]
 pub(crate) enum PyValueList {
     Sequence(Py<PySequence>),
     Mapping(Py<PyMapping>),
+    #[default]
     Empty,
 }
 

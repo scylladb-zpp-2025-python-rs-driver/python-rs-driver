@@ -25,18 +25,23 @@ impl Session {
         request: Py<PyAny>,
         values: Option<PyValueList>,
     ) -> PyResult<RequestResult> {
+        // Why not accept PyValueList instead of Option<PyValueList>?
+        // It would require us to use `Default::default` as default value in
+        // `pyo3(signature = ...)`, and thus use `text_signature` as well
+        // to keep signature usable for Python users. I think it is cleaner
+        // to `unwrap_or_default()` here.
+        let values = values.unwrap_or_default();
         if let Ok(prepared) = Python::attach(|py| {
             let scylla_prepared = request.extract::<Py<PreparedStatement>>(py)?;
             Ok::<Py<PreparedStatement>, PyErr>(scylla_prepared)
         }) {
             let result = self
                 .session_spawn_on_runtime(async move |s| {
-                    let res = match values {
-                        Some(row) => s.execute_unpaged(&prepared.get()._inner, row).await,
-                        None => s.execute_unpaged(&prepared.get()._inner, &[]).await,
-                    };
-
-                    res.map_err(|e| PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e)))
+                    s.execute_unpaged(&prepared.get()._inner, values)
+                        .await
+                        .map_err(|e| {
+                            PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
+                        })
                 })
                 .await?; // Propagate error form closure
             return Ok(RequestResult {
@@ -50,12 +55,11 @@ impl Session {
         }) {
             let result = self
                 .session_spawn_on_runtime(async move |s| {
-                    let res = match values {
-                        Some(row) => s.query_unpaged(statement.get()._inner.clone(), row).await,
-                        None => s.query_unpaged(statement.get()._inner.clone(), &[]).await,
-                    };
-
-                    res.map_err(|e| PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e)))
+                    s.query_unpaged(statement.get()._inner.clone(), values)
+                        .await
+                        .map_err(|e| {
+                            PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
+                        })
                 })
                 .await?; // Propagate error from closure
             return Ok(RequestResult {
@@ -69,12 +73,9 @@ impl Session {
         }) {
             let result = self
                 .session_spawn_on_runtime(async move |s| {
-                    let res = match values {
-                        Some(row) => s.query_unpaged(text, row).await,
-                        None => s.query_unpaged(text, &[]).await,
-                    };
-
-                    res.map_err(|e| PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e)))
+                    s.query_unpaged(text, values).await.map_err(|e| {
+                        PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
+                    })
                 })
                 .await?; // Propagate error form closure
             return Ok(RequestResult {
