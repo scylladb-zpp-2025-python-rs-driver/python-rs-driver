@@ -15,12 +15,10 @@ use scylla::serialize::writers::{RowWriter, WrittenCellProof};
 
 use crate::serialize::value::{PyAnyWrapper, PythonDriverSerializationError};
 
-// TODO: Refactor this wrapper into an enum with variants for `PyList`, `PyTuple`, and `PyDict`.
-// Currently, the type is checked in `session::try_into_value_list`, but this information
-// is lost when stored as `PyAny`.
-pub(crate) struct PyValueList {
-    pub(crate) inner: Py<PyAny>,
-    pub(crate) is_empty: bool,
+pub(crate) enum PyValueList {
+    Sequence(Py<PySequence>),
+    Mapping(Py<PyMapping>),
+    Empty,
 }
 
 impl SerializeRow for PyValueList {
@@ -29,23 +27,30 @@ impl SerializeRow for PyValueList {
         ctx: &RowSerializationContext<'_>,
         row_writer: &mut RowWriter,
     ) -> Result<(), SerializationError> {
-        Python::attach(|py| {
-            let val = self.inner.bind(py);
-
-            if let Ok(sequence) = val.cast::<PySequence>() {
-                serialize_sequence(sequence, ctx, row_writer)
-            } else if let Ok(mapping) = val.cast::<PyMapping>() {
-                serialize_mapping(mapping, ctx, row_writer)
-            } else {
-                Err(SerializationError::new(PyTypeError::new_err(
-                    "expected Python tuple, list or dict",
-                )))
+        Python::attach(|py| match self {
+            Self::Sequence(sequence) => serialize_sequence(sequence.bind(py), ctx, row_writer),
+            Self::Mapping(mapping) => serialize_mapping(mapping.bind(py), ctx, row_writer),
+            Self::Empty => {
+                if ctx.columns().is_empty() {
+                    Ok(())
+                } else {
+                    let expected = ctx.columns().len();
+                    let got = 0usize;
+                    let kind = BuiltinTypeCheckErrorKind::WrongColumnCount {
+                        rust_cols: got,
+                        cql_cols: expected,
+                    };
+                    Err(SerializationError::new(BuiltinTypeCheckError {
+                        rust_name: "None or empty collection",
+                        kind,
+                    }))
+                }
             }
         })
     }
 
     fn is_empty(&self) -> bool {
-        self.is_empty
+        matches!(self, Self::Empty)
     }
 }
 
@@ -53,15 +58,30 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyValueList {
     type Error = PyErr;
 
     fn extract(val: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        if val.is_instance_of::<PyList>()
-            || val.is_instance_of::<PyTuple>()
-            || val.is_instance_of::<PyMapping>()
-        {
-            let is_empty = is_empty_row(&val);
-            return Ok(PyValueList {
-                inner: val.unbind(),
-                is_empty,
-            });
+        if val.is_none() {
+            return Ok(Self::Empty);
+        }
+
+        if let Ok(sequence) = val.cast::<PyList>() {
+            if sequence.len() == 0 {
+                return Ok(Self::Empty);
+            }
+            return Ok(Self::Sequence(sequence.as_sequence().to_owned().unbind()));
+        }
+
+        if let Ok(sequence) = val.cast::<PyTuple>() {
+            if sequence.len() == 0 {
+                return Ok(Self::Empty);
+            }
+            return Ok(Self::Sequence(sequence.as_sequence().to_owned().unbind()));
+        }
+
+        if let Ok(mapping) = val.cast::<PyMapping>() {
+            // If any error was encountered, we should not treat this as empty.
+            if mapping.len().map(|len| len == 0).unwrap_or(false) {
+                return Ok(Self::Empty);
+            }
+            return Ok(Self::Mapping(mapping.unbind()));
         }
 
         let python_type_name = val.get_type().name()?;
@@ -158,12 +178,4 @@ fn mk_typck_err_val_list<T>(kind: impl Into<BuiltinTypeCheckErrorKind>) -> Seria
         rust_name: std::any::type_name::<T>(),
         kind: kind.into(),
     })
-}
-
-fn is_empty_row(row: &Bound<'_, PyAny>) -> bool {
-    if row.is_none() {
-        return true;
-    }
-
-    row.len().map(|len| len == 0).unwrap_or(false)
 }
