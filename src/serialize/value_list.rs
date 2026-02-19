@@ -1,9 +1,9 @@
 use std::any::Any;
 use std::ops::Deref;
 
-use pyo3::exceptions::PyTypeError;
+use pyo3::exceptions::{PyKeyError, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyTuple};
+use pyo3::types::{PyDict, PyList, PyMapping, PySequence, PyTuple};
 use pyo3::{Bound, BoundObject, Py, PyAny};
 
 use scylla::errors::SerializationError;
@@ -58,8 +58,8 @@ impl PyValueList {
         SerializeValue::serialize(&wrapper, col.typ(), sub_writer)
     }
 
-    fn serialize_sequence<'py, T: Any>(
-        value_list: &Bound<'py, PyAny>,
+    fn serialize_sequence<'py>(
+        value_list: &Bound<'py, PySequence>,
         ctx: &RowSerializationContext<'_>,
         row_writer: &mut RowWriter,
     ) -> Result<(), SerializationError> {
@@ -67,7 +67,7 @@ impl PyValueList {
             .len()
             .map_err(|e| SerializationError::new(PythonDriverSerializationError::PythonError(e)))?;
 
-        Self::length_equality_check::<T>(len, ctx.columns().len())?;
+        Self::length_equality_check::<PySequence>(len, ctx.columns().len())?;
 
         let iter = value_list
             .try_iter()
@@ -83,26 +83,29 @@ impl PyValueList {
         Ok(())
     }
 
-    fn serialize_dict<'py>(
-        value_list: &Bound<'py, PyDict>,
+    fn serialize_mapping<'py>(
+        value_list: &Bound<'py, PyMapping>,
         ctx: &RowSerializationContext<'_>,
         row_writer: &mut RowWriter,
     ) -> Result<(), SerializationError> {
-        Self::length_equality_check::<PyDict>(value_list.len(), ctx.columns().len())?;
+        let py = value_list.py();
+        let dict_len = value_list
+            .len()
+            .map_err(|e| SerializationError::new(PythonDriverSerializationError::PythonError(e)))?;
+        Self::length_equality_check::<PyDict>(dict_len, ctx.columns().len())?;
 
         for col in ctx.columns().iter() {
-            let item: Bound<PyAny> = value_list
-                .get_item(col.name())
-                .map_err(|e| {
-                    SerializationError::new(PythonDriverSerializationError::PythonError(e))
-                })?
-                .ok_or_else(|| {
+            let item: Bound<PyAny> = value_list.get_item(col.name()).map_err(|e| {
+                if e.is_instance_of::<PyKeyError>(py) {
                     SerializationError::new(mk_typck_err_val_list::<PyDict>(
                         BuiltinTypeCheckErrorKind::ValueMissingForColumn {
                             name: col.name().into(),
                         },
                     ))
-                })?;
+                } else {
+                    SerializationError::new(PythonDriverSerializationError::PythonError(e))
+                }
+            })?;
             Self::serialize_element(col, &item, row_writer)?;
         }
 
@@ -119,12 +122,10 @@ impl SerializeRow for PyValueList {
         Python::attach(|py| {
             let val = self.bind(py);
 
-            if val.is_instance_of::<PyList>() {
-                Self::serialize_sequence::<PyList>(val, ctx, row_writer)
-            } else if val.is_instance_of::<PyTuple>() {
-                Self::serialize_sequence::<PyTuple>(val, ctx, row_writer)
-            } else if let Ok(value_list) = val.cast::<PyDict>() {
-                Self::serialize_dict(value_list, ctx, row_writer)
+            if let Ok(sequence) = val.cast::<PySequence>() {
+                Self::serialize_sequence(sequence, ctx, row_writer)
+            } else if let Ok(mapping) = val.cast::<PyMapping>() {
+                Self::serialize_mapping(mapping, ctx, row_writer)
             } else {
                 Err(SerializationError::new(PyTypeError::new_err(
                     "expected Python tuple, list or dict",
@@ -153,7 +154,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyValueList {
     fn extract(val: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
         if val.is_instance_of::<PyList>()
             || val.is_instance_of::<PyTuple>()
-            || val.is_instance_of::<PyDict>()
+            || val.is_instance_of::<PyMapping>()
         {
             let is_empty = is_empty_row(&val);
             return Ok(PyValueList {
@@ -166,7 +167,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for PyValueList {
         let python_type_name = python_type_name.extract::<&str>()?;
 
         Err(PyErr::new::<PyTypeError, _>(format!(
-            "Invalid row type: got {}, expected Python tuple, list or dict",
+            "Invalid row type: got {}, expected Python tuple, list or Mapping (e.g. dict)",
             python_type_name
         )))
     }
