@@ -9,6 +9,7 @@ mod cluster;
 mod deserialize;
 mod enums;
 mod execution_profile;
+mod policies;
 mod routing;
 mod serialize;
 mod session;
@@ -46,5 +47,6 @@ fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(py, module, "value", value::value)?;
     add_submodule(py, module, "cluster", cluster::cluster)?;
     add_submodule(py, module, "routing", routing::routing)?;
+    add_submodule(py, module, "policies", policies::policies)?;
     Ok(())
 }

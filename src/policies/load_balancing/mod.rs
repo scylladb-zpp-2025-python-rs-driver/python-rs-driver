@@ -14,13 +14,12 @@ use scylla::{
 use scylla::cluster::{self, NodeRef};
 
 use crate::cluster::node::NodeShard;
+use crate::cluster::state::TableSpecOwned;
 use crate::{
     cluster::state::ClusterState,
     enums::{Consistency, SerialConsistency},
     routing::Token,
 };
-
-pub(crate) type TableSpecOwned = (String, String);
 
 #[pyclass]
 struct NodeShardIterator {
@@ -40,7 +39,6 @@ impl NodeShardIterator {
 
 #[pyclass]
 #[derive(Clone)]
-#[expect(dead_code)]
 pub(crate) struct DefaultPolicy {
     pub(crate) preferred_datacenter: Option<String>,
     pub(crate) preferred_datacenter_and_rack: Option<(String, String)>,
@@ -53,7 +51,6 @@ pub(crate) struct DefaultPolicy {
 /// `PyLoadBalancingPolicy` wrapper from a raw `Py<PyAny>`.
 ///
 /// In case of `DefaultPolicy` a native Rust `DefaultPolicy` is constructed.
-#[expect(dead_code)]
 pub(crate) fn build_load_balancing_policy(
     policy: Py<PyAny>,
 ) -> (PyLoadBalancingPolicy, Arc<dyn LoadBalancingPolicy>) {
@@ -348,7 +345,6 @@ impl RoutingInfoOwned {
     }
 }
 
-#[expect(dead_code)]
 impl RoutingInfoOwned {
     pub(crate) fn to_python(routing_info: &'_ RoutingInfo) -> Self {
         RoutingInfoOwned {
