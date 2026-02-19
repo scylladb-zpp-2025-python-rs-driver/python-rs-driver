@@ -128,9 +128,7 @@ impl SerializeRow for PyValueList {
     }
 }
 
-pub(crate) fn mk_typck_err_val_list<T>(
-    kind: impl Into<BuiltinTypeCheckErrorKind>,
-) -> SerializationError {
+fn mk_typck_err_val_list<T>(kind: impl Into<BuiltinTypeCheckErrorKind>) -> SerializationError {
     SerializationError::new(BuiltinTypeCheckError {
         rust_name: std::any::type_name::<T>(),
         kind: kind.into(),
