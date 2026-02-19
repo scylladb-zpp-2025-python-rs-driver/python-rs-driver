@@ -40,7 +40,7 @@ impl Session {
                     s.execute_unpaged(&prepared.get()._inner, values)
                         .await
                         .map_err(|e| {
-                            PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
+                            PyRuntimeError::new_err(format!("Failed execute_unpaged: {}", e))
                         })
                 })
                 .await?; // Propagate error form closure
