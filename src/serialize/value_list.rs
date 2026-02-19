@@ -23,6 +23,57 @@ pub(crate) struct PyValueList {
     pub(crate) is_empty: bool,
 }
 
+impl SerializeRow for PyValueList {
+    fn serialize(
+        &self,
+        ctx: &RowSerializationContext<'_>,
+        row_writer: &mut RowWriter,
+    ) -> Result<(), SerializationError> {
+        Python::attach(|py| {
+            let val = self.inner.bind(py);
+
+            if let Ok(sequence) = val.cast::<PySequence>() {
+                serialize_sequence(sequence, ctx, row_writer)
+            } else if let Ok(mapping) = val.cast::<PyMapping>() {
+                serialize_mapping(mapping, ctx, row_writer)
+            } else {
+                Err(SerializationError::new(PyTypeError::new_err(
+                    "expected Python tuple, list or dict",
+                )))
+            }
+        })
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty
+    }
+}
+
+impl<'a, 'py> FromPyObject<'a, 'py> for PyValueList {
+    type Error = PyErr;
+
+    fn extract(val: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if val.is_instance_of::<PyList>()
+            || val.is_instance_of::<PyTuple>()
+            || val.is_instance_of::<PyMapping>()
+        {
+            let is_empty = is_empty_row(&val);
+            return Ok(PyValueList {
+                inner: val.unbind(),
+                is_empty,
+            });
+        }
+
+        let python_type_name = val.get_type().name()?;
+        let python_type_name = python_type_name.extract::<&str>()?;
+
+        Err(PyErr::new::<PyTypeError, _>(format!(
+            "Invalid row type: got {}, expected Python tuple, list or Mapping (e.g. dict)",
+            python_type_name
+        )))
+    }
+}
+
 fn length_equality_check<T: Any>(
     val_list_len: usize,
     cols_len: usize,
@@ -102,62 +153,11 @@ fn serialize_mapping<'py>(
     Ok(())
 }
 
-impl SerializeRow for PyValueList {
-    fn serialize(
-        &self,
-        ctx: &RowSerializationContext<'_>,
-        row_writer: &mut RowWriter,
-    ) -> Result<(), SerializationError> {
-        Python::attach(|py| {
-            let val = self.inner.bind(py);
-
-            if let Ok(sequence) = val.cast::<PySequence>() {
-                serialize_sequence(sequence, ctx, row_writer)
-            } else if let Ok(mapping) = val.cast::<PyMapping>() {
-                serialize_mapping(mapping, ctx, row_writer)
-            } else {
-                Err(SerializationError::new(PyTypeError::new_err(
-                    "expected Python tuple, list or dict",
-                )))
-            }
-        })
-    }
-
-    fn is_empty(&self) -> bool {
-        self.is_empty
-    }
-}
-
 fn mk_typck_err_val_list<T>(kind: impl Into<BuiltinTypeCheckErrorKind>) -> SerializationError {
     SerializationError::new(BuiltinTypeCheckError {
         rust_name: std::any::type_name::<T>(),
         kind: kind.into(),
     })
-}
-
-impl<'a, 'py> FromPyObject<'a, 'py> for PyValueList {
-    type Error = PyErr;
-
-    fn extract(val: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
-        if val.is_instance_of::<PyList>()
-            || val.is_instance_of::<PyTuple>()
-            || val.is_instance_of::<PyMapping>()
-        {
-            let is_empty = is_empty_row(&val);
-            return Ok(PyValueList {
-                inner: val.unbind(),
-                is_empty,
-            });
-        }
-
-        let python_type_name = val.get_type().name()?;
-        let python_type_name = python_type_name.extract::<&str>()?;
-
-        Err(PyErr::new::<PyTypeError, _>(format!(
-            "Invalid row type: got {}, expected Python tuple, list or Mapping (e.g. dict)",
-            python_type_name
-        )))
-    }
 }
 
 fn is_empty_row(row: &Bound<'_, PyAny>) -> bool {
