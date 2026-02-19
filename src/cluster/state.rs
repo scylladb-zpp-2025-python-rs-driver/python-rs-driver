@@ -15,7 +15,7 @@ use crate::{
 
 pub(crate) type TableSpecOwned = (String, String);
 
-#[pyclass(skip_from_py_object)]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub(crate) struct ClusterState {
     pub(crate) _inner: cluster::ClusterState,
