@@ -43,7 +43,7 @@ impl Session {
                             PyRuntimeError::new_err(format!("Failed execute_unpaged: {}", e))
                         })
                 })
-                .await?; // Propagate error form closure
+                .await?; // Propagate error from closure
             return Ok(RequestResult {
                 inner: Arc::new(result),
             });
@@ -77,7 +77,7 @@ impl Session {
                         PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
                     })
                 })
-                .await?; // Propagate error form closure
+                .await?; // Propagate error from closure
             return Ok(RequestResult {
                 inner: Arc::new(result),
             });
