@@ -6,36 +6,36 @@ from scylla.statement import PreparedStatement, Statement
 from scylla.types import Unset
 
 
-def test_execution_profile_builder():
+def test_execution_profile_builder() -> None:
     profile = ExecutionProfile()
     assert isinstance(profile, ExecutionProfile)
 
 
-def test_execution_profile_negative_timeout():
+def test_execution_profile_negative_timeout() -> None:
     with pytest.raises(ValueError) as exc_info:
         ExecutionProfile(timeout=-1.0)
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
-def test_execution_profile_zero_timeout():
+def test_execution_profile_zero_timeout() -> None:
     with pytest.raises(ValueError) as exc_info:
         ExecutionProfile(timeout=0.0)
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
-def test_execution_profile_nan_timeout():
+def test_execution_profile_nan_timeout() -> None:
     with pytest.raises(ValueError) as exc_info:
         ExecutionProfile(timeout=float("nan"))
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
-def test_execution_profile_infinity_timeout():
+def test_execution_profile_infinity_timeout() -> None:
     with pytest.raises(ValueError) as exc_info:
         ExecutionProfile(timeout=float("inf"))
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
-def test_execution_profile_builder_consistency():
+def test_execution_profile_builder_consistency() -> None:
     expected_consistency = Consistency.One
     profile = ExecutionProfile(consistency=expected_consistency)
     assert isinstance(profile, ExecutionProfile)
@@ -44,7 +44,7 @@ def test_execution_profile_builder_consistency():
     assert actual_consistency == expected_consistency
 
 
-def test_execution_profile_builder_serial_consistency():
+def test_execution_profile_builder_serial_consistency() -> None:
     expected_serial_consistency = SerialConsistency.Serial
     profile = ExecutionProfile(serial_consistency=expected_serial_consistency)
     assert isinstance(profile, ExecutionProfile)
@@ -53,7 +53,7 @@ def test_execution_profile_builder_serial_consistency():
     assert actual_serial_consistency == expected_serial_consistency
 
 
-def test_execution_profile_timeout():
+def test_execution_profile_timeout() -> None:
     expected_timeout = 10.5
     profile = ExecutionProfile(timeout=expected_timeout)
     assert isinstance(profile, ExecutionProfile)
@@ -63,7 +63,7 @@ def test_execution_profile_timeout():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_create_session_with_profile():
+async def test_create_session_with_profile() -> None:
     expected_timeout = 10.5
     expected_consistency = Consistency.All
     profile = ExecutionProfile(timeout=expected_timeout, consistency=expected_consistency)
@@ -75,7 +75,7 @@ async def test_create_session_with_profile():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_invalid_consistency_for_query():
+async def test_invalid_consistency_for_query() -> None:
     profile = ExecutionProfile(consistency=Consistency.Three)
     builder = SessionBuilder(["127.0.0.2"], 9042, execution_profile=profile)
     session = await builder.connect()
@@ -86,7 +86,7 @@ async def test_invalid_consistency_for_query():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_invalid_consistency_for_prepared_statement():
+async def test_invalid_consistency_for_prepared_statement() -> None:
     profile = ExecutionProfile(consistency=Consistency.Three)
     builder = SessionBuilder(["127.0.0.2"], 9042, execution_profile=profile)
     session = await builder.connect()
@@ -96,14 +96,14 @@ async def test_invalid_consistency_for_prepared_statement():
         assert "Not enough nodes are alive to satisfy required consistency level" in str(exc_info.value)
 
 
-def test_statement_creation():
+def test_statement_creation() -> None:
     query = "SELECT * FROM system.local"
     stmt = Statement(query)
     assert isinstance(stmt, Statement)
     assert stmt.contents == query
 
 
-def test_statement_with_and_get_consistency():
+def test_statement_with_and_get_consistency() -> None:
     stmt = Statement("SELECT * FROM system.local")
     expected_consistency = Consistency.All
     stmt = stmt.with_consistency(expected_consistency)
@@ -113,7 +113,7 @@ def test_statement_with_and_get_consistency():
     assert actual_consistency == expected_consistency
 
 
-def test_statement_without_consistency():
+def test_statement_without_consistency() -> None:
     stmt = Statement("SELECT * FROM system.local")
     stmt = stmt.with_consistency(Consistency.Quorum)
     stmt = stmt.without_consistency()
@@ -122,7 +122,7 @@ def test_statement_without_consistency():
     assert actual_consistency is None
 
 
-def test_statement_with_and_get_serial_consistency():
+def test_statement_with_and_get_serial_consistency() -> None:
     stmt = Statement("SELECT * FROM system.local")
     expected_serial_consistency = SerialConsistency.LocalSerial
     stmt = stmt.with_serial_consistency(expected_serial_consistency)
@@ -132,7 +132,7 @@ def test_statement_with_and_get_serial_consistency():
     assert actual_serial_consistency == expected_serial_consistency
 
 
-def test_statement_without_serial_consistency():
+def test_statement_without_serial_consistency() -> None:
     stmt = Statement("SELECT * FROM system.local")
     stmt = stmt.with_serial_consistency(SerialConsistency.Serial)
     stmt = stmt.without_serial_consistency()
@@ -141,7 +141,7 @@ def test_statement_without_serial_consistency():
     assert actual_serial_consistency is None
 
 
-def test_statement_with_and_get_request_timeout():
+def test_statement_with_and_get_request_timeout() -> None:
     stmt = Statement("SELECT * FROM system.local")
     expected_timeout = 7.25
     stmt = stmt.with_request_timeout(expected_timeout)
@@ -151,7 +151,7 @@ def test_statement_with_and_get_request_timeout():
     assert actual_timeout == expected_timeout
 
 
-def test_statement_with_timeout_set_to_none():
+def test_statement_with_timeout_set_to_none() -> None:
     stmt = Statement("SELECT * FROM system.local")
     stmt = stmt.with_request_timeout(None)
 
@@ -159,7 +159,7 @@ def test_statement_with_timeout_set_to_none():
     assert actual_timeout is None
 
 
-def test_statement_without_request_timeout():
+def test_statement_without_request_timeout() -> None:
     stmt = Statement("SELECT * FROM system.local")
     stmt = stmt.with_request_timeout(10.0)
     stmt = stmt.without_request_timeout()
@@ -168,35 +168,35 @@ def test_statement_without_request_timeout():
     assert actual_timeout is Unset
 
 
-def test_statement_with_negative_timeout():
+def test_statement_with_negative_timeout() -> None:
     stmt = Statement("SELECT * FROM system.local")
     with pytest.raises(ValueError) as exc_info:
         stmt.with_request_timeout(-1.0)
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
-def test_statement_with_zero_timeout():
+def test_statement_with_zero_timeout() -> None:
     stmt = Statement("SELECT * FROM system.local")
     with pytest.raises(ValueError) as exc_info:
         stmt.with_request_timeout(0.0)
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
-def test_statement_with_nan_timeout():
+def test_statement_with_nan_timeout() -> None:
     stmt = Statement("SELECT * FROM system.local")
     with pytest.raises(ValueError) as exc_info:
         stmt.with_request_timeout(float("nan"))
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
-def test_statement_with_infinity_timeout():
+def test_statement_with_infinity_timeout() -> None:
     stmt = Statement("SELECT * FROM system.local")
     with pytest.raises(ValueError) as exc_info:
         stmt.with_request_timeout(float("inf"))
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
-def test_statement_with_and_get_execution_profile():
+def test_statement_with_and_get_execution_profile() -> None:
     stmt = Statement("SELECT * FROM system.local")
     expected_timeout = 2.5
     profile = ExecutionProfile(timeout=expected_timeout)
@@ -207,7 +207,7 @@ def test_statement_with_and_get_execution_profile():
     assert actual_profile.get_request_timeout() == expected_timeout
 
 
-def test_statement_without_execution_profile():
+def test_statement_without_execution_profile() -> None:
     stmt = Statement("SELECT * FROM system.local")
     profile = ExecutionProfile(timeout=3.0)
     stmt = stmt.with_execution_profile(profile)
@@ -217,7 +217,7 @@ def test_statement_without_execution_profile():
     assert actual_profile is None
 
 
-def test_statement_chaining():
+def test_statement_chaining() -> None:
     stmt = Statement("SELECT * FROM system.local")
     stmt = (
         stmt.with_consistency(Consistency.Quorum)
@@ -232,7 +232,7 @@ def test_statement_chaining():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_invalid_consistency_for_statement():
+async def test_invalid_consistency_for_statement() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
     stmt = Statement("SELECT * FROM system.local").with_consistency(Consistency.Three)
@@ -243,7 +243,7 @@ async def test_invalid_consistency_for_statement():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_prepared_with_consistency():
+async def test_prepared_with_consistency() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
 
@@ -256,7 +256,7 @@ async def test_prepared_with_consistency():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_prepared_with_and_get_consistency():
+async def test_prepared_with_and_get_consistency() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
 
@@ -271,7 +271,7 @@ async def test_prepared_with_and_get_consistency():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_prepared_with_and_without_consistency():
+async def test_prepared_with_and_without_consistency() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
 
@@ -286,7 +286,7 @@ async def test_prepared_with_and_without_consistency():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_prepared_with_execution_profile():
+async def test_prepared_with_execution_profile() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
 
@@ -299,7 +299,7 @@ async def test_prepared_with_execution_profile():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_prepared_with_and_get_execution_profile():
+async def test_prepared_with_and_get_execution_profile() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
 
@@ -315,7 +315,7 @@ async def test_prepared_with_and_get_execution_profile():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_prepared_with_and_without_execution_profile():
+async def test_prepared_with_and_without_execution_profile() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
 
@@ -331,7 +331,7 @@ async def test_prepared_with_and_without_execution_profile():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_prepared_with_request_timeout():
+async def test_prepared_with_request_timeout() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
 
@@ -344,7 +344,7 @@ async def test_prepared_with_request_timeout():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_prepared_with_and_get_request_timeout():
+async def test_prepared_with_and_get_request_timeout() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
 
@@ -359,7 +359,7 @@ async def test_prepared_with_and_get_request_timeout():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_prepared_with_and_without_request_timeout():
+async def test_prepared_with_and_without_request_timeout() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
 
@@ -376,7 +376,7 @@ async def test_prepared_with_and_without_request_timeout():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_prepared_with_timeout_set_to_none():
+async def test_prepared_with_timeout_set_to_none() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
 
@@ -390,7 +390,7 @@ async def test_prepared_with_timeout_set_to_none():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_prepared_with_serial_consistency():
+async def test_prepared_with_serial_consistency() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
 
@@ -403,7 +403,7 @@ async def test_prepared_with_serial_consistency():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_prepared_with_and_get_serial_consistency():
+async def test_prepared_with_and_get_serial_consistency() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
 
@@ -418,7 +418,7 @@ async def test_prepared_with_and_get_serial_consistency():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_prepared_with_and_without_serial_consistency():
+async def test_prepared_with_and_without_serial_consistency() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
 
