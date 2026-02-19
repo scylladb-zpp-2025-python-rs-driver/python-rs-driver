@@ -26,17 +26,17 @@ impl Session {
         statement: ExecutableStatement,
         values: Option<PyValueList>,
     ) -> PyResult<RequestResult> {
+        // Why not accept PyValueList instead of Option<PyValueList>?
+        // It would require us to use `Default::default` as default value in
+        // `pyo3(signature = ...)`, and thus use `text_signature` as well
+        // to keep signature usable for Python users. I think it is cleaner
+        // to `unwrap_or_default()` here.
+        let values = values.unwrap_or_default();
         let result = self
             .session_spawn_on_runtime(async move |s| {
                 match statement {
-                    ExecutableStatement::Prepared(p) => match values {
-                        Some(row) => s.execute_unpaged(&p, row).await,
-                        None => s.execute_unpaged(&p, &[]).await,
-                    },
-                    ExecutableStatement::Unprepared(q) => match values {
-                        Some(row) => s.query_unpaged(q, row).await,
-                        None => s.query_unpaged(q, &[]).await,
-                    },
+                    ExecutableStatement::Prepared(p) => s.execute_unpaged(&p, values).await,
+                    ExecutableStatement::Unprepared(q) => s.query_unpaged(q, values).await,
                 }
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))
             })
