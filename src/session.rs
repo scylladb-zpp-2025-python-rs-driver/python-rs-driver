@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::deserialize::results::RequestResult;
-use crate::serialize::value_list::PyAnyWrapperValueList;
+use crate::serialize::value_list::PyValueList;
 use crate::statement::PreparedStatement;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
@@ -10,44 +10,11 @@ use scylla::statement;
 
 use crate::RUNTIME;
 use crate::statement::Statement;
-use pyo3::types::{PyDict, PyList, PyString, PyTuple};
+use pyo3::types::PyString;
 
 #[pyclass]
 pub(crate) struct Session {
     pub(crate) _inner: Arc<scylla::client::session::Session>,
-}
-
-fn try_into_value_list(values: Py<PyAny>) -> PyResult<PyAnyWrapperValueList> {
-    Python::attach(|py| {
-        let val: Bound<'_, PyAny> = values.into_bound(py);
-
-        if val.is_instance_of::<PyList>()
-            || val.is_instance_of::<PyTuple>()
-            || val.is_instance_of::<PyDict>()
-        {
-            let is_empty = is_empty_row(&val);
-            return Ok(PyAnyWrapperValueList {
-                inner: val.unbind(),
-                is_empty,
-            });
-        }
-
-        let python_type_name = val.get_type().name()?;
-        let python_type_name = python_type_name.extract::<&str>()?;
-
-        Err(PyErr::new::<PyTypeError, _>(format!(
-            "Invalid row type: got {}, expected Python tuple, list or dict",
-            python_type_name
-        )))
-    })
-}
-
-fn is_empty_row(row: &Bound<'_, PyAny>) -> bool {
-    if row.is_none() {
-        return true;
-    }
-
-    row.len().map(|len| len == 0).unwrap_or(false)
 }
 
 #[pymethods]
@@ -56,24 +23,27 @@ impl Session {
     async fn execute(
         &self,
         request: Py<PyAny>,
-        values: Option<Py<PyAny>>,
+        values: Option<PyValueList>,
     ) -> PyResult<RequestResult> {
-        let value_list = values.map(try_into_value_list).transpose()?;
-
+        // Why not accept PyValueList instead of Option<PyValueList>?
+        // It would require us to use `Default::default` as default value in
+        // `pyo3(signature = ...)`, and thus use `text_signature` as well
+        // to keep signature usable for Python users. I think it is cleaner
+        // to `unwrap_or_default()` here.
+        let values = values.unwrap_or_default();
         if let Ok(prepared) = Python::attach(|py| {
             let scylla_prepared = request.extract::<Py<PreparedStatement>>(py)?;
             Ok::<Py<PreparedStatement>, PyErr>(scylla_prepared)
         }) {
             let result = self
                 .session_spawn_on_runtime(async move |s| {
-                    let res = match value_list {
-                        Some(row) => s.execute_unpaged(&prepared.get()._inner, row).await,
-                        None => s.execute_unpaged(&prepared.get()._inner, &[]).await,
-                    };
-
-                    res.map_err(|e| PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e)))
+                    s.execute_unpaged(&prepared.get()._inner, values)
+                        .await
+                        .map_err(|e| {
+                            PyRuntimeError::new_err(format!("Failed execute_unpaged: {}", e))
+                        })
                 })
-                .await?; // Propagate error form closure
+                .await?; // Propagate error from closure
             return Ok(RequestResult {
                 inner: Arc::new(result),
             });
@@ -85,12 +55,11 @@ impl Session {
         }) {
             let result = self
                 .session_spawn_on_runtime(async move |s| {
-                    let res = match value_list {
-                        Some(row) => s.query_unpaged(statement.get()._inner.clone(), row).await,
-                        None => s.query_unpaged(statement.get()._inner.clone(), &[]).await,
-                    };
-
-                    res.map_err(|e| PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e)))
+                    s.query_unpaged(statement.get()._inner.clone(), values)
+                        .await
+                        .map_err(|e| {
+                            PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
+                        })
                 })
                 .await?; // Propagate error from closure
             return Ok(RequestResult {
@@ -104,14 +73,11 @@ impl Session {
         }) {
             let result = self
                 .session_spawn_on_runtime(async move |s| {
-                    let res = match value_list {
-                        Some(row) => s.query_unpaged(text, row).await,
-                        None => s.query_unpaged(text, &[]).await,
-                    };
-
-                    res.map_err(|e| PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e)))
+                    s.query_unpaged(text, values).await.map_err(|e| {
+                        PyRuntimeError::new_err(format!("Failed query_unpaged: {}", e))
+                    })
                 })
-                .await?; // Propagate error form closure
+                .await?; // Propagate error from closure
             return Ok(RequestResult {
                 inner: Arc::new(result),
             });
