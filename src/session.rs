@@ -65,7 +65,7 @@ impl Session {
             Ok::<Py<PreparedStatement>, PyErr>(scylla_prepared)
         }) {
             let result = self
-                .session_spawn_on_runtime(async move |s| {
+                .spawn_on_runtime(async move |s| {
                     let res = match value_list {
                         Some(row) => s.execute_unpaged(&prepared.get()._inner, row).await,
                         None => s.execute_unpaged(&prepared.get()._inner, &[]).await,
@@ -84,7 +84,7 @@ impl Session {
             Ok::<Py<Statement>, PyErr>(scylla_statement)
         }) {
             let result = self
-                .session_spawn_on_runtime(async move |s| {
+                .spawn_on_runtime(async move |s| {
                     let res = match value_list {
                         Some(row) => s.query_unpaged(statement.get()._inner.clone(), row).await,
                         None => s.query_unpaged(statement.get()._inner.clone(), &[]).await,
@@ -103,7 +103,7 @@ impl Session {
             Ok::<String, PyErr>(text.to_string())
         }) {
             let result = self
-                .session_spawn_on_runtime(async move |s| {
+                .spawn_on_runtime(async move |s| {
                     let res = match value_list {
                         Some(row) => s.query_unpaged(text, row).await,
                         None => s.query_unpaged(text, &[]).await,
@@ -135,7 +135,7 @@ impl Session {
 }
 
 impl Session {
-    async fn session_spawn_on_runtime<F, Fut, R>(&self, f: F) -> PyResult<R>
+    async fn spawn_on_runtime<F, Fut, R>(&self, f: F) -> PyResult<R>
     where
         // closure: takes Arc<scylla::client::session::Session> and returns a future
         F: FnOnce(Arc<scylla::client::session::Session>) -> Fut + Send + 'static,
