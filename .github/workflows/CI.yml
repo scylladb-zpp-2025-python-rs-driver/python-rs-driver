@@ -21,6 +21,8 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
 
             - name: Install Rust toolchain
               uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -36,11 +38,14 @@ jobs:
             - name: Set up Python
               run: uv python install 3.10
 
-            - name: Install Python dependencies
-              run: uv sync --dev
-
-            - name: Run static checks
-              run: make static
+            - name: Run static checks on each commit
+              run: |
+                  for commit in $(git rev-list --reverse ${{ github.event.before }}..${{ github.sha }}); do
+                      echo "::group::Static checks for $commit"
+                      git checkout "$commit"
+                      make static
+                      echo "::endgroup::"
+                  done
 
     tests:
         name: Tests
@@ -48,6 +53,8 @@ jobs:
         needs: static-checks
         steps:
             - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
 
             - name: Install Rust toolchain
               uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -68,20 +75,18 @@ jobs:
                   echo "Waiting for nodes... (attempt $i/30)" && sleep 1 ||
                   { echo "All nodes ready"; break; }; done
 
-            - name: Run with Python 3.10
-              run: uv run --python 3.10 pytest -v
-
-            - name: Run with Python 3.11
-              run: uv run --python 3.11 pytest -v
-
-            - name: Run with Python 3.12
-              run: uv run --python 3.12 pytest -v
-
-            - name: Run with Python 3.13
-              run: uv run --python 3.13 pytest -v
-
-            - name: Run with Python 3.14
-              run: uv run --python 3.14 pytest -v
+            - name: Run tests on each commit
+              run: |
+                  for commit in $(git rev-list --reverse ${{ github.event.before }}..${{ github.sha }}); do
+                      echo "::group::Tests for $commit"
+                      git checkout "$commit"
+                      uv run --python 3.10 pytest -v
+                      uv run --python 3.11 pytest -v
+                      uv run --python 3.12 pytest -v
+                      uv run --python 3.13 pytest -v
+                      uv run --python 3.14 pytest -v
+                      echo "::endgroup::"
+                  done
 
             - name: Stop and cleanup ScyllaDB cluster
               if: always()
