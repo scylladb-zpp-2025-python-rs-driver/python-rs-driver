@@ -5,9 +5,12 @@ use deserialize::results;
 use pyo3::prelude::*;
 use tokio::runtime::Runtime;
 
+mod cluster;
 mod deserialize;
 mod enums;
 mod execution_profile;
+mod policies;
+mod routing;
 mod serialize;
 mod session;
 mod session_builder;
@@ -23,6 +26,7 @@ pub static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| Runtime::new().unwrap()
 #[pymodule]
 #[pyo3(name = "_rust")]
 fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+    pyo3_log::init();
     add_submodule(
         py,
         module,
@@ -41,5 +45,8 @@ fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?;
     add_submodule(py, module, "types", types::types)?;
     add_submodule(py, module, "value", value::value)?;
+    add_submodule(py, module, "cluster", cluster::cluster)?;
+    add_submodule(py, module, "policies", policies::policies)?;
+    add_submodule(py, module, "routing", routing::routing)?;
     Ok(())
 }

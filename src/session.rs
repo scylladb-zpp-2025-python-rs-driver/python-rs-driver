@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use crate::deserialize::results::RequestResult;
+use crate::execution_profile::ExecutionProfile;
+use crate::policies::load_balancing::PyLoadBalancingPolicy;
 use crate::serialize::value_list::PyAnyWrapperValueList;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
@@ -68,7 +70,7 @@ impl Session {
                         Some(row) => s.execute_unpaged(&p, row).await,
                         None => s.execute_unpaged(&p, &[]).await,
                     },
-                    ExecutableStatement::Unprepared(q) => match value_list {
+                    ExecutableStatement::Unprepared(q, _, _) => match value_list {
                         Some(row) => s.query_unpaged(q, row).await,
                         None => s.query_unpaged(q, &[]).await,
                     },
@@ -84,7 +86,12 @@ impl Session {
 
     async fn prepare(&self, statement: ExecutableStatement) -> PyResult<PreparedStatement> {
         match statement {
-            ExecutableStatement::Unprepared(s) => self.scylla_prepare(s).await,
+            ExecutableStatement::Unprepared(s, lbp, ep) => {
+                let mut p = self.scylla_prepare(s).await?;
+                p._load_balancing_policy = lbp;
+                p._execution_profile = ep;
+                Ok(p)
+            }
             ExecutableStatement::Prepared(_) => Err(PyErr::new::<PyTypeError, _>(
                 "Cannot prepare a PreparedStatement; expected a str or Statement".to_string(),
             )),
@@ -114,7 +121,11 @@ impl Session {
         statement: impl Into<statement::Statement>,
     ) -> PyResult<PreparedStatement> {
         match self._inner.prepare(statement).await {
-            Ok(prepared) => Ok(PreparedStatement { _inner: prepared }),
+            Ok(prepared) => Ok(PreparedStatement {
+                _inner: prepared,
+                _load_balancing_policy: None,
+                _execution_profile: None,
+            }),
             Err(e) => Err(PyErr::new::<PyRuntimeError, _>(format!(
                 "Failed to prepare statement: {}",
                 e
@@ -126,7 +137,11 @@ impl Session {
 #[derive(Clone)]
 pub(crate) enum ExecutableStatement {
     Prepared(statement::prepared::PreparedStatement),
-    Unprepared(unprepared::Statement),
+    Unprepared(
+        unprepared::Statement,
+        Option<PyLoadBalancingPolicy>,
+        Option<Py<ExecutionProfile>>,
+    ),
 }
 
 impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
@@ -138,12 +153,18 @@ impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
         }
 
         if let Ok(text) = obj.extract::<Bound<'py, PyString>>() {
-            return Ok(ExecutableStatement::Unprepared(text.to_str()?.into()));
+            return Ok(ExecutableStatement::Unprepared(
+                text.to_str()?.into(),
+                None,
+                None,
+            ));
         }
 
         if let Ok(statement) = obj.extract::<Bound<'py, Statement>>() {
             return Ok(ExecutableStatement::Unprepared(
                 statement.get()._inner.clone(),
+                statement.get()._load_balancing_policy.clone(),
+                statement.get()._execution_profile.clone(),
             ));
         }
 

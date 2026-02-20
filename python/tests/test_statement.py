@@ -1,4 +1,9 @@
+from typing import Iterator
+
 import pytest
+from scylla.cluster import ClusterState, NodeShard
+from scylla.execution_profile import ExecutionProfile
+from scylla.policies.load_balancing import RoutingInfo
 from scylla.session_builder import SessionBuilder
 from scylla.statement import PreparedStatement, Statement
 
@@ -53,3 +58,35 @@ async def test_prepare_and_str():
     cluster_name_str = next(result_str.iter_rows())["cluster_name"]
     assert next(result_prepared.iter_rows())["cluster_name"] == cluster_name_str
     assert cluster_name_str == next(result_statement.iter_rows())["cluster_name"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepare_statement_propagates_lbp():
+    builder = SessionBuilder(["127.0.0.2"], 9042)
+    session = await builder.connect()
+
+    class DummyPolicy:
+        counter = 0
+
+        def fallback(self, routing_info: RoutingInfo, cluster_state: ClusterState) -> Iterator[NodeShard]:
+            self.counter += 1
+            return iter([n.node_shard for n in cluster_state.get_nodes_info()])
+
+    class DifferentDummyPolicy:
+        counter = 0
+
+        def fallback(self, routing_info: RoutingInfo, cluster_state: ClusterState) -> Iterator[NodeShard]:
+            self.counter += 1
+            return iter([n.node_shard for n in cluster_state.get_nodes_info()])
+
+    policy = DummyPolicy()
+    profile = ExecutionProfile(policy=DifferentDummyPolicy())
+    stmt = Statement("SELECT * FROM system.local").with_load_balancing_policy(policy).with_execution_profile(profile)
+    prepared = await session.prepare(stmt)
+    _ = await session.execute(prepared)
+    assert policy.counter == 1
+    assert profile.get_load_balancing_policy().counter == 0  # pyright: ignore[reportUnknownMemberType, reportOptionalMemberAccess, reportAttributeAccessIssue]
+    assert prepared.get_load_balancing_policy() is policy
+    assert profile.get_load_balancing_policy() is prepared.get_execution_profile().get_load_balancing_policy()  # pyright: ignore[reportOptionalMemberAccess]
+    assert profile is prepared.get_execution_profile()
