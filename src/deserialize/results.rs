@@ -97,60 +97,6 @@ impl RowsIterator {
     }
 }
 
-/// Yoke-backed wrapper holding row and column iterators.
-///
-/// `Cursor` is stored inside a `Yoke` so that both the row iterator
-///  and the column iterator can borrow from the same data without cloning.
-///
-/// - `next_row` advances the row iterator and switches the active column
-///   iterator to the value received from row iterator.
-/// - `next_column` advances the column iterator and caches the current raw
-///   column; Python deserialization is performed by `RowColumnCursor::next_column`.
-#[derive(Yokeable)]
-struct Cursor<'a> {
-    row_iterator: RawRowIterator<'a, 'a>,
-    column_iterator: ColumnIterator<'a, 'a>,
-    current_raw_column: Option<RawColumn<'a, 'a>>,
-}
-
-impl<'a> Cursor<'a> {
-    fn next_column(&mut self) -> Result<(), PyDeserializationError> {
-        self.current_raw_column = self
-            .column_iterator
-            .next()
-            .transpose()
-            .map_err(PyDeserializationError::from)?;
-
-        Ok(())
-    }
-
-    fn next_row(&mut self) -> PyResult<()> {
-        let column_iterator = self
-            .row_iterator
-            .next()
-            .ok_or_else(|| PyErr::new::<PyStopIteration, _>(""))?
-            .map_err(PyDeserializationError::from)?;
-
-        self.column_iterator = column_iterator;
-        Ok(())
-    }
-}
-
-/// Stable cart holding deserialized metadata and raw row data.
-///
-/// This type exists solely to serve as a `StableDeref` cart for `Yoke`.
-struct QueryResultCart(Arc<QueryResult>);
-
-impl Deref for QueryResultCart {
-    type Target = QueryResult;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-unsafe impl StableDeref for QueryResultCart {}
-
 /// Iterator over columns of the current row.
 ///
 /// This object is passed to `RowFactory.build` and allows iterating over
@@ -301,6 +247,60 @@ impl RowFactory {
 impl Default for RowFactory {
     fn default() -> Self {
         RowFactory::new()
+    }
+}
+
+/// Stable cart holding deserialized metadata and raw row data.
+///
+/// This type exists solely to serve as a `StableDeref` cart for `Yoke`.
+struct QueryResultCart(Arc<QueryResult>);
+
+impl Deref for QueryResultCart {
+    type Target = QueryResult;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+unsafe impl StableDeref for QueryResultCart {}
+
+/// Yoke-backed wrapper holding row and column iterators.
+///
+/// `Cursor` is stored inside a `Yoke` so that both the row iterator
+///  and the column iterator can borrow from the same data without cloning.
+///
+/// - `next_row` advances the row iterator and switches the active column
+///   iterator to the value received from row iterator.
+/// - `next_column` advances the column iterator and caches the current raw
+///   column; Python deserialization is performed by `RowColumnCursor::next_column`.
+#[derive(Yokeable)]
+struct Cursor<'a> {
+    row_iterator: RawRowIterator<'a, 'a>,
+    column_iterator: ColumnIterator<'a, 'a>,
+    current_raw_column: Option<RawColumn<'a, 'a>>,
+}
+
+impl<'a> Cursor<'a> {
+    fn next_column(&mut self) -> Result<(), PyDeserializationError> {
+        self.current_raw_column = self
+            .column_iterator
+            .next()
+            .transpose()
+            .map_err(PyDeserializationError::from)?;
+
+        Ok(())
+    }
+
+    fn next_row(&mut self) -> PyResult<()> {
+        let column_iterator = self
+            .row_iterator
+            .next()
+            .ok_or_else(|| PyErr::new::<PyStopIteration, _>(""))?
+            .map_err(PyDeserializationError::from)?;
+
+        self.column_iterator = column_iterator;
+        Ok(())
     }
 }
 
