@@ -35,7 +35,7 @@ async def test_prepare_and_execute():
     assert isinstance(prepare_with_statement, PreparedStatement)
     result_str = await session.execute(prepared_with_str)
     result_statement = await session.execute(prepare_with_statement)
-    assert next(result_str.iter_rows())["cluster_name"] == next(result_statement.iter_rows())["cluster_name"]
+    assert next(result_str.iter_current_page())["cluster_name"] == next(result_statement.iter_current_page())["cluster_name"]
 
 
 @pytest.mark.asyncio
@@ -50,6 +50,6 @@ async def test_prepare_and_str():
     result_statement = await session.execute(statement)
     result_str = await session.execute(query_str)
 
-    cluster_name_str = next(result_str.iter_rows())["cluster_name"]
-    assert next(result_prepared.iter_rows())["cluster_name"] == cluster_name_str
-    assert cluster_name_str == next(result_statement.iter_rows())["cluster_name"]
+    cluster_name_str = next(result_str.iter_current_page())["cluster_name"]
+    assert next(result_prepared.iter_current_page())["cluster_name"] == cluster_name_str
+    assert cluster_name_str == next(result_statement.iter_current_page())["cluster_name"]
