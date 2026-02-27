@@ -70,7 +70,7 @@ async def insert_and_fetch_single_row(
     await session.execute(f"INSERT INTO {table} (id, value) VALUES ({row_id}, {value_sql});")
 
     result = await session.execute(f"SELECT * FROM {table} WHERE id = {row_id}")
-    return next(result.iter_rows())
+    return next(result.iter_current_page())
 
 
 # Verifies that iter_rows() returns an iterator yielding row dictionaries
@@ -86,7 +86,7 @@ async def test_rows_result_is_iterator_and_dicts(session: Session, table_factory
     await session.execute(f"INSERT INTO {table} (id, x) VALUES (2, 20);")
 
     result = await session.execute(f"SELECT * FROM {table}")
-    rows = result.iter_rows()
+    rows = result.iter_current_page()
 
     # rows_result should be an iterator
     assert iter(rows) is rows
@@ -332,7 +332,7 @@ async def test_list_udt_deserialization(session: Session, table_factory: TableFa
 
     # 4. Query + deserialize
     result = await session.execute(f"SELECT * FROM {table} WHERE id = 0 ORDER BY name ASC")
-    rows = result.iter_rows()
+    rows = result.iter_current_page()
     row_list = list(rows)
 
     # 5. Assertions — verify all rows returned + structure is correct
@@ -382,10 +382,10 @@ async def test_custom_row_factory_transforms_rows(session: Session, table_factor
     await session.execute(f"INSERT INTO {table} (id, name, scores) VALUES (2, 'Bob', [5, 10]);")
 
     # Query
-    result = await session.execute(f"SELECT * FROM {table}")
+    result = await session.execute(f"SELECT * FROM {table}", factory=UserFactory())
 
     # Apply the custom row factory
-    rows = result.iter_rows(UserFactory())
+    rows = result.iter_current_page()
 
     # Iterate and validate
     collected = list(rows)
