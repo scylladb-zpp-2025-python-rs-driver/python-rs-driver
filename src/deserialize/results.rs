@@ -1,99 +1,262 @@
-use crate::deserialize::PyDeserializationError;
 use crate::deserialize::value::{PyDeserializeValue, PyDeserializedValue};
-use pyo3::exceptions::{PyRuntimeError, PyStopIteration};
+use crate::deserialize::{IntoPyDeserError, PyDeserializationError};
+use crate::serialize::value_list::PyAnyWrapperValueList;
+use crate::session::{ExecutableStatement, Session};
+use pyo3::exceptions::{PyStopAsyncIteration, PyStopIteration};
 use pyo3::prelude::{PyDictMethods, PyModule, PyModuleMethods};
 use pyo3::types::{PyDict, PyString};
-use pyo3::{Bound, Py, PyAny, PyErr, PyRefMut, PyResult, Python, pyclass, pymethods, pymodule};
+use pyo3::{
+    Bound, Py, PyAny, PyErr, PyRef, PyRefMut, PyResult, Python, pyclass, pymethods, pymodule,
+};
 use scylla::response::query_result::QueryResult;
 use scylla_cql::deserialize::FrameSlice;
 use scylla_cql::deserialize::result::RawRowIterator;
 use scylla_cql::deserialize::row::{ColumnIterator, RawColumn};
+use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 use stable_deref_trait::StableDeref;
-use std::ops::Deref;
+use std::ops::{Deref};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use yoke::{Yoke, Yokeable};
 
-/// Result of a single request to the database. It represents any kind of Result frame.
+/// Database query result with paging support.
+///
+/// Represents a result frame from the database, providing access to rows
+/// and support for fetching additional pages.
 #[pyclass(frozen)]
 pub(crate) struct RequestResult {
-    pub(crate) inner: Arc<QueryResult>,
+    row_factory: Option<Py<RowFactory>>,
+    query_pager: QueryPager,
+    query_result: Arc<QueryResult>,
+}
+
+impl RequestResult {
+    pub(crate) fn new(
+        query_result: QueryResult,
+        query_pager: QueryPager,
+        row_factory: Option<Py<RowFactory>>,
+    ) -> Self {
+        Self {
+            query_pager,
+            query_result: Arc::new(query_result),
+            row_factory,
+        }
+    }
 }
 
 #[pymethods]
 impl RequestResult {
-    /// Iterate over rows returned by the query.
+    /// Returns `true` if more pages are available.
     ///
-    /// This method returns a Python iterator yielding rows from the result set.
-    /// Each row is automatically deserialized and materialized using a
-    /// `RowFactory`.
+    /// # Returns
     ///
-    /// By default, rows are returned as Python dictionaries mapping column
-    /// names (`str`) to deserialized values. A custom `RowFactory` may be
-    /// provided to control how rows are constructed.
-    ///
-    /// Parameters
-    /// ----------
-    /// factory : RowFactory, optional
-    ///     Custom factory used to build each row.
-    ///
-    /// Returns
-    /// -------
-    /// RowsIterator
-    ///     An iterator yielding deserialized rows.
-    #[pyo3(signature = (factory=None))]
-    fn iter_rows<'py>(
-        &self,
-        py: Python<'py>,
-        factory: Option<Bound<RowFactory>>,
-    ) -> PyResult<RowsIterator> {
-        let row_col_cursor = Py::new(py, RowColumnCursor::new(Arc::clone(&self.inner))?)?;
+    /// `true` if additional pages can be fetched, `false` otherwise.
+    fn has_more_pages(&self) -> bool {
+        self.query_pager.has_more_pages()
+    }
 
-        let f: Py<RowFactory> = match factory {
-            Some(bound) => bound.unbind(),
-            None => Py::new(py, RowFactory::new())?,
-        };
+    /// Returns the current paging state.
+    ///
+    /// Can be `None` if there are no more pages available.
+    /// The paging state can be passed to `execute()` to resume paging
+    /// from a specific position.
+    ///
+    /// # Returns
+    ///
+    /// Current paging state or `None` if no more pages are available.
+    fn paging_state(&self) -> Option<PyPagingState> {
+        self.query_pager.paging_state()
+    }
 
-        Ok(RowsIterator {
-            row_col_cursor,
-            factory: f,
-        })
+    /// Fetches the next page if available.
+    ///
+    /// Returns a new `RequestResult` with the next page's data if more pages
+    /// are available. Returns `None` if no more pages exist.
+    ///
+    /// # Returns
+    ///
+    /// `Some(RequestResult)` with the next page data, or `None` if no more pages.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the fetch operation fails.
+    async fn fetch_next_page(&self) -> PyResult<Option<RequestResult>> {
+        let mut query_pager = self.query_pager.clone();
+        let row_factory = self.row_factory.clone();
+
+        if let Some(query_result) = query_pager.fetch_next_page().await {
+            return Ok(Some(RequestResult {
+                query_result: Arc::new(query_result?),
+                query_pager,
+                row_factory,
+            }));
+        }
+
+        Ok(None)
+    }
+
+    /// Returns an iterator over rows in the current page.
+    ///
+    /// Creates a `SinglePageIterator` that yields deserialized rows
+    /// from the current page only, without fetching additional pages.
+    ///
+    /// # Returns
+    ///
+    /// Iterator over rows in the current page.
+    fn iter_current_page<'py>(&self, py: Python<'py>) -> PyResult<SinglePageIterator> {
+        SinglePageIterator::new(py, &self.query_result, self.row_factory.clone())
+    }
+
+    /// Returns an async iterator over all rows with automatic paging.
+    ///
+    /// Creates an `AsyncRowsIterator` that transparently fetches
+    /// subsequent pages as iteration progresses.
+    ///
+    /// # Returns
+    ///
+    /// Async iterator over all rows across all pages.
+    pub fn __aiter__(&self, py: Python<'_>) -> PyResult<AsyncRowsIterator> {
+        AsyncRowsIterator::new(
+            py,
+            self.query_pager.clone(),
+            &self.query_result,
+            self.row_factory.clone(),
+        )
     }
 }
 
-/// Iterator yielding deserialized rows from a query result.
+/// Iterator over a single page of query results.
 ///
-/// `RowsIterator` behaves like a standard Python iterator. Each iteration
-/// returns a single row produced by the query and materialized using a
-/// `RowFactory`.
-///
-/// By default, rows are returned as Python dictionaries mapping column
-/// names to values.
-#[pyclass]
-pub struct RowsIterator {
-    // This cursor maintains the current row and column iteration state
-    // and is shared with the `RowFactory` during row construction.
-    row_col_cursor: Py<RowColumnCursor>,
+/// Yields deserialized rows materialized using a `RowFactory`.
+/// Each iteration returns one row as a Python object (default: dict).
+#[pyclass(frozen)]
+struct SinglePageIterator {
+    kind: Mutex<RowsIteratorKind>,
+}
 
-    // Python object responsible for building a single row from the cursor.
-    factory: Py<RowFactory>,
+impl SinglePageIterator {
+    fn new(
+        py: Python<'_>,
+        query_result: &Arc<QueryResult>,
+        factory: Option<Py<RowFactory>>,
+    ) -> PyResult<Self> {
+        Ok(SinglePageIterator {
+            kind: Mutex::new(RowsIteratorKind::new(py, query_result, factory)?),
+        })
+    }
 }
 
 #[pymethods]
-impl RowsIterator {
-    pub fn __next__(&mut self) -> PyResult<Py<PyAny>> {
-        Python::attach(|py| {
-            self.row_col_cursor
-                .borrow_mut(py)
-                .yoked
-                .with_mut_return(|view| view.next_row())?;
+impl SinglePageIterator {
+    pub fn __next__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self.kind.blocking_lock()
+            .next(py)
+            .unwrap_or(Err(PyErr::new::<PyStopIteration, _>("")))
+    }
 
-            self.factory
-                .call_method1(py, "build", (&self.row_col_cursor.bind(py),))
+    pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+}
+
+/// Represents paging state for paged queries.
+///
+/// Used to continue a query from where the previous page ended.
+/// Can be passed to execute() to resume paging from a specific position.
+#[pyclass(name = "PagingState", frozen)]
+pub struct PyPagingState {
+    pub(crate) inner: PagingState,
+}
+
+#[pymethods]
+impl PyPagingState {
+    #[new]
+    fn new() -> Self {
+        PyPagingState {
+            inner: PagingState::start(),
+        }
+    }
+}
+
+/// Async iterator over all rows with automatic paging.
+///
+/// Fetches subsequent pages transparently as iteration progresses.
+#[pyclass(frozen)]
+pub struct AsyncRowsIterator {
+    state: Arc<Mutex<AsyncIteratorState>>,
+}
+
+impl AsyncRowsIterator {
+    fn new(
+        py: Python<'_>,
+        paging_api: QueryPager,
+        query_result: &Arc<QueryResult>,
+        factory: Option<Py<RowFactory>>,
+    ) -> PyResult<Self> {
+        Ok(AsyncRowsIterator {
+            state: Arc::new(Mutex::new(AsyncIteratorState {
+                rows_iterator: RowsIteratorKind::new(py, query_result, factory)?,
+                query_pager: paging_api,
+            })),
+        })
+    }
+}
+
+#[pymethods]
+impl AsyncRowsIterator {
+    pub fn __anext__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        // TODO: Add a "ready" awaitable for the fast path (row already buffered) to avoid `future_into_py` scheduling/allocation.
+
+        let state_clone = self.state.clone();
+
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            let mut state = state_clone.lock().await;
+
+            let AsyncIteratorState {
+                rows_iterator,
+                query_pager,
+            } = &mut *state;
+
+            next_row_with_paging(rows_iterator, query_pager)
+                .await
+                .unwrap_or(Err(PyErr::new::<PyStopAsyncIteration, _>("")))
         })
     }
 
-    pub fn __iter__(slf: PyRefMut<'_, Self>) -> PyRefMut<'_, Self> {
+    pub fn __aiter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
+    }
+}
+
+/// Mutable state for async row iteration.
+///
+/// Holds current row iterator and pagination state.
+#[derive(Clone)]
+struct AsyncIteratorState {
+    rows_iterator: RowsIteratorKind,
+    query_pager: QueryPager,
+}
+
+async fn next_row_with_paging(
+    rows_iterator: &mut RowsIteratorKind,
+    query_pager: &mut QueryPager,
+) -> Option<PyResult<Py<PyAny>>> {
+    // Loop until a row is produced, all pages are exhausted,
+    // or an error occurs while fetching or updating pages.
+
+    loop {
+        if let Some(row) = Python::attach(|py| rows_iterator.next(py)) {
+            return Some(row);
+        }
+
+        let query_result = match query_pager.fetch_next_page().await? {
+            Ok(p) => p,
+            Err(e) => return Some(Err(e)),
+        };
+
+        if let Err(err) = Python::attach(|py| rows_iterator.update(py, Arc::new(query_result))) {
+            return Some(Err(err));
+        }
     }
 }
 
@@ -120,13 +283,13 @@ pub struct RowColumnCursor {
 }
 
 impl RowColumnCursor {
-    fn new(query_result: Arc<QueryResult>) -> PyResult<Self> {
+    fn new(query_result: Arc<QueryResult>) -> Self {
         let cart = QueryResultCart(query_result);
 
-        let yoked = Yoke::try_attach_to_cart(cart, |cart| -> PyResult<_> {
-            let Some(raw_rows_with_metadata) = cart.deserialized_metadata_and_rows() else {
-                return Err(PyRuntimeError::new_err("Result does not have rows"));
-            };
+        let yoked = Yoke::attach_to_cart(cart, |cart| {
+            let raw_rows_with_metadata = cart.deserialized_metadata_and_rows().expect(
+                "deserialized_metadata_and_rows can't be None after is_rows() returned true",
+            );
             let frame_slice = FrameSlice::new(raw_rows_with_metadata.raw_rows());
             let col_specs = raw_rows_with_metadata.metadata().col_specs();
             let row_iterator =
@@ -134,14 +297,14 @@ impl RowColumnCursor {
 
             let column_iterator = ColumnIterator::new(col_specs, frame_slice);
 
-            Ok(Cursor {
+            Cursor {
                 row_iterator,
                 column_iterator,
                 current_raw_column: None,
-            })
-        })?;
+            }
+        });
 
-        Ok(Self { yoked })
+        Self { yoked }
     }
 
     fn next_column(&mut self, py: Python<'_>) -> PyResult<Column> {
@@ -162,9 +325,8 @@ impl RowColumnCursor {
 
 #[pymethods]
 impl RowColumnCursor {
-    pub fn __next__<'py>(mut slf: PyRefMut<'py, Self>) -> PyResult<Column> {
-        let py = slf.py();
-        slf.next_column(py)
+    pub fn __next__(&mut self, py: Python<'_>) -> PyResult<Column> {
+        self.next_column(py)
     }
     pub fn __iter__(slf: PyRefMut<'_, Self>) -> PyRefMut<'_, Self> {
         slf
@@ -190,7 +352,7 @@ pub struct Column {
 /// returns a Python dictionary mapping column names to values.
 ///
 /// Users may subclass this type to implement custom row mappings.
-#[pyclass(subclass)]
+#[pyclass(subclass, frozen)]
 pub struct RowFactory {}
 
 #[pymethods]
@@ -244,9 +406,176 @@ impl RowFactory {
     }
 }
 
+impl RowFactory {
+    fn default_instance() -> &'static Self {
+        static DEFAULT_FACTORY: RowFactory = RowFactory {};
+        &DEFAULT_FACTORY
+    }
+}
+
 impl Default for RowFactory {
     fn default() -> Self {
         RowFactory::new()
+    }
+}
+
+/// Determines how to iterate over query results based on result type.
+///
+/// Dispatches to either row iteration or handles non-row results.
+#[derive(Clone)]
+enum RowsIteratorKind {
+    Rows {
+        row_col_cursor: Py<RowColumnCursor>,
+        factory: Option<Py<RowFactory>>,
+    },
+    NonRows,
+}
+
+impl RowsIteratorKind {
+    fn new(
+        py: Python<'_>,
+        query_result: &Arc<QueryResult>,
+        factory: Option<Py<RowFactory>>,
+    ) -> PyResult<Self> {
+        if !query_result.is_rows() {
+            return Ok(RowsIteratorKind::NonRows);
+        }
+
+        let row_col_cursor = Py::new(py, RowColumnCursor::new(Arc::clone(query_result)))?;
+
+        Ok(RowsIteratorKind::Rows {
+            row_col_cursor,
+            factory,
+        })
+    }
+
+    fn update(&mut self, py: Python, query_result: Arc<QueryResult>) -> PyResult<()> {
+        if let RowsIteratorKind::Rows { row_col_cursor, .. } = self {
+            *row_col_cursor = Py::new(py, RowColumnCursor::new(query_result))?;
+        }
+        Ok(())
+    }
+
+    fn next(&self, py: Python) -> Option<PyResult<Py<PyAny>>> {
+        match self {
+            RowsIteratorKind::Rows {
+                row_col_cursor,
+                factory,
+            } => {
+                let res = row_col_cursor
+                    .borrow_mut(py)
+                    .yoked
+                    .with_mut_return(|cursor| cursor.next_row())?;
+
+                let cursor_bound = row_col_cursor.bind(py);
+
+                match res {
+                    Ok(()) => {
+                        let out: PyResult<Py<PyAny>> = match factory {
+                            None => RowFactory::default_instance()
+                                .build(py, cursor_bound)
+                                .map(|d| d.into_any()),
+                            Some(f) => f.call_method1(py, "build", (&cursor_bound,)),
+                        };
+
+                        Some(out)
+                    }
+                    Err(e) => Some(Err(PyErr::from(e))),
+                }
+            }
+            RowsIteratorKind::NonRows => None,
+        }
+    }
+}
+
+/// Manages fetching next pages and encapsulates paging logic.
+///
+/// Responsible for handling pagination state transitions and retrieving
+/// subsequent pages from paginated query results.
+#[derive(Clone)]
+pub(crate) enum QueryPager {
+    Unpaged,
+    Paged {
+        paging_response: PagingStateResponse,
+        session: Session,
+        query_request: ExecutableStatement,
+        value_list: Option<PyAnyWrapperValueList>,
+    },
+}
+
+impl QueryPager {
+    pub(crate) fn unpaged() -> Self {
+        QueryPager::Unpaged
+    }
+
+    pub(crate) fn paged(
+        paging_response: PagingStateResponse,
+        session: Session,
+        query_request: ExecutableStatement,
+        value_list: Option<PyAnyWrapperValueList>,
+    ) -> Self {
+        QueryPager::Paged {
+            paging_response,
+            session,
+            query_request,
+            value_list,
+        }
+    }
+
+    fn has_more_pages(&self) -> bool {
+        matches!(
+            self,
+            QueryPager::Paged {
+                paging_response: PagingStateResponse::HasMorePages { .. },
+                ..
+            }
+        )
+    }
+
+    fn paging_state(&self) -> Option<PyPagingState> {
+        match self {
+            QueryPager::Paged {
+                paging_response: PagingStateResponse::HasMorePages { state },
+                ..
+            } => Some(PyPagingState {
+                inner: state.clone(),
+            }),
+            QueryPager::Paged {
+                paging_response: PagingStateResponse::NoMorePages,
+                ..
+            } => None,
+            QueryPager::Unpaged => None,
+        }
+    }
+
+    async fn fetch_next_page(&mut self) -> Option<PyResult<QueryResult>> {
+        let QueryPager::Paged {
+            paging_response,
+            session,
+            query_request,
+            value_list,
+        } = self
+        else {
+            return None;
+        };
+
+        let state = match paging_response {
+            PagingStateResponse::HasMorePages { state } => state.clone(),
+            PagingStateResponse::NoMorePages => return None,
+        };
+
+        let result = session
+            .execute_single_page(state, query_request.clone(), value_list.clone())
+            .await;
+
+        let (query_result, new_paging_response) = match result {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e)),
+        };
+
+        *paging_response = new_paging_response;
+
+        Some(Ok(query_result))
     }
 }
 
@@ -292,15 +621,16 @@ impl<'a> Cursor<'a> {
         Ok(())
     }
 
-    fn next_row(&mut self) -> PyResult<()> {
-        let column_iterator = self
-            .row_iterator
-            .next()
-            .ok_or_else(|| PyErr::new::<PyStopIteration, _>(""))?
-            .map_err(PyDeserializationError::from)?;
+    fn next_row(&mut self) -> Option<Result<(), PyDeserializationError>> {
+        let column_iterator = self.row_iterator.next()?;
 
-        self.column_iterator = column_iterator;
-        Ok(())
+        match column_iterator {
+            Ok(column_iterator) => {
+                self.column_iterator = column_iterator;
+                Some(Ok(()))
+            }
+            Err(err) => Some(Err(err.into_py_deser())),
+        }
     }
 }
 
@@ -308,9 +638,11 @@ impl<'a> Cursor<'a> {
 pub(crate) fn results(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<RowFactory>()?;
     module.add_class::<Column>()?;
-    module.add_class::<RequestResult>()?;
     module.add_class::<RowColumnCursor>()?;
-    module.add_class::<RowsIterator>()?;
+    module.add_class::<SinglePageIterator>()?;
+    module.add_class::<PyPagingState>()?;
+    module.add_class::<RequestResult>()?;
+    module.add_class::<AsyncRowsIterator>()?;
 
     Ok(())
 }
