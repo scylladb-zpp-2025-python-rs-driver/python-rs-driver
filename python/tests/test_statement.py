@@ -35,7 +35,7 @@ async def test_prepare_and_execute():
     assert isinstance(prepare_with_statement, PreparedStatement)
     result_str = await session.execute(prepared_with_str)
     result_statement = await session.execute(prepare_with_statement)
-    assert next(result_str.iter_rows())["cluster_name"] == next(result_statement.iter_rows())["cluster_name"]
+    assert next(result_str.iter_current_page())["cluster_name"] == next(result_statement.iter_current_page())["cluster_name"]
 
 
 @pytest.mark.asyncio
@@ -50,6 +50,21 @@ async def test_prepare_and_str():
     result_statement = await session.execute(statement)
     result_str = await session.execute(query_str)
 
-    cluster_name_str = next(result_str.iter_rows())["cluster_name"]
-    assert next(result_prepared.iter_rows())["cluster_name"] == cluster_name_str
-    assert cluster_name_str == next(result_statement.iter_rows())["cluster_name"]
+    cluster_name_str = next(result_str.iter_current_page())["cluster_name"]
+    assert next(result_prepared.iter_current_page())["cluster_name"] == cluster_name_str
+    assert cluster_name_str == next(result_statement.iter_current_page())["cluster_name"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_statement_with_page_size():
+    query_str = "SELECT cluster_name FROM system.local;"
+    statement = Statement(query_str)
+
+    expected_page_size = 500
+    statement = statement.with_page_size(expected_page_size)
+
+    actual_page_size = statement.get_page_size()
+
+    assert isinstance(actual_page_size, int)
+    assert actual_page_size == expected_page_size

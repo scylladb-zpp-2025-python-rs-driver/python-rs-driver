@@ -19,6 +19,7 @@ use crate::serialize::value::{PyAnyWrapper, PythonDriverSerializationError};
 // TODO: Refactor this wrapper into an enum with variants for `PyList`, `PyTuple`, and `PyDict`.
 // Currently, the type is checked in `session::try_into_value_list`, but this information
 // is lost when stored as `PyAny`.
+#[derive(Clone)]
 pub(crate) struct PyAnyWrapperValueList {
     pub(crate) inner: Py<PyAny>,
     pub(crate) is_empty: bool,

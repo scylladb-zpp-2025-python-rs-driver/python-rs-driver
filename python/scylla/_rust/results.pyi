@@ -1,7 +1,7 @@
 import ipaddress
 from datetime import date, datetime, time
 from decimal import Decimal
-from typing import Dict, List, Union, Tuple, Any, Set, Optional
+from typing import Dict, List, Union, Tuple, Any, Set, AsyncIterator
 from uuid import UUID
 
 from dateutil.relativedelta import relativedelta
@@ -100,7 +100,6 @@ class RowFactory:
     """
 
     def __init__(self) -> None: ...
-
     def build(self, column_iterator: ColumnIterator) -> Dict[str, CqlValue]:
         """
         Build a row object from the provided column iterator.
@@ -121,27 +120,104 @@ class Column:
         """Deserialized value of the column."""
         ...
 
-class RowsIterator:
+class SinglePageIterator:
     """
-    Iterator over result rows.
+    Iterates over rows in a single page of query results.
 
-    Each iteration yields a single row object, by default a dictionary
-    mapping column names to values.
+    Yields deserialized rows materialized using a `RowFactory`.
+    Does not fetch additional pages - use AsyncRowsIterator for automatic paging.
     """
 
-    def __iter__(self) -> RowsIterator: ...
+    def __iter__(self) -> SinglePageIterator: ...
     def __next__(self) -> Any: ...
+
+class PagingState:
+    """
+    Represents paging state for paged queries.
+
+    Used to continue a query from where the previous page ended.
+    Can be passed to execute() to resume paging from a specific position.
+    """
+
+    def __init__(self) -> None:
+        """
+        Creates a new paging state starting from the first page.
+        """
+        ...
 
 class RequestResult:
     """
     Result of a query execution.
     """
 
-    def iter_rows(self, factory: Optional[RowFactory] = None) -> RowsIterator:
+    def has_more_pages(self) -> bool:
         """
-        Return an iterator over result rows.
-
-        An optional RowFactory can be provided to customize how rows
-        are constructed.
+        Returns True if more pages are available.
         """
         ...
+
+    def paging_state(self) -> PagingState | None:
+        """
+        Returns current paging state. Can be `None` if there are no more pages available.
+        """
+        ...
+
+    async def fetch_next_page(self) -> RequestResult | None:
+        """
+        Fetches the next page if available.
+
+        Returns a new RequestResult with the next page's data if more pages
+        are available. Returns None if no more pages exist.
+
+        Returns
+        -------
+        RequestResult | None
+            A new RequestResult with the next page data, or None if no more pages.
+        """
+        ...
+
+    def iter_current_page(self) -> SinglePageIterator:
+        """
+        Returns an iterator over rows in the current page.
+        """
+        ...
+
+    def __aiter__(self) -> AsyncRowsIterator: ...
+
+    async def single_row(self) -> Any | None:
+        """
+        Returns the first row starting from the current state.
+
+        Fetches the first available row from the current page onwards,
+        automatically retrieving additional pages as needed.
+        Returns None if no more rows are available.
+
+        Returns
+        -------
+        Any | None
+            The first row as a Python object, or None if no more rows exist.
+        """
+        ...
+
+    async def all(self) -> List[Any]:
+        """
+        Return all rows of the result set as a list.
+
+        This method eagerly fetches all remaining pages and materializes
+        the entire result set in memory. It should be used with care
+        for large queries.
+        """
+        ...
+
+
+
+class AsyncRowsIterator(AsyncIterator[Any]):
+    """
+    Async iterator over rows with automatic paging.
+
+    Transparently fetches subsequent pages as iteration progresses.
+    When the current page is exhausted, automatically retrieves the next page.
+    """
+
+    def __aiter__(self) -> AsyncRowsIterator: ...
+    async def __anext__(self) -> Any: ...
