@@ -1,0 +1,347 @@
+use std::convert::Infallible;
+use std::sync::Arc;
+
+use pyo3::intern;
+use pyo3::types::PyIterator;
+use pyo3::{prelude::*, types::PyTuple};
+use scylla::{
+    frame::response::result::TableSpec,
+    policies::load_balancing::{FallbackPlan, LoadBalancingPolicy, RoutingInfo},
+    routing::{self, Shard},
+    statement,
+};
+
+use scylla::cluster::{self, NodeRef};
+
+use crate::cluster::node::NodeShard;
+use crate::{
+    cluster::state::ClusterState,
+    enums::{Consistency, SerialConsistency},
+    routing::Token,
+};
+
+pub(crate) type TableSpecOwned = (String, String);
+
+#[pyclass]
+struct NodeShardIterator {
+    _inner: std::vec::IntoIter<NodeShard>,
+}
+
+#[pymethods]
+impl NodeShardIterator {
+    fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<Self>) -> Option<NodeShard> {
+        slf._inner.next()
+    }
+}
+
+#[pyclass]
+#[derive(Clone)]
+#[expect(dead_code)]
+pub(crate) struct DefaultPolicy {
+    pub(crate) _inner: Arc<dyn LoadBalancingPolicy>,
+}
+
+/// Builds an `Arc<dyn LoadBalancingPolicy>` and the corresponding
+/// `PyLoadBalancingPolicy` wrapper from a raw `Py<PyAny>`.
+///
+/// In case of `DefaultPolicy` a native Rust `DefaultPolicy` is constructed.
+#[expect(dead_code)]
+pub(crate) fn build_load_balancing_policy(
+    policy: Py<PyAny>,
+) -> (PyLoadBalancingPolicy, Arc<dyn LoadBalancingPolicy>) {
+    Python::attach(|py| {
+        if let Ok(default_policy) = policy.extract::<DefaultPolicy>(py) {
+            let stored = PyLoadBalancingPolicy { _inner: policy };
+            (stored, default_policy._inner.clone())
+        } else {
+            // User-defined policy: wrap and dispatch through the trait impl.
+            let lbp = PyLoadBalancingPolicy { _inner: policy };
+            let arc: Arc<dyn LoadBalancingPolicy> = Arc::new(lbp.clone());
+            (lbp, arc)
+        }
+    })
+}
+
+#[pymethods]
+impl DefaultPolicy {
+    #[new]
+    #[pyo3(signature = (
+        preferred_datacenter = None,
+        preferred_datacenter_and_rack = None,
+        token_aware = true,
+        permit_dc_failover = false,
+        enable_shuffling_replicas = true,
+    ))]
+    fn new(
+        preferred_datacenter: Option<String>,
+        preferred_datacenter_and_rack: Option<(String, String)>,
+        token_aware: bool,
+        permit_dc_failover: bool,
+        enable_shuffling_replicas: bool,
+    ) -> Self {
+        let mut builder = scylla::policies::load_balancing::DefaultPolicy::builder();
+
+        builder = builder
+            .enable_shuffling_replicas(enable_shuffling_replicas)
+            .permit_dc_failover(permit_dc_failover)
+            .token_aware(token_aware);
+
+        if let Some(pref_dc) = preferred_datacenter {
+            builder = builder.prefer_datacenter(pref_dc);
+        }
+
+        if let Some((pref_dc, pref_rack)) = preferred_datacenter_and_rack {
+            builder = builder.prefer_datacenter_and_rack(pref_dc, pref_rack);
+        }
+
+        Self {
+            _inner: builder.build(),
+        }
+    }
+
+    /// This method is defined to satisfy Python's LoadBalancingPolicy Protocol.
+    /// In load balancing underlaying Rust DefaultPolicy is used.
+    fn pick_targets(
+        &self,
+        routing_info: RoutingInfoOwned,
+        cluster_state: ClusterState,
+    ) -> PyResult<NodeShardIterator> {
+        let table_spec = routing_info
+            ._table
+            .as_ref()
+            .map(|(ks, tbl)| TableSpec::borrowed(ks, tbl));
+
+        let request = RoutingInfo {
+            consistency: routing_info._consistency,
+            serial_consistency: routing_info._serial_consistency,
+            token: routing_info._token,
+            table: table_spec.as_ref(),
+            is_confirmed_lwt: routing_info._is_confirmed_lwt,
+        };
+
+        let cluster = &cluster_state._inner;
+
+        let nodes = self
+            ._inner
+            .fallback(&request, cluster)
+            .map(|(node_ref, shard)| NodeShard {
+                _inner: (node_ref.host_id, shard),
+            })
+            .collect::<Vec<_>>();
+
+        Ok(NodeShardIterator {
+            _inner: nodes.into_iter(),
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PyLoadBalancingPolicy {
+    pub(crate) _inner: Py<PyAny>,
+}
+
+impl<'py> IntoPyObject<'py> for PyLoadBalancingPolicy {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = Infallible;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        Ok(self._inner.into_bound(py))
+    }
+}
+
+struct PyTargetsIter<'a> {
+    py_iter: Py<PyIterator>,
+    cluster: &'a cluster::ClusterState,
+    exhausted: bool,
+}
+
+/// Iterator for Python-defined targets.
+///
+/// Lazily aquires GIL for each `next()`
+/// On error logs and exhausts the iterator.
+/// This means when first `next()` errors this would log and return empty iterator.
+impl<'a> Iterator for PyTargetsIter<'a> {
+    type Item = (NodeRef<'a>, Option<Shard>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.exhausted {
+            return None;
+        }
+
+        Python::attach(|py| -> Option<(NodeRef<'a>, Option<Shard>)> {
+            let mut py_iter: Bound<'_, PyIterator> = self.py_iter.bind(py).clone();
+            match py_iter.next() {
+                None => {
+                    self.exhausted = true;
+                    None
+                }
+                Some(Err(err)) => {
+                    log::error!("Failed to iterate over 'pick_targets' result: {}", err);
+                    self.exhausted = true;
+                    None
+                }
+                Some(Ok(item)) => {
+                    let Ok(node_shard) = item.extract::<PyRef<NodeShard>>().map_err(|err| {
+                        log::error!(
+                            "Failed to extract NodeShard from 'pick_targets' iterator: {}",
+                            err
+                        );
+                    }) else {
+                        self.exhausted = true;
+                        return None;
+                    };
+                    if let Some(node) = self.cluster.known_peers.get(&node_shard._inner.0) {
+                        Some((node, node_shard._inner.1))
+                    } else {
+                        log::error!(
+                            "Failed to retrieve node with host_id: {}, it's ignored in load balancing",
+                            node_shard._inner.0
+                        );
+                        self.exhausted = true;
+                        None
+                    }
+                }
+            }
+        })
+    }
+}
+
+impl LoadBalancingPolicy for PyLoadBalancingPolicy {
+    fn pick<'a>(
+        &'a self,
+        _request: &'a RoutingInfo,
+        _cluster: &'a cluster::ClusterState,
+    ) -> Option<(NodeRef<'a>, Option<Shard>)> {
+        None
+    }
+
+    fn fallback<'a>(
+        &'a self,
+        request: &'a RoutingInfo,
+        cluster: &'a cluster::ClusterState,
+    ) -> FallbackPlan<'a> {
+        let py_iter_result = Python::attach(|py| -> PyResult<Py<PyIterator>> {
+            let py_cluster = ClusterState {
+                _inner: cluster.clone(),
+            };
+            let python_request = RoutingInfoOwned::to_python(request);
+
+            let python_pick_targets = self
+                ._inner
+                .call_method1(
+                    py,
+                    intern!(py, "pick_targets"),
+                    (python_request, py_cluster),
+                )
+                .map_err(|err| {
+                    log::error!(
+                        "Failed to call 'pick_targets' method on LoadBalancing Policy: {}",
+                        err
+                    );
+                    err
+                })?;
+
+            let py_iter = python_pick_targets
+                .extract::<Py<PyIterator>>(py)
+                .map_err(|err| {
+                    log::error!(
+                        "Failed to call 'pick_targets' method on LoadBalancing Policy: {}",
+                        err
+                    );
+                    err
+                })?;
+            Ok(py_iter)
+        });
+
+        let Ok(py_iter) = py_iter_result else {
+            // On error log and return empty plan
+            return Box::new(std::iter::empty());
+        };
+
+        Box::new(PyTargetsIter {
+            py_iter,
+            cluster,
+            exhausted: false,
+        })
+    }
+
+    fn name(&self) -> String {
+        let name = Python::attach(|py| {
+            self._inner
+                .bind(py)
+                .get_type()
+                .name()
+                .expect("Type name shouldn't error")
+                .to_string()
+        });
+        format!("LoadbalancingPolicy for {}", name)
+    }
+}
+
+#[pyclass(name = "RoutingInfo")]
+#[derive(Debug, Clone)]
+pub(crate) struct RoutingInfoOwned {
+    pub(crate) _consistency: statement::Consistency,
+    pub(crate) _serial_consistency: Option<statement::SerialConsistency>,
+    pub(crate) _token: Option<routing::Token>,
+    pub(crate) _table: Option<TableSpecOwned>,
+    pub(crate) _is_confirmed_lwt: bool,
+}
+
+#[pymethods]
+impl RoutingInfoOwned {
+    #[getter]
+    fn consistency(&self) -> Consistency {
+        Consistency::to_python(self._consistency)
+    }
+
+    #[getter]
+    fn serial_consistency(&self) -> Option<SerialConsistency> {
+        self._serial_consistency.map(SerialConsistency::to_python)
+    }
+
+    #[getter]
+    fn token(&self) -> Option<Token> {
+        self._token.map(|t| Token { _inner: t })
+    }
+
+    #[getter]
+    fn table<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyTuple>>> {
+        match self._table.as_ref() {
+            Some((ks, tbl)) => Ok(Some(PyTuple::new(py, [ks, tbl])?)),
+            None => Ok(None),
+        }
+    }
+
+    #[getter]
+    fn is_confirmed_lwt(&self) -> bool {
+        self._is_confirmed_lwt
+    }
+}
+
+#[expect(dead_code)]
+impl RoutingInfoOwned {
+    pub(crate) fn to_python(routing_info: &'_ RoutingInfo) -> Self {
+        RoutingInfoOwned {
+            _consistency: routing_info.consistency,
+            _serial_consistency: routing_info.serial_consistency,
+            _token: routing_info.token,
+            _table: routing_info
+                .table
+                .map(|t| (t.ks_name().to_string(), t.table_name().to_string())),
+            _is_confirmed_lwt: routing_info.is_confirmed_lwt,
+        }
+    }
+}
+
+#[pymodule]
+pub(crate) fn load_balancing(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<RoutingInfoOwned>()?;
+    module.add_class::<DefaultPolicy>()?;
+    Ok(())
+}
