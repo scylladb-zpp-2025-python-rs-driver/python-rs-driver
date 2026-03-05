@@ -16,7 +16,7 @@ use scylla::statement::batch::BatchStatement;
 use scylla::statement::unprepared;
 use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 
-#[pyclass(skip_from_py_object)]
+#[pyclass(frozen, skip_from_py_object)]
 #[derive(Clone)]
 pub(crate) struct Session {
     pub(crate) _inner: Arc<scylla::client::session::Session>,
