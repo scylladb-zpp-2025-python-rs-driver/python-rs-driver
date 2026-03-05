@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PySequence, PyString};
@@ -60,9 +58,7 @@ impl SessionBuilder {
             .await
             .expect("Driver should not panic");
         match session_result {
-            Ok(session) => Ok(Session {
-                _inner: Arc::new(session),
-            }),
+            Ok(session) => Ok(Session { _inner: session }),
             Err(e) => Err(PyRuntimeError::new_err(format!(
                 "Session creation err, e: {:?}, cp: {:?}",
                 e, self.config.known_nodes

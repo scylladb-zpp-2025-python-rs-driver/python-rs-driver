@@ -3,10 +3,12 @@ use std::sync::Arc;
 use crate::deserialize::results::RequestResult;
 use crate::serialize::value_list::PyValueList;
 use crate::statement::PreparedStatement;
+use pin_project::pin_project;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use scylla::statement;
+use tokio::runtime::Runtime;
 
 use crate::RUNTIME;
 use crate::statement::Statement;
@@ -15,7 +17,7 @@ use scylla::statement::unprepared;
 
 #[pyclass]
 pub(crate) struct Session {
-    pub(crate) _inner: Arc<scylla::client::session::Session>,
+    pub(crate) _inner: scylla::client::session::Session,
 }
 
 #[pymethods]
@@ -33,7 +35,7 @@ impl Session {
         // to `unwrap_or_default()` here.
         let values = values.unwrap_or_default();
         let result = self
-            .session_spawn_on_runtime(async move |s| {
+            .run_on_runtime(async move |s| {
                 match statement {
                     ExecutableStatement::Prepared(p) => s.execute_unpaged(&p, values).await,
                     ExecutableStatement::Unprepared(q) => s.query_unpaged(q, values).await,
@@ -57,21 +59,40 @@ impl Session {
     }
 }
 
-impl Session {
-    async fn session_spawn_on_runtime<F, Fut, R>(&self, f: F) -> PyResult<R>
-    where
-        // closure: takes Arc<scylla::client::session::Session> and returns a future
-        F: FnOnce(Arc<scylla::client::session::Session>) -> Fut + Send + 'static,
-        // for spawn we need Send + 'static
-        Fut: Future<Output = PyResult<R>> + Send + 'static,
-        R: Send + 'static,
-    {
-        let session_clone = Arc::clone(&self._inner);
+#[pin_project]
+struct WithRuntime<'runtime, Fut> {
+    runtime: &'runtime Runtime,
+    #[pin]
+    future: Fut,
+}
 
-        RUNTIME
-            .spawn(async move { f(session_clone).await })
-            .await
-            .expect("Runtime failed to spawn task") // It's okay to panic here
+impl<'runtime, Fut, R> Future for WithRuntime<'runtime, Fut>
+where
+    Fut: Future<Output = R>,
+{
+    type Output = R;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        let this = self.project();
+        let _guard = this.runtime.enter();
+        this.future.poll(cx)
+    }
+}
+
+impl Session {
+    async fn run_on_runtime<F, R>(&self, f: F) -> PyResult<R>
+    where
+        F: AsyncFnOnce(&scylla::client::session::Session) -> PyResult<R>,
+    {
+        let future = f(&self._inner);
+        WithRuntime {
+            runtime: &RUNTIME,
+            future,
+        }
+        .await
     }
 
     async fn scylla_prepare(
