@@ -184,15 +184,15 @@ impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
     type Error = PyErr;
 
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
-        if let Ok(prepared) = obj.extract::<Bound<'py, PreparedStatement>>() {
+        if let Ok(prepared) = obj.cast::<PreparedStatement>() {
             return Ok(ExecutableStatement::Prepared(prepared.get()._inner.clone()));
         }
 
-        if let Ok(text) = obj.extract::<Bound<'py, PyString>>() {
+        if let Ok(text) = obj.cast::<PyString>() {
             return Ok(ExecutableStatement::Unprepared(text.to_str()?.into()));
         }
 
-        if let Ok(statement) = obj.extract::<Bound<'py, Statement>>() {
+        if let Ok(statement) = obj.cast::<Statement>() {
             return Ok(ExecutableStatement::Unprepared(
                 statement.get()._inner.clone(),
             ));
