@@ -33,11 +33,8 @@ impl SessionBuilder {
             ));
         }
 
-        for i in 0..contact_points.len().unwrap() {
-            let item = contact_points
-                .get_item(i)
-                .unwrap()
-                .cast_into::<PyString>()?;
+        for item in contact_points.try_iter()? {
+            let item = item?.cast_into::<PyString>()?;
             let s = item.to_str()?;
             if s.contains(":") {
                 cfg.add_known_node(s);
