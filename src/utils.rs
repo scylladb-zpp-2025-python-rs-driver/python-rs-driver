@@ -1,7 +1,23 @@
 use pyo3::{
-    Bound, PyResult, Python,
+    Bound, Py, PyAny, PyRef, PyResult, Python, pyclass, pymethods,
     types::{PyAnyMethods, PyModule, PyModuleMethods},
 };
+
+#[pyclass]
+pub(crate) struct GenericPyIterator {
+    pub(crate) rust_iter: Box<dyn Iterator<Item = PyResult<Py<PyAny>>> + Send + Sync>,
+}
+
+#[pymethods]
+impl GenericPyIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&mut self) -> Option<PyResult<Py<PyAny>>> {
+        self.rust_iter.next()
+    }
+}
 
 /// COPIED FROM SCYLLAPY
 /// Add submodule.
