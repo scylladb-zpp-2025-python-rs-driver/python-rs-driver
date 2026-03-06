@@ -2,6 +2,7 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex};
 
 use pyo3::intern;
+use pyo3::sync::MutexExt;
 use pyo3::types::PyIterator;
 use pyo3::{prelude::*, types::PyTuple};
 use scylla::{
@@ -142,7 +143,6 @@ impl DefaultPolicy {
     }
 }
 
-#[expect(dead_code)]
 pub(crate) struct PyLoadBalancingPolicy {
     pub(crate) _inner: Py<PyAny>,
     pub(crate) cluster_cache: Mutex<Option<(Arc<cluster::ClusterState>, Py<ClusterState>)>>,
@@ -247,9 +247,46 @@ impl LoadBalancingPolicy for PyLoadBalancingPolicy {
         cluster: &'a cluster::ClusterState,
     ) -> FallbackPlan<'a> {
         let py_iter_result = Python::attach(|py| -> PyResult<Py<PyIterator>> {
-            let py_cluster = ClusterState {
-                _inner: cluster.clone(),
-            };
+            let py_cluster = {
+                let mut cluster_cache = self.cluster_cache.lock_py_attached(py).unwrap();
+
+                let incoming_ptr = cluster as *const cluster::ClusterState;
+                let is_same = cluster_cache
+                    .as_ref()
+                    .map(|(cached_arc, _)| Arc::as_ptr(cached_arc) == incoming_ptr)
+                    .unwrap_or(false);
+
+                if is_same {
+                    cluster_cache
+                        .as_ref()
+                        .expect("Must be Some")
+                        .1
+                        .clone_ref(py)
+                } else {
+                    // SAFETY:
+                    // &'a cluster::ClusterState comes from `Arc::deref`, so it's always in an Arc.
+                    // Claiming exactly 1 strong reference let's us "clone" the Arc through the raw pointer.
+                    // This let's us invalidate cache entries when pointers don't match.
+                    // This approach is sound due to PyLoadBalancingPolicy keeping the ClusterState alive
+                    // thus preventing ABA problem and guaranteeing that:
+                    // ClusterState changes if and only if the pointer changes.
+                    let new_arc = unsafe {
+                        Arc::increment_strong_count(incoming_ptr);
+                        Arc::from_raw(incoming_ptr)
+                    };
+                    let new_py = Py::new(
+                        py,
+                        ClusterState {
+                            _inner: cluster.clone(),
+                        },
+                    )
+                    .expect("Should always be able to create a pointer");
+
+                    let result = new_py.clone_ref(py);
+                    *cluster_cache = Some((new_arc, new_py));
+                    result
+                }
+            }; // lock
             let python_request = RoutingInfoOwned::to_python(request);
 
             let python_pick_targets = self
