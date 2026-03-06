@@ -35,7 +35,12 @@ async def test_prepare_and_execute():
     assert isinstance(prepare_with_statement, PreparedStatement)
     result_str = await session.execute(prepared_with_str)
     result_statement = await session.execute(prepare_with_statement)
-    assert next(result_str.iter_rows())["cluster_name"] == next(result_statement.iter_rows())["cluster_name"]
+
+    row_str = await result_str.single_row()
+    row_statement = await result_statement.single_row()
+    assert row_str is not None
+    assert row_statement is not None
+    assert row_str["cluster_name"] == row_statement["cluster_name"]
 
 
 @pytest.mark.asyncio
@@ -50,6 +55,29 @@ async def test_prepare_and_str():
     result_statement = await session.execute(statement)
     result_str = await session.execute(query_str)
 
-    cluster_name_str = next(result_str.iter_rows())["cluster_name"]
-    assert next(result_prepared.iter_rows())["cluster_name"] == cluster_name_str
-    assert cluster_name_str == next(result_statement.iter_rows())["cluster_name"]
+    row_str = await result_str.single_row()
+    row_prepared = await result_prepared.single_row()
+    row_statement = await result_statement.single_row()
+
+    assert row_str is not None
+    assert row_prepared is not None
+    assert row_statement is not None
+
+    cluster_name_str = row_str["cluster_name"]
+    assert row_prepared["cluster_name"] == cluster_name_str
+    assert cluster_name_str == row_statement["cluster_name"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_statement_with_page_size():
+    query_str = "SELECT cluster_name FROM system.local;"
+    statement = Statement(query_str)
+
+    expected_page_size = 500
+    statement = statement.with_page_size(expected_page_size)
+
+    actual_page_size = statement.get_page_size()
+
+    assert isinstance(actual_page_size, int)
+    assert actual_page_size == expected_page_size
