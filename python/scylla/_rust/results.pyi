@@ -100,7 +100,6 @@ class RowFactory:
     """
 
     def __init__(self) -> None: ...
-
     def build(self, column_iterator: ColumnIterator) -> Dict[str, CqlValue]:
         """
         Build a row object from the provided column iterator.

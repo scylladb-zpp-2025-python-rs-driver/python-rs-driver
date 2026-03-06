@@ -1,5 +1,5 @@
-use crate::deserialize::PyDeserializationError;
 use crate::deserialize::value::{PyDeserializeValue, PyDeserializedValue};
+use crate::errors::DriverDeserializationError;
 use pyo3::exceptions::{PyRuntimeError, PyStopIteration};
 use pyo3::prelude::{PyDictMethods, PyModule, PyModuleMethods};
 use pyo3::types::{PyDict, PyString};
@@ -82,10 +82,16 @@ pub struct RowsIterator {
 impl RowsIterator {
     pub fn __next__(&mut self) -> PyResult<Py<PyAny>> {
         Python::attach(|py| {
-            self.row_col_cursor
+            let has_next_row = self
+                .row_col_cursor
                 .borrow_mut(py)
                 .yoked
-                .with_mut_return(|view| view.next_row())?;
+                .with_mut_return(|view| view.next_row())
+                .map_err(PyErr::from)?;
+
+            if !has_next_row {
+                return Err(PyStopIteration::new_err(()));
+            }
 
             self.factory
                 .call_method1(py, "build", (&self.row_col_cursor.bind(py),))
@@ -138,25 +144,33 @@ impl RowColumnCursor {
                 row_iterator,
                 column_iterator,
                 current_raw_column: None,
+                row_index: usize::MAX, // Will be set to 0 on the first call to next_row
             })
         })?;
 
         Ok(Self { yoked })
     }
 
-    fn next_column(&mut self, py: Python<'_>) -> PyResult<Column> {
+    fn next_column(
+        &mut self,
+        py: Python<'_>,
+    ) -> Result<Option<Column>, DriverDeserializationError> {
         self.yoked.with_mut_return(|view| view.next_column())?;
 
         let cursor = self.yoked.get();
-        let raw_col = cursor
-            .current_raw_column
-            .as_ref()
-            .ok_or_else(|| PyErr::new::<PyStopIteration, _>(""))?;
+        let raw_col = match cursor.current_raw_column.as_ref() {
+            Some(raw_col) => raw_col,
+            None => return Ok(None),
+        };
 
-        let value = PyDeserializedValue::deserialize_py(raw_col.spec.typ(), raw_col.slice, py)?;
+        let value = PyDeserializedValue::deserialize_py(raw_col.spec.typ(), raw_col.slice, py)
+            .map_err(|err| {
+                err.at_row(cursor.row_index)
+                    .at_column_name(raw_col.spec.name().to_string())
+            })?;
         let column_name = PyString::new(py, raw_col.spec.name()).unbind();
 
-        Ok(Column { column_name, value })
+        Ok(Some(Column { column_name, value }))
     }
 }
 
@@ -164,7 +178,11 @@ impl RowColumnCursor {
 impl RowColumnCursor {
     pub fn __next__<'py>(mut slf: PyRefMut<'py, Self>) -> PyResult<Column> {
         let py = slf.py();
-        slf.next_column(py)
+        match slf.next_column(py) {
+            Ok(Some(column)) => Ok(column),
+            Ok(None) => Err(PyStopIteration::new_err(())),
+            Err(err) => Err(PyErr::from(err)),
+        }
     }
     pub fn __iter__(slf: PyRefMut<'_, Self>) -> PyRefMut<'_, Self> {
         slf
@@ -234,9 +252,11 @@ impl RowFactory {
         let dict = PyDict::new(py);
         loop {
             match columns.next_column(py) {
-                Ok(column) => dict.set_item(column.column_name, column.value)?,
-                Err(err) if err.is_instance_of::<PyStopIteration>(py) => break,
-                Err(err) => return Err(err),
+                Ok(Some(column)) => dict
+                    .set_item(column.column_name, column.value)
+                    .map_err(DriverDeserializationError::python)?,
+                Ok(None) => break,
+                Err(err) => return Err(PyErr::from(err)),
             }
         }
 
@@ -279,28 +299,31 @@ struct Cursor<'a> {
     row_iterator: RawRowIterator<'a, 'a>,
     column_iterator: ColumnIterator<'a, 'a>,
     current_raw_column: Option<RawColumn<'a, 'a>>,
+    row_index: usize,
 }
 
 impl<'a> Cursor<'a> {
-    fn next_column(&mut self) -> Result<(), PyDeserializationError> {
+    fn next_column(&mut self) -> Result<(), DriverDeserializationError> {
         self.current_raw_column = self
             .column_iterator
             .next()
             .transpose()
-            .map_err(PyDeserializationError::from)?;
+            .map_err(DriverDeserializationError::scylla)?;
 
         Ok(())
     }
 
-    fn next_row(&mut self) -> PyResult<()> {
-        let column_iterator = self
-            .row_iterator
-            .next()
-            .ok_or_else(|| PyErr::new::<PyStopIteration, _>(""))?
-            .map_err(PyDeserializationError::from)?;
+    fn next_row(&mut self) -> Result<bool, DriverDeserializationError> {
+        let column_iterator = match self.row_iterator.next() {
+            None => return Ok(false), // No more rows
+            Some(result) => result.map_err(DriverDeserializationError::scylla)?,
+        };
 
         self.column_iterator = column_iterator;
-        Ok(())
+
+        // Row index is only used for error reporting
+        self.row_index = self.row_index.wrapping_add(1);
+        Ok(true)
     }
 }
 
