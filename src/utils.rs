@@ -27,11 +27,12 @@ pub(crate) fn add_submodule(
     name: &'static str,
     module_constuctor: impl FnOnce(Python<'_>, &Bound<'_, PyModule>) -> PyResult<()>,
 ) -> PyResult<()> {
-    let sub_module = PyModule::new(py, name)?;
+    let full_name = format!("{}.{name}", parent_mod.name()?);
+    let sub_module = PyModule::new(py, &full_name)?;
     module_constuctor(py, &sub_module)?;
     parent_mod.add_submodule(&sub_module)?;
     py.import("sys")?
         .getattr("modules")?
-        .set_item(format!("{}.{name}", parent_mod.name()?), sub_module)?;
+        .set_item(&full_name, sub_module)?;
     Ok(())
 }
