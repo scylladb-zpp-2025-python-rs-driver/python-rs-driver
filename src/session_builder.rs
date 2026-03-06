@@ -47,7 +47,8 @@ impl SessionBuilder {
         }
 
         if let Some(execution_profile) = execution_profile {
-            cfg.default_execution_profile_handle = execution_profile._inner.into_handle();
+            cfg.default_execution_profile_handle =
+                execution_profile._inner.as_ref().clone().into_handle();
         }
 
         Ok(Self { config: cfg })

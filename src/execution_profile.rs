@@ -1,13 +1,32 @@
 use pyo3::prelude::*;
-use scylla::client;
-use std::time::Duration;
+use scylla::client::{self, execution_profile::ExecutionProfileBuilder};
+use std::{sync::Arc, time::Duration};
 
-use crate::enums::{Consistency, SerialConsistency};
+use crate::{
+    enums::{Consistency, SerialConsistency},
+    policies::load_balancing::{PyLoadBalancingPolicy, build_load_balancing_policy},
+};
 
 #[pyclass(frozen)]
 #[derive(Clone)]
 pub(crate) struct ExecutionProfile {
-    pub(crate) _inner: client::execution_profile::ExecutionProfile,
+    pub(crate) _inner: Arc<client::execution_profile::ExecutionProfile>,
+    pub(crate) _load_balancing_policy: Option<PyLoadBalancingPolicy>,
+}
+
+impl ExecutionProfile {
+    fn resolve_load_balancing_policy(
+        policy: Option<Py<PyAny>>,
+        mut builder: ExecutionProfileBuilder,
+    ) -> (Option<PyLoadBalancingPolicy>, ExecutionProfileBuilder) {
+        let Some(policy) = policy else {
+            return (None, builder);
+        };
+
+        let (stored, arc) = build_load_balancing_policy(policy);
+        builder = builder.load_balancing_policy(arc);
+        (Some(stored), builder)
+    }
 }
 
 #[pymethods]
@@ -17,11 +36,13 @@ impl ExecutionProfile {
         timeout=30.0,
         consistency=Consistency::LocalQuorum,
         serial_consistency=SerialConsistency::LocalSerial,
+        policy=None,
     ))]
     pub(crate) fn new(
         timeout: Option<f64>,
         consistency: Consistency,
         serial_consistency: Option<SerialConsistency>,
+        policy: Option<Py<PyAny>>,
     ) -> PyResult<Self> {
         let mut profile_builder = client::execution_profile::ExecutionProfile::builder();
 
@@ -40,8 +61,12 @@ impl ExecutionProfile {
         profile_builder =
             profile_builder.serial_consistency(serial_consistency.map(|sc| sc.to_rust()));
 
+        let (stored_policy, profile_builder) =
+            Self::resolve_load_balancing_policy(policy, profile_builder);
+
         Ok(ExecutionProfile {
-            _inner: profile_builder.build(),
+            _inner: Arc::new(profile_builder.build()),
+            _load_balancing_policy: stored_policy,
         })
     }
 
@@ -57,6 +82,10 @@ impl ExecutionProfile {
         self._inner
             .get_serial_consistency()
             .map(SerialConsistency::to_python)
+    }
+
+    pub(crate) fn get_load_balancing_policy(&self) -> Option<PyLoadBalancingPolicy> {
+        self._load_balancing_policy.clone()
     }
 }
 

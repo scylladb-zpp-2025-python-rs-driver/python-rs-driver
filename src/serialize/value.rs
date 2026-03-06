@@ -34,7 +34,7 @@ use scylla_cql::serialize::value::{
 /// This type performs runtime type inspection and dispatches the value to the
 /// appropriate serializer based on the target CQL `ColumnType`.
 #[derive(Debug)]
-pub(super) struct PyAnyWrapper<'a, 'py>(&'a Bound<'py, PyAny>);
+pub(crate) struct PyAnyWrapper<'a, 'py>(&'a Bound<'py, PyAny>);
 
 impl<'a, 'py> Deref for PyAnyWrapper<'a, 'py> {
     type Target = &'a Bound<'py, PyAny>;
@@ -44,7 +44,7 @@ impl<'a, 'py> Deref for PyAnyWrapper<'a, 'py> {
 }
 
 impl<'a, 'py> PyAnyWrapper<'a, 'py> {
-    pub(super) fn new(inner: &'a Bound<'py, PyAny>) -> Self {
+    pub(crate) fn new(inner: &'a Bound<'py, PyAny>) -> Self {
         Self(inner)
     }
 

@@ -8,7 +8,7 @@ name = "scylla"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.27.2", features = ["extension-module", "experimental-async", "bigdecimal", "num-bigint", "uuid", "chrono", "time"] }
+pyo3 = { version = "0.27.2", features = ["extension-module", "experimental-async", "bigdecimal", "num-bigint", "uuid", "chrono", "time", "py-clone"] }
 tokio = { version = "1.42.0", features = ["full"] }
 scylla = { git = "https://github.com/scylladb-zpp-2025-python-rs-driver/scylla-rust-driver", features = ["chrono-04", "bigdecimal-04", "num-bigint-04"]}
 scylla-cql = { git = "https://github.com/scylladb-zpp-2025-python-rs-driver/scylla-rust-driver", features = ["chrono-04", "bigdecimal-04", "num-bigint-04"]}
@@ -20,3 +20,5 @@ uuid = { version = "1.11.0", features = ["v4"] }
 bigdecimal = "0.4"
 chrono = "0.4"
 num-bigint = "0.4"
+pyo3-log = "0.13.3"
+log = "0.4.29"
