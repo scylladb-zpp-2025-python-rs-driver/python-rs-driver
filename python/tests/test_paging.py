@@ -6,6 +6,7 @@ import pytest_asyncio
 from scylla.statement import Statement
 from scylla.session import Session
 from scylla.session_builder import SessionBuilder
+from scylla.results import PagingState
 
 
 async def set_up() -> Session:
@@ -325,3 +326,45 @@ async def test_first_for_non_rows_result_returns_none(
 
     assert row_first is None
     assert row_all == []
+
+
+def test_paging_state_new_is_start_state():
+    state = PagingState()
+
+    assert state.as_bytes() is None
+
+
+def test_paging_state_from_bytes_roundtrip():
+    raw = b"\x01\x02\x03\x04"
+
+    state = PagingState.from_bytes(raw)
+
+    assert state.as_bytes() == raw
+
+
+def test_paging_state_start_and_from_bytes_are_not_equal():
+    start_state = PagingState()
+    resumed_state = PagingState.from_bytes(b"\x01\x02\x03")
+
+    assert start_state != resumed_state
+
+
+def test_paging_state_equal_for_same_raw_bytes():
+    state1 = PagingState.from_bytes(b"\x01\x02\x03")
+    state2 = PagingState.from_bytes(b"\x01\x02\x03")
+
+    assert state1 == state2
+
+
+def test_paging_state_not_equal_for_different_raw_bytes():
+    state1 = PagingState.from_bytes(b"\x01\x02\x03")
+    state2 = PagingState.from_bytes(b"\x04\x05\x06")
+
+    assert state1 != state2
+
+
+def test_paging_state_from_empty_bytes_is_not_start_state():
+    state = PagingState.from_bytes(b"")
+
+    assert state.as_bytes() == b""
+    assert state != PagingState()

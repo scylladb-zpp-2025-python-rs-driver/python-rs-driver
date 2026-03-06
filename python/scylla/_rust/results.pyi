@@ -144,6 +144,42 @@ class PagingState:
         Creates a new paging state starting from the first page.
         """
         ...
+    def as_bytes(self) -> bytes | None:
+        """
+        Returns the inner representation of `PagingState` as bytes.
+
+        Use this to store paging state for a longer time, and later restore it
+        using `from_bytes()`. Returns `None` if this represents the start state
+        (no previous page).
+
+        Returns
+        -------
+        bytes | None
+            Raw paging state bytes, or `None` for the start state.
+        """
+        ...
+
+    @staticmethod
+    def from_bytes(raw_bytes: bytes) -> PagingState:
+        """
+        Creates `PagingState` from raw bytes.
+
+        Use this to restore paging state after longer time, having previously
+        stored it using `as_bytes()`.
+
+        Parameters
+        ----------
+        raw_bytes : bytes
+            Raw paging state bytes previously obtained from `as_bytes()`.
+
+        Returns
+        -------
+        PagingState
+            A new `PagingState` restored from the raw bytes.
+        """
+        ...
+
+    def __eq__(self, other: object) -> bool: ...
 
 class RequestResult:
     """
