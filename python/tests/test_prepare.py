@@ -20,7 +20,7 @@ async def test_prepare_and_execute():
     prepared = await session.prepare("SELECT * FROM system.local")
     assert isinstance(prepared, PreparedStatement)
     result = await session.execute(prepared)
-    print(result)
+    print(await result.all())
 
 
 @pytest.mark.asyncio

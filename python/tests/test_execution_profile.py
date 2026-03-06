@@ -70,7 +70,7 @@ async def test_create_session_with_profile():
     builder = SessionBuilder(["127.0.0.2"], 9042, execution_profile=profile)
     session = await builder.connect()
     result = await session.execute("SELECT * FROM system.local")
-    print(result)
+    print(await result.all())
 
 
 @pytest.mark.asyncio

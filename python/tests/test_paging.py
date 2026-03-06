@@ -228,25 +228,24 @@ async def test_paging_state_resume(
     prepared = await session.prepare(f"SELECT * FROM {table}")
     prepared = prepared.with_page_size(10)
 
-    result1 = await session.execute(prepared)
+    result = await session.execute(prepared)
 
-    first_page = list(result1.iter_current_page())
-    state = result1.paging_state()
+    seen_ids: list[int] = []
 
-    assert state is not None
+    while True:
+        page = list(result.iter_current_page())
+        seen_ids.extend(row["id"] for row in page)
 
-    # Resume using paging state
-    result2 = await session.execute(
-        prepared,
-        paging_state=state,
-    )
+        state = result.paging_state()
+        if state is None:
+            break
 
-    second_page = list(result2.iter_current_page())
+        result = await session.execute(
+            prepared,
+            paging_state=state,
+        )
 
-    ids_first = {row["id"] for row in first_page}
-    ids_second = {row["id"] for row in second_page}
-
-    assert ids_first.isdisjoint(ids_second)
+    assert sorted(seen_ids) == list(range(20))
 
 
 @pytest.mark.asyncio

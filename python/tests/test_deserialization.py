@@ -75,7 +75,7 @@ async def insert_and_fetch_single_row(
     return row
 
 
-# Verifies that iter_rows() returns an iterator yielding row dictionaries
+# Verifies that result.all() returns a sequence of row dictionaries
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_rows_result_is_iterator_and_dicts(session: Session, table_factory: TableFactory):
@@ -89,7 +89,7 @@ async def test_rows_result_is_iterator_and_dicts(session: Session, table_factory
 
     result = await session.execute(f"SELECT * FROM {table}")
 
-    first = await result.single_row()
+    first = (await result.all())[0]
     assert isinstance(first, dict)
 
     assert "id" in first

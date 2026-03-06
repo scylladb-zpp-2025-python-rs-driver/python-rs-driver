@@ -102,7 +102,6 @@ async def test_ascii_serialization(session: Session, table_factory: TableFactory
     val = "HELLO"
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -116,7 +115,6 @@ async def test_boolean_serialization(session: Session, table_factory: TableFacto
     val = True
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -130,7 +128,6 @@ async def test_blob_serialization(session: Session, table_factory: TableFactory)
     val = b"hello world"
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -144,7 +141,6 @@ async def test_date_serialization(session: Session, table_factory: TableFactory)
     val = date(2004, 6, 16)
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -158,7 +154,6 @@ async def test_decimal_serialization(session: Session, table_factory: TableFacto
     val = Decimal("12.3E+7")
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -172,7 +167,6 @@ async def test_double_serialization(session: Session, table_factory: TableFactor
     val = 1.23456789
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -186,7 +180,6 @@ async def test_duration_serialization(session: Session, table_factory: TableFact
     val = relativedelta(months=2, days=5, microseconds=36)
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -200,7 +193,6 @@ async def test_float_serialization(session: Session, table_factory: TableFactory
     val = 3.14
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -214,7 +206,6 @@ async def test_int_serialization(session: Session, table_factory: TableFactory):
     val = 123
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -242,7 +233,6 @@ async def test_bigint_serialization(session: Session, table_factory: TableFactor
     val = 9999999999
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -270,7 +260,6 @@ async def test_text_serialization(session: Session, table_factory: TableFactory)
     val = "Meow"
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -284,7 +273,6 @@ async def test_timestamp_serialization(session: Session, table_factory: TableFac
     val = datetime(1, 1, 1, 23, 59, 59, 999000, tzinfo=timezone.utc)
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -300,7 +288,6 @@ async def test_inet_serialization(session: Session, table_factory: TableFactory)
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, ipv4))
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, ipv6))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -314,7 +301,6 @@ async def test_smallint_serialization(session: Session, table_factory: TableFact
     val = 12
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -346,7 +332,6 @@ async def test_counter_serialization(session: Session, table_factory: TableFacto
 
     await session.execute(f"UPDATE {table} SET col = col + ? WHERE id = ?", (val1, id))
     await session.execute(f"UPDATE {table} SET col = col + ? WHERE id = ?", (val2, id))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -360,7 +345,6 @@ async def test_tinyint_serialization(session: Session, table_factory: TableFacto
     val = 5
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -388,7 +372,6 @@ async def test_time_serialization(session: Session, table_factory: TableFactory)
     val = time(1, 30, 45, 500000)
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -402,7 +385,6 @@ async def test_timeuuid_serialization(session: Session, table_factory: TableFact
     val = uuid.uuid1()
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -416,7 +398,6 @@ async def test_uuid_serialization(session: Session, table_factory: TableFactory)
     val = uuid.uuid4()
 
     await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -448,8 +429,6 @@ async def test_varint_serialization(session: Session, table_factory: TableFactor
     for i, val in enumerate(values):
         await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (i, val))
 
-    await session.execute(f"SELECT * from {table}")
-
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
@@ -462,7 +441,6 @@ async def test_basic_serialization_using_dict(session: Session, table_factory: T
     row = {"id": 1, "name": "Test Name", "score": 95.5}
 
     await session.execute(f"INSERT INTO {table} (id, name, score) VALUES (?, ?, ?)", row)
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -476,7 +454,6 @@ async def test_map_serialization(session: Session, table_factory: TableFactory):
     map = {"health": 100, "mana": 50, "stamina": 75}
 
     await session.execute(f"INSERT INTO {table} (id, attributes) VALUES (?, ?)", {"id": 1, "attributes": map})
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -490,7 +467,6 @@ async def test_map_int_key_serialization(session: Session, table_factory: TableF
     map = {16: 100, 6: 50, 2004: 75}
 
     await session.execute(f"INSERT INTO {table} (id, attributes) VALUES (?, ?)", {"id": 1, "attributes": map})
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -504,7 +480,6 @@ async def test_set_serialization(session: Session, table_factory: TableFactory):
     set = {"fire", "water", "earth", "air"}
 
     await session.execute(f"INSERT INTO {table} (id, tags) VALUES (?, ?)", {"id": 1, "tags": set})
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -535,7 +510,6 @@ async def test_vector_list_serialization(session: Session, table_factory: TableF
     vector = [1, 2, 3, 4]
 
     await session.execute(f"INSERT INTO {table} (id, embedding) VALUES (?, ?)", (1, vector))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -549,7 +523,6 @@ async def test_vector_serialization_tuple(session: Session, table_factory: Table
     vector = (1, 2, 3, 4)
 
     await session.execute(f"INSERT INTO {table} (id, embedding) VALUES (?, ?)", (1, vector))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -569,8 +542,6 @@ async def test_list_serialization(session: Session, table_factory: TableFactory)
 
     for values in test_cases:
         await session.execute(f"INSERT INTO {table} (id, tags, scores) VALUES (?, ?, ?)", values)
-
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -615,8 +586,6 @@ async def test_tuple_serialization(session: Session, table_factory: TableFactory
     for values in test_cases:
         await session.execute(f"INSERT INTO {table} (id, tags, scores) VALUES (?, ?, ?)", values)
 
-    await session.execute(f"SELECT * from {table}")
-
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
@@ -660,8 +629,6 @@ async def test_null_values(session: Session, table_factory: TableFactory):
     for values in test_cases:
         await session.execute(f"INSERT INTO {table} (id, name, score, tags) VALUES (?, ?, ?, ?)", values)
 
-    await session.execute(f"SELECT * from {table}")
-
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
@@ -674,7 +641,6 @@ async def test_nested_lists(session: Session, table_factory: TableFactory):
     nested = [[1, 2, 3], [4, 5], [], [6]]
 
     await session.execute(f"INSERT INTO {table} (id, numbers) VALUES (?, ?)", (1, nested))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -698,8 +664,6 @@ async def test_udt_simple(session: Session, table_factory: TableFactory):
     cat = Cat("Mittens")
 
     await session.execute(f"INSERT INTO {table} (id, info) VALUES (?, ?)", (2, asdict(cat)))
-
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -730,8 +694,6 @@ async def test_udt(session: Session, table_factory: TableFactory):
 
     address = Address("456 Oak Ave", "Springfield", 67890)
     await session.execute(f"INSERT INTO {table} (id, addr) VALUES (?, ?)", (2, asdict(address)))
-
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -766,7 +728,6 @@ async def test_udt_with_lists(session: Session, table_factory: TableFactory):
 
     addr = Address("456 Oak Ave", "Springfield", [11111, 22222], ["Elm St"])
     await session.execute(f"INSERT INTO {table} (id, addr) VALUES (?, ?)", (1, asdict(addr)))
-    await session.execute(f"SELECT * from {table}")
 
 
 @pytest.mark.asyncio
@@ -811,4 +772,3 @@ async def test_nested_udts(session: Session, table_factory: TableFactory):
     person = Person("Bob", 40, Address("456 Oak Ave", "Springfield", 67890))
 
     await session.execute(f"INSERT INTO {table} (id, person) VALUES (?, ?)", (2, asdict(person)))
-    await session.execute(f"SELECT * from {table}")
