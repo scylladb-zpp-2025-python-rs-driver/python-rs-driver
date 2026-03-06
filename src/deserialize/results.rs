@@ -2,7 +2,8 @@ use crate::deserialize::value::{PyDeserializeValue, PyDeserializedValue};
 use crate::deserialize::{IntoPyDeserError, PyDeserializationError};
 use crate::serialize::value_list::PyValueList;
 use crate::session::{ExecutableStatement, Session};
-use pyo3::exceptions::{PyRuntimeError, PyStopAsyncIteration, PyStopIteration};
+use pyo3::exceptions::{PyRuntimeError, PyRuntimeWarning, PyStopAsyncIteration, PyStopIteration};
+use pyo3::ffi::c_str;
 use pyo3::prelude::{PyDictMethods, PyListMethods, PyModule, PyModuleMethods};
 use pyo3::types::{PyDict, PyList, PyNone, PyString};
 use pyo3::{
@@ -16,6 +17,7 @@ use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 use stable_deref_trait::StableDeref;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::sync::Mutex;
 use yoke::{Yoke, Yokeable};
 
@@ -28,6 +30,7 @@ pub(crate) struct RequestResult {
     row_factory: Option<Py<RowFactory>>,
     query_pager: QueryPager,
     query_result: Arc<QueryResult>,
+    consumption_tracker: ConsumptionTracker,
 }
 
 impl RequestResult {
@@ -35,11 +38,19 @@ impl RequestResult {
         query_result: QueryResult,
         query_pager: QueryPager,
         row_factory: Option<Py<RowFactory>>,
+        consumption_tracker: Option<ConsumptionTracker>,
     ) -> Self {
+        let consumption_tracker = consumption_tracker.unwrap_or_else(ConsumptionTracker::new);
+
+        if !query_result.is_rows() {
+            consumption_tracker.mark_exhausted();
+        }
+
         Self {
             query_pager,
             query_result: Arc::new(query_result),
             row_factory,
+            consumption_tracker,
         }
     }
 }
@@ -65,7 +76,8 @@ impl RequestResult {
     ///
     /// Current paging state or `None` if no more pages are available.
     fn paging_state(&self) -> Option<PyPagingState> {
-        self.query_pager.paging_state()
+        self.query_pager
+            .paging_state(self.consumption_tracker.clone())
     }
 
     /// Fetches the next page if available.
@@ -89,6 +101,7 @@ impl RequestResult {
                 query_result: Arc::new(query_result?),
                 query_pager,
                 row_factory,
+                consumption_tracker: self.consumption_tracker.clone(),
             }));
         }
 
@@ -104,7 +117,13 @@ impl RequestResult {
     ///
     /// Iterator over rows in the current page.
     fn iter_current_page<'py>(&self, py: Python<'py>) -> PyResult<SinglePageIterator> {
-        SinglePageIterator::new(py, &self.query_result, self.row_factory.clone())
+        SinglePageIterator::new(
+            py,
+            &self.query_result,
+            self.row_factory.clone(),
+            self.consumption_tracker.clone(),
+            !self.query_pager.has_more_pages(),
+        )
     }
 
     /// Returns an async iterator over all rows with automatic paging.
@@ -121,6 +140,7 @@ impl RequestResult {
             self.query_pager.clone(),
             &self.query_result,
             self.row_factory.clone(),
+            self.consumption_tracker.clone(),
         )
     }
 
@@ -143,9 +163,21 @@ impl RequestResult {
             RowsIteratorKind::new(py, &self.query_result, self.row_factory.clone())
         })?;
 
-        next_row_with_paging(&mut rows_iterator, &mut query_pager_clone)
-            .await
-            .unwrap_or(Ok(Python::attach(|py| PyNone::get(py).to_owned().into())))
+        match next_row_with_paging(&mut rows_iterator, &mut query_pager_clone).await {
+            Some(first_row) => {
+                if next_row_with_paging(&mut rows_iterator, &mut query_pager_clone)
+                    .await
+                    .is_none()
+                {
+                    self.consumption_tracker.mark_exhausted();
+                }
+                first_row
+            }
+            None => {
+                self.consumption_tracker.mark_exhausted();
+                Ok(Python::attach(|py| PyNone::get(py).to_owned().into()))
+            }
+        }
     }
 
     /// Returns all rows from all pages with automatic paging.
@@ -195,6 +227,8 @@ impl RequestResult {
             }
         }
 
+        self.consumption_tracker.mark_exhausted();
+
         Ok(list)
     }
 }
@@ -205,6 +239,8 @@ impl RequestResult {
 /// Each iteration returns one row as a Python object (default: dict).
 #[pyclass(frozen)]
 struct SinglePageIterator {
+    consumption_tracker: ConsumptionTracker,
+    is_last_page: bool,
     kind: std::sync::Mutex<RowsIteratorKind>,
 }
 
@@ -213,8 +249,12 @@ impl SinglePageIterator {
         py: Python<'_>,
         query_result: &Arc<QueryResult>,
         factory: Option<Py<RowFactory>>,
+        consumption_tracker: ConsumptionTracker,
+        is_last_page: bool,
     ) -> PyResult<Self> {
         Ok(SinglePageIterator {
+            consumption_tracker,
+            is_last_page,
             kind: std::sync::Mutex::new(RowsIteratorKind::new(py, query_result, factory)?),
         })
     }
@@ -228,8 +268,12 @@ impl SinglePageIterator {
             .lock()
             .map_err(|_| PyErr::new::<PyRuntimeError, _>("SinglePageIterator mutex was poisoned"))?;
 
-        guard.next(py)
-            .unwrap_or(Err(PyErr::new::<PyStopIteration, _>("")))
+        guard.next(py).unwrap_or_else(|| {
+            if self.is_last_page {
+                self.consumption_tracker.mark_exhausted();
+            }
+            Err(PyErr::new::<PyStopIteration, _>(""))
+        })
     }
 
     pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -244,6 +288,7 @@ impl SinglePageIterator {
 #[pyclass(name = "PagingState", frozen)]
 pub struct PyPagingState {
     pub(crate) inner: PagingState,
+    pub(crate) consumption_tracker: Option<ConsumptionTracker>,
 }
 
 #[pymethods]
@@ -253,6 +298,7 @@ impl PyPagingState {
     fn new() -> Self {
         PyPagingState {
             inner: PagingState::start(),
+            consumption_tracker: None,
         }
     }
 
@@ -286,6 +332,10 @@ impl PyPagingState {
     pub fn from_bytes(raw_bytes: &[u8]) -> Self {
         Self {
             inner: PagingState::new_from_raw_bytes(raw_bytes),
+            // In scenario when user creates PagingState from bytes and then uses it in execute(),
+            // We can't reliably pass consumption tracker from the original PagingState.
+            // This may cause false warnings for users even if they would consume all rows, using this methods.
+            consumption_tracker: None,
         }
     }
 
@@ -300,6 +350,7 @@ impl PyPagingState {
 #[pyclass(frozen)]
 pub struct AsyncRowsIterator {
     state: Arc<Mutex<AsyncIteratorState>>,
+    consumption_tracker: ConsumptionTracker,
 }
 
 impl AsyncRowsIterator {
@@ -308,12 +359,14 @@ impl AsyncRowsIterator {
         paging_api: QueryPager,
         query_result: &Arc<QueryResult>,
         factory: Option<Py<RowFactory>>,
+        consumption_tracker: ConsumptionTracker,
     ) -> PyResult<Self> {
         Ok(AsyncRowsIterator {
             state: Arc::new(Mutex::new(AsyncIteratorState {
                 rows_iterator: RowsIteratorKind::new(py, query_result, factory)?,
                 query_pager: paging_api,
             })),
+            consumption_tracker,
         })
     }
 }
@@ -324,6 +377,7 @@ impl AsyncRowsIterator {
         // TODO: Add a "ready" awaitable for the fast path (row already buffered) to avoid `future_into_py` scheduling/allocation.
 
         let state_clone = self.state.clone();
+        let consumption_tracker_clone = self.consumption_tracker.clone();
 
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let mut state = state_clone.lock().await;
@@ -335,7 +389,10 @@ impl AsyncRowsIterator {
 
             next_row_with_paging(rows_iterator, query_pager)
                 .await
-                .unwrap_or(Err(PyErr::new::<PyStopAsyncIteration, _>("")))
+                .unwrap_or_else(|| {
+                    consumption_tracker_clone.mark_exhausted();
+                    Err(PyErr::new::<PyStopAsyncIteration, _>(""))
+                })
         })
     }
 
@@ -359,7 +416,6 @@ async fn next_row_with_paging(
 ) -> Option<PyResult<Py<PyAny>>> {
     // Loop until a row is produced, all pages are exhausted,
     // or an error occurs while fetching or updating pages.
-
     loop {
         if let Some(row) = Python::attach(|py| rows_iterator.next(py)) {
             return Some(row);
@@ -648,13 +704,14 @@ impl QueryPager {
         )
     }
 
-    fn paging_state(&self) -> Option<PyPagingState> {
+    fn paging_state(&self, tracker: ConsumptionTracker) -> Option<PyPagingState> {
         match self {
             QueryPager::Paged {
                 paging_response: PagingStateResponse::HasMorePages { state },
                 ..
             } => Some(PyPagingState {
                 inner: state.clone(),
+                consumption_tracker: Some(tracker),
             }),
             QueryPager::Paged {
                 paging_response: PagingStateResponse::NoMorePages,
@@ -746,6 +803,56 @@ impl<'a> Cursor<'a> {
                 Some(Ok(()))
             }
             Err(err) => Some(Err(err.into_py_deser())),
+        }
+    }
+}
+
+struct ResultUsageState {
+    live_handles: AtomicUsize,
+    exhausted: AtomicBool,
+}
+
+pub(crate) struct ConsumptionTracker {
+    state: Arc<ResultUsageState>,
+}
+impl ConsumptionTracker {
+    fn new() -> Self {
+        Self {
+            state: Arc::new(ResultUsageState {
+                live_handles: AtomicUsize::new(1),
+                exhausted: AtomicBool::new(false),
+            }),
+        }
+    }
+    fn mark_exhausted(&self) {
+        self.state.exhausted.store(true, Ordering::Release);
+    }
+}
+impl Clone for ConsumptionTracker {
+    fn clone(&self) -> Self {
+        self.state.live_handles.fetch_add(1, Ordering::Relaxed);
+        Self {
+            state: Arc::clone(&self.state),
+        }
+    }
+}
+
+impl Drop for ConsumptionTracker {
+    fn drop(&mut self) {
+        if self.state.live_handles.fetch_sub(1, Ordering::AcqRel) == 1
+            && !self.state.exhausted.load(Ordering::Acquire)
+        {
+            Python::attach(|py| {
+                let warning_type = py.get_type::<PyRuntimeWarning>();
+                let _ = PyErr::warn(
+                    py,
+                    warning_type.as_any(),
+                    c_str!(
+                        "Query result dropped before being fully consumed. Some rows may not have been retrieved."
+                    ),
+                    0,
+                );
+            });
         }
     }
 }

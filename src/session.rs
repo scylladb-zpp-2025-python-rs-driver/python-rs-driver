@@ -80,7 +80,12 @@ impl Session {
             })
             .await?;
 
-        Ok(RequestResult::new(result, QueryPager::unpaged(), factory))
+        Ok(RequestResult::new(
+            result,
+            QueryPager::unpaged(),
+            factory,
+            None,
+        ))
     }
 
     async fn execute_paged(
@@ -90,10 +95,16 @@ impl Session {
         values: PyValueList,
         factory: Option<Py<RowFactory>>,
     ) -> PyResult<RequestResult> {
-        let paging_state = if let Some(state) = paging_state {
-            Python::attach(|py| state.borrow(py).inner.clone())
+        let (paging_state, consumption_tracker) = if let Some(state) = paging_state {
+            Python::attach(|py| {
+                let state_ref = state.borrow(py);
+                (
+                    state_ref.inner.clone(),
+                    state_ref.consumption_tracker.clone(),
+                )
+            })
         } else {
-            PagingState::start()
+            (PagingState::start(), None)
         };
 
         let (result, paging_response) = self
@@ -104,6 +115,7 @@ impl Session {
             result,
             QueryPager::paged(paging_response, self.clone(), statement, values),
             factory,
+            consumption_tracker,
         ))
     }
     async fn session_spawn_on_runtime<F, Fut, R>(&self, f: F) -> PyResult<R>
