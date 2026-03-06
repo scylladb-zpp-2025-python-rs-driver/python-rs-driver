@@ -1,7 +1,10 @@
-from typing import Callable, Awaitable, AsyncGenerator, Any
+from typing import Callable, Awaitable, AsyncGenerator, Any, cast
+import warnings
 
 import pytest
 import pytest_asyncio
+import asyncio
+import gc
 
 from scylla.statement import Statement
 from scylla.session import Session
@@ -380,3 +383,328 @@ def test_paging_state_from_empty_bytes_is_not_start_state():
 
     assert state.as_bytes() == b""
     assert state != PagingState()
+
+
+WARNING_TEXT = "Query result dropped before being fully consumed"
+
+
+async def _flush_drops() -> None:
+    gc.collect()
+    await asyncio.sleep(0)
+
+
+def _assert_warning_raised(warning_list: list[warnings.WarningMessage]) -> None:
+    """Assert that at least one RuntimeWarning with the expected message was raised."""
+    assert len(warning_list) > 0, "Expected a RuntimeWarning to be raised, but none were caught"
+    assert any(WARNING_TEXT in str(w.message) for w in warning_list), (
+        f"Expected warning containing '{WARNING_TEXT}' but got: {[str(w.message) for w in warning_list]}"
+    )
+
+
+def _assert_no_warnings(warning_list: list[warnings.WarningMessage]) -> None:
+    """Assert that no RuntimeWarning with the expected message was raised."""
+    matching_warnings: list[warnings.WarningMessage] = [w for w in warning_list if WARNING_TEXT in str(w.message)]
+    assert len(matching_warnings) == 0, f"Expected no warnings but got: {[str(w.message) for w in matching_warnings]}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_no_warning_for_non_rows_result_if_user_does_not_check_it(
+    session: Session,
+    table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "warning_non_rows_insert_table",
+    )
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+
+        result: Any = await session.execute(f"INSERT INTO {table} (id, x) VALUES (1000, 42)")
+
+        del result
+        await _flush_drops()
+
+        _assert_no_warnings(w)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_warning_for_unfinished_async_iteration(
+    session: Session,
+    table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "warning_async_unfinished_table",
+    )
+    await insert_rows(session, table, 10)
+
+    prepared = await session.prepare(f"SELECT * FROM {table}")
+    prepared = prepared.with_page_size(3)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+
+        result = await session.execute(prepared)
+        async_iter = result.__aiter__()
+
+        row = await async_iter.__anext__()
+        assert row is not None
+
+        del async_iter
+        del result
+        await _flush_drops()
+
+        _assert_warning_raised(w)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_no_warning_when_one_async_iterator_exhausts_even_if_another_does_not(
+    session: Session,
+    table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "warning_two_async_iters_table",
+    )
+    await insert_rows(session, table, 10)
+
+    prepared = await session.prepare(f"SELECT * FROM {table}")
+    prepared = prepared.with_page_size(3)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+
+        result = await session.execute(prepared)
+
+        iter1 = result.__aiter__()
+        iter2 = result.__aiter__()
+
+        first_row = await iter1.__anext__()
+        assert first_row is not None
+
+        seen: list[int] = []
+        async for row in iter2:
+            seen.append(cast(int, row["id"]))
+
+        assert sorted(seen) == list(range(10))
+
+        del iter1
+        del iter2
+        del result
+        await _flush_drops()
+
+        _assert_no_warnings(w)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_warning_for_empty_result_if_user_does_not_check_it(
+    session: Session,
+    table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "warning_empty_unchecked_table",
+    )
+
+    prepared = await session.prepare(f"SELECT * FROM {table}")
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+
+        result = await session.execute(prepared)
+
+        del result
+        await _flush_drops()
+
+        _assert_warning_raised(w)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_no_warning_for_empty_result_when_single_row_is_used(
+    session: Session,
+    table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "warning_empty_single_row_table",
+    )
+
+    prepared = await session.prepare(f"SELECT * FROM {table}")
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+
+        result = await session.execute(prepared)
+
+        row = await result.single_row()
+        assert row is None
+
+        del result
+        await _flush_drops()
+
+        _assert_no_warnings(w)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_no_warning_for_single_row_result_when_single_row_is_used(
+    session: Session,
+    table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "warning_single_row_single_row_table",
+    )
+    await insert_rows(session, table, 1)
+
+    prepared = await session.prepare(f"SELECT * FROM {table}")
+    prepared = prepared.with_page_size(10)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+
+        result = await session.execute(prepared)
+
+        row = await result.single_row()
+        assert row is not None
+        assert row["id"] == 0
+
+        del result
+        await _flush_drops()
+
+        _assert_no_warnings(w)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_no_warning_when_all_is_used(
+    session: Session,
+    table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "warning_all_table",
+    )
+    await insert_rows(session, table, 10)
+
+    prepared = await session.prepare(f"SELECT * FROM {table}")
+    prepared = prepared.with_page_size(3)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+
+        result = await session.execute(prepared)
+
+        rows = await result.all()
+        assert len(rows) == 10
+
+        del result
+        await _flush_drops()
+
+        _assert_no_warnings(w)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_warning_for_manual_paging_without_exhausting(
+    session: Session,
+    table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "warning_manual_paging_unfinished_table",
+    )
+    await insert_rows(session, table, 10)
+
+    prepared = await session.prepare(f"SELECT * FROM {table}")
+    prepared = prepared.with_page_size(3)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+
+        result = await session.execute(prepared)
+
+        page = list(result.iter_current_page())
+        assert len(page) == 3
+
+        del result
+        await _flush_drops()
+
+        _assert_warning_raised(w)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_no_warning_when_manual_paging_and_async_iteration_share_result_and_async_exhausts(
+    session: Session,
+    table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "warning_manual_plus_async_table",
+    )
+    await insert_rows(session, table, 10)
+
+    prepared = await session.prepare(f"SELECT * FROM {table}")
+    prepared = prepared.with_page_size(3)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+
+        result: Any = await session.execute(prepared)
+
+        first_page = list(result.iter_current_page())
+        assert len(first_page) == 3
+
+        seen: list[int] = []
+        async for row in result:
+            seen.append(cast(int, row["id"]))
+
+        assert sorted(seen) == list(range(10))
+
+        del result
+        await _flush_drops()
+
+        _assert_no_warnings(w)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_no_warning_after_manual_fetch_next_page_chain_exhausts_result(
+    session: Session,
+    table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, x int",
+        "warning_manual_chain_exhausted_table",
+    )
+    await insert_rows(session, table, 10)
+
+    prepared = await session.prepare(f"SELECT * FROM {table}")
+    prepared = prepared.with_page_size(3)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+
+        result = await session.execute(prepared)
+
+        seen: list[int] = []
+        while True:
+            seen.extend(cast(int, row["id"]) for row in result.iter_current_page())
+            next_page: Any = await result.fetch_next_page()
+            if next_page is None:
+                break
+            result = next_page
+
+        assert sorted(seen) == list(range(10))
+
+        del result
+        await _flush_drops()
+
+        _assert_no_warnings(w)
