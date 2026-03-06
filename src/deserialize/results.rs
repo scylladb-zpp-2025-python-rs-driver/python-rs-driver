@@ -613,7 +613,7 @@ pub(crate) enum Pager {
     Paged {
         paging_response: PagingStateResponse,
         session: Session,
-        query_request: ExecutableStatement,
+        query_request: Box<ExecutableStatement>,
         value_list: PyValueList,
     },
 }
@@ -632,7 +632,7 @@ impl Pager {
         Pager::Paged {
             paging_response,
             session,
-            query_request,
+            query_request: Box::new(query_request),
             value_list,
         }
     }
@@ -680,7 +680,7 @@ impl Pager {
         };
 
         let result = session
-            .execute_single_page(state, query_request.clone(), value_list.clone())
+            .execute_single_page(state, query_request.as_ref().clone(), value_list.clone())
             .await;
 
         let (query_result, new_paging_response) = match result {

@@ -1,5 +1,5 @@
 use std::convert::Infallible;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use pyo3::intern;
 use pyo3::types::PyIterator;
@@ -52,11 +52,17 @@ pub(crate) fn build_load_balancing_policy(
 ) -> (PyLoadBalancingPolicy, Arc<dyn LoadBalancingPolicy>) {
     Python::attach(|py| {
         if let Ok(default_policy) = policy.extract::<DefaultPolicy>(py) {
-            let stored = PyLoadBalancingPolicy { _inner: policy };
+            let stored = PyLoadBalancingPolicy {
+                _inner: policy,
+                cluster_cache: Mutex::new(None),
+            };
             (stored, default_policy._inner.clone())
         } else {
             // User-defined policy: wrap and dispatch through the trait impl.
-            let lbp = PyLoadBalancingPolicy { _inner: policy };
+            let lbp = PyLoadBalancingPolicy {
+                _inner: policy,
+                cluster_cache: Mutex::new(None),
+            };
             let arc: Arc<dyn LoadBalancingPolicy> = Arc::new(lbp.clone());
             (lbp, arc)
         }
@@ -136,9 +142,10 @@ impl DefaultPolicy {
     }
 }
 
-#[derive(Clone, Debug)]
+#[expect(dead_code)]
 pub(crate) struct PyLoadBalancingPolicy {
     pub(crate) _inner: Py<PyAny>,
+    pub(crate) cluster_cache: Mutex<Option<(Arc<cluster::ClusterState>, Py<ClusterState>)>>,
 }
 
 impl<'py> IntoPyObject<'py> for PyLoadBalancingPolicy {
@@ -147,7 +154,24 @@ impl<'py> IntoPyObject<'py> for PyLoadBalancingPolicy {
     type Error = Infallible;
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        Ok(self._inner.into_bound(py))
+        Ok(self._inner.clone_ref(py).into_bound(py))
+    }
+}
+
+impl Clone for PyLoadBalancingPolicy {
+    fn clone(&self) -> Self {
+        PyLoadBalancingPolicy {
+            _inner: self._inner.clone(),
+            cluster_cache: Mutex::new(None),
+        }
+    }
+}
+
+impl std::fmt::Debug for PyLoadBalancingPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PyLoadBalancingPolicy")
+            .field("_inner", &self._inner)
+            .finish()
     }
 }
 
