@@ -1,10 +1,10 @@
+use std::future::Future;
 use std::sync::Arc;
 
 use crate::deserialize::results::RequestResult;
+use crate::errors::SessionQueryError;
 use crate::serialize::value_list::PyValueList;
 use crate::statement::PreparedStatement;
-use pyo3::exceptions::PyRuntimeError;
-use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use scylla::statement;
 
@@ -25,7 +25,7 @@ impl Session {
         &self,
         statement: ExecutableStatement,
         values: Option<PyValueList>,
-    ) -> PyResult<RequestResult> {
+    ) -> Result<RequestResult, SessionQueryError> {
         // Why not accept PyValueList instead of Option<PyValueList>?
         // It would require us to use `Default::default` as default value in
         // `pyo3(signature = ...)`, and thus use `text_signature` as well
@@ -38,7 +38,7 @@ impl Session {
                     ExecutableStatement::Prepared(p) => s.execute_unpaged(&p, values).await,
                     ExecutableStatement::Unprepared(q) => s.query_unpaged(q, values).await,
                 }
-                .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+                .map_err(SessionQueryError::statement_execution_error)
             })
             .await?;
 
@@ -47,23 +47,26 @@ impl Session {
         })
     }
 
-    async fn prepare(&self, statement: ExecutableStatement) -> PyResult<PreparedStatement> {
+    async fn prepare(
+        &self,
+        statement: ExecutableStatement,
+    ) -> Result<PreparedStatement, SessionQueryError> {
         match statement {
             ExecutableStatement::Unprepared(s) => self.scylla_prepare(s).await,
-            ExecutableStatement::Prepared(_) => Err(PyErr::new::<PyTypeError, _>(
-                "Cannot prepare a PreparedStatement; expected a str or Statement".to_string(),
-            )),
+            ExecutableStatement::Prepared(_) => {
+                Err(SessionQueryError::cannot_prepare_prepared_statement())
+            }
         }
     }
 }
 
 impl Session {
-    async fn session_spawn_on_runtime<F, Fut, R>(&self, f: F) -> PyResult<R>
+    async fn session_spawn_on_runtime<F, Fut, R>(&self, f: F) -> Result<R, SessionQueryError>
     where
         // closure: takes Arc<scylla::client::session::Session> and returns a future
         F: FnOnce(Arc<scylla::client::session::Session>) -> Fut + Send + 'static,
         // for spawn we need Send + 'static
-        Fut: Future<Output = PyResult<R>> + Send + 'static,
+        Fut: Future<Output = Result<R, SessionQueryError>> + Send + 'static,
         R: Send + 'static,
     {
         let session_clone = Arc::clone(&self._inner);
@@ -71,19 +74,16 @@ impl Session {
         RUNTIME
             .spawn(async move { f(session_clone).await })
             .await
-            .expect("Runtime failed to spawn task") // It's okay to panic here
+            .map_err(|_| SessionQueryError::runtime_task_join_failed())?
     }
 
     async fn scylla_prepare(
         &self,
         statement: impl Into<statement::Statement>,
-    ) -> PyResult<PreparedStatement> {
+    ) -> Result<PreparedStatement, SessionQueryError> {
         match self._inner.prepare(statement).await {
             Ok(prepared) => Ok(PreparedStatement { _inner: prepared }),
-            Err(e) => Err(PyErr::new::<PyRuntimeError, _>(format!(
-                "Failed to prepare statement: {}",
-                e
-            ))),
+            Err(err) => Err(SessionQueryError::statement_prepare_error(err)),
         }
     }
 }
@@ -103,7 +103,10 @@ impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
         }
 
         if let Ok(text) = obj.extract::<Bound<'py, PyString>>() {
-            return Ok(ExecutableStatement::Unprepared(text.to_str()?.into()));
+            let text = text
+                .to_str()
+                .map_err(SessionQueryError::statement_string_conversion_failed)?;
+            return Ok(ExecutableStatement::Unprepared(text.into()));
         }
 
         if let Ok(statement) = obj.extract::<Bound<'py, Statement>>() {
@@ -112,10 +115,13 @@ impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
             ));
         }
 
-        Err(PyErr::new::<PyTypeError, _>(format!(
-            "Invalid statement type: expected str | Statement | PreparedStatement, got {}",
-            obj.get_type().name()?
-        )))
+        let got = obj
+            .get_type()
+            .name()
+            .map(|name| name.to_string())
+            .unwrap_or_else(|_| "<unknown type>".to_string());
+
+        Err(SessionQueryError::invalid_statement_type(got).into())
     }
 }
 

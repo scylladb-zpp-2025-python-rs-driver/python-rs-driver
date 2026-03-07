@@ -17,7 +17,7 @@ create_exception!(errors, WrongDeserializerErrorPy, DeserializationErrorPy);
 create_exception!(errors, ExecutionErrorPy, ScyllaErrorPy);
 
 create_exception!(errors, ConnectionErrorPy, ExecutionErrorPy);
-create_exception!(errors, RuntimeTaskJoinFailedPy, ConnectionErrorPy);
+create_exception!(errors, ConnectionRuntimeTaskJoinFailedPy, ConnectionErrorPy);
 create_exception!(errors, NewSessionErrorPy, ConnectionErrorPy);
 
 create_exception!(errors, SessionConfigErrorPy, ExecutionErrorPy);
@@ -27,6 +27,22 @@ create_exception!(errors, ContactPointsLengthFailedPy, SessionConfigErrorPy);
 create_exception!(errors, ContactPointAccessFailedPy, SessionConfigErrorPy);
 create_exception!(errors, ContactPointTypeErrorPy, SessionConfigErrorPy);
 create_exception!(errors, ContactPointConversionFailedPy, SessionConfigErrorPy);
+
+create_exception!(errors, SessionQueryErrorPy, ExecutionErrorPy);
+create_exception!(errors, StatementExecutionErrorPy, SessionQueryErrorPy);
+create_exception!(errors, StatementPrepareErrorPy, SessionQueryErrorPy);
+create_exception!(errors, InvalidStatementTypePy, SessionQueryErrorPy);
+create_exception!(
+    errors,
+    StatementStringConversionFailedPy,
+    SessionQueryErrorPy
+);
+create_exception!(errors, SessionRuntimeTaskJoinFailedPy, SessionQueryErrorPy);
+create_exception!(
+    errors,
+    CannotPreparePreparedStatementPy,
+    SessionQueryErrorPy
+);
 
 // Policy: DriverError types are pure Rust and contain PyErr only as source
 // in cases where the error originated from Python code (e.g. during extraction or user callbacks).
@@ -372,9 +388,11 @@ impl From<DriverDeserializationError> for PyErr {
 
 /// Errors that can occur during execution of queries, connection establishment, or session configuration.
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)] // We want descriptive variant names even if they are a bit long
 pub enum DriverExecutionError {
     ConnectionError(ConnectionError),
     SessionConfigError(SessionConfigError),
+    SessionQueryError(SessionQueryError),
 }
 
 impl From<DriverExecutionError> for PyErr {
@@ -382,6 +400,7 @@ impl From<DriverExecutionError> for PyErr {
         match e {
             DriverExecutionError::ConnectionError(e) => e.into(),
             DriverExecutionError::SessionConfigError(e) => e.into(),
+            DriverExecutionError::SessionQueryError(e) => e.into(),
         }
     }
 }
@@ -414,9 +433,9 @@ impl ConnectionError {
 impl From<ConnectionError> for PyErr {
     fn from(e: ConnectionError) -> PyErr {
         Python::attach(|_py| match e {
-            ConnectionError::RuntimeTaskJoinFailed => {
-                RuntimeTaskJoinFailedPy::new_err("internal runtime error while creating session")
-            }
+            ConnectionError::RuntimeTaskJoinFailed => ConnectionRuntimeTaskJoinFailedPy::new_err(
+                "internal runtime error while creating session",
+            ),
 
             ConnectionError::NewSessionError { source } => {
                 NewSessionErrorPy::new_err(format!("failed to establish session: {source}"))
@@ -564,6 +583,107 @@ impl From<SessionConfigError> for PyErr {
     }
 }
 
+#[derive(Debug)]
+pub enum SessionQueryError {
+    /// The provided statement argument is of an unsupported type.
+    InvalidStatementType { got: String },
+    /// Failed to convert a Python string object into a Rust string when extracting a statement.
+    StatementStringConversionFailed { source: Box<PyErr> },
+    /// The Rust driver failed while executing a query.
+    StatementExecutionError {
+        source: Box<scylla::errors::ExecutionError>,
+    },
+    /// The Rust driver failed while preparing a statement.
+    StatementPrepareError {
+        source: Box<scylla::errors::PrepareError>,
+    },
+    /// Attempted to prepare an already prepared statement.
+    CannotPreparePreparedStatement,
+    /// The Tokio runtime task responsible for executing the query failed to join.
+    RuntimeTaskJoinFailed,
+}
+
+impl SessionQueryError {
+    /* Constructors */
+
+    #[must_use]
+    pub fn invalid_statement_type(got: String) -> Self {
+        Self::InvalidStatementType { got }
+    }
+
+    #[must_use]
+    pub fn statement_string_conversion_failed(source: PyErr) -> Self {
+        Self::StatementStringConversionFailed {
+            source: Box::new(source),
+        }
+    }
+
+    #[must_use]
+    pub fn statement_execution_error(source: scylla::errors::ExecutionError) -> Self {
+        Self::StatementExecutionError {
+            source: Box::new(source),
+        }
+    }
+
+    #[must_use]
+    pub fn statement_prepare_error(source: scylla::errors::PrepareError) -> Self {
+        Self::StatementPrepareError {
+            source: Box::new(source),
+        }
+    }
+
+    #[must_use]
+    pub fn cannot_prepare_prepared_statement() -> Self {
+        Self::CannotPreparePreparedStatement
+    }
+
+    #[must_use]
+    pub fn runtime_task_join_failed() -> Self {
+        Self::RuntimeTaskJoinFailed
+    }
+}
+
+impl From<SessionQueryError> for PyErr {
+    fn from(e: SessionQueryError) -> PyErr {
+        Python::attach(|_py| match e {
+            SessionQueryError::InvalidStatementType { got } => SessionQueryErrorPy::new_err(
+                format!("Invalid statement type: expected str or PreparedStatement, got {got}"),
+            ),
+
+            SessionQueryError::StatementStringConversionFailed { source } => {
+                let err = StatementStringConversionFailedPy::new_err(
+                    "Failed to convert statement to string",
+                );
+
+                err.set_cause(_py, Some(*source));
+                err
+            }
+
+            SessionQueryError::StatementExecutionError { source } => {
+                let message = format!("Failed to execute statement: {source}");
+
+                StatementExecutionErrorPy::new_err(message)
+            }
+
+            SessionQueryError::StatementPrepareError { source } => {
+                let message = format!("Failed to prepare statement: {source}");
+
+                StatementPrepareErrorPy::new_err(message)
+            }
+
+            SessionQueryError::CannotPreparePreparedStatement => {
+                CannotPreparePreparedStatementPy::new_err(
+                    "Cannot prepare a PreparedStatement; expected a str or Statement",
+                )
+            }
+
+            SessionQueryError::RuntimeTaskJoinFailed => SessionRuntimeTaskJoinFailedPy::new_err(
+                "internal runtime error while executing query",
+            ),
+        })
+    }
+}
+
 #[pymodule]
 pub(crate) fn errors(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("ScyllaError", _py.get_type::<ScyllaErrorPy>())?;
@@ -587,8 +707,8 @@ pub(crate) fn errors(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<
     module.add("ExecutionError", _py.get_type::<ExecutionErrorPy>())?;
     module.add("ConnectionError", _py.get_type::<ConnectionErrorPy>())?;
     module.add(
-        "RuntimeTaskJoinFailed",
-        _py.get_type::<RuntimeTaskJoinFailedPy>(),
+        "ConnectionRuntimeTaskJoinFailed",
+        _py.get_type::<ConnectionRuntimeTaskJoinFailedPy>(),
     )?;
     module.add("NewSessionError", _py.get_type::<NewSessionErrorPy>())?;
     module.add("SessionConfigError", _py.get_type::<SessionConfigErrorPy>())?;
@@ -612,6 +732,31 @@ pub(crate) fn errors(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<
     module.add(
         "ContactPointConversionFailedError",
         _py.get_type::<ContactPointConversionFailedPy>(),
+    )?;
+    module.add("SessionQueryError", _py.get_type::<SessionQueryErrorPy>())?;
+    module.add(
+        "StatementExecutionError",
+        _py.get_type::<StatementExecutionErrorPy>(),
+    )?;
+    module.add(
+        "StatementPrepareError",
+        _py.get_type::<StatementPrepareErrorPy>(),
+    )?;
+    module.add(
+        "InvalidStatementType",
+        _py.get_type::<InvalidStatementTypePy>(),
+    )?;
+    module.add(
+        "StatementStringConversionFailed",
+        _py.get_type::<StatementStringConversionFailedPy>(),
+    )?;
+    module.add(
+        "SessionRuntimeTaskJoinFailed",
+        _py.get_type::<SessionRuntimeTaskJoinFailedPy>(),
+    )?;
+    module.add(
+        "CannotPreparePreparedStatement",
+        _py.get_type::<CannotPreparePreparedStatementPy>(),
     )?;
     Ok(())
 }
