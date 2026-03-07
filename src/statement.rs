@@ -5,6 +5,7 @@ use scylla::statement::unprepared;
 use std::time::Duration;
 
 use crate::enums::{Consistency, SerialConsistency};
+use crate::errors::StatementConfigError;
 use crate::execution_profile::ExecutionProfile;
 use crate::types::UnsetType;
 
@@ -70,13 +71,14 @@ impl PreparedStatement {
             .map(SerialConsistency::to_python)
     }
 
-    fn with_request_timeout(&self, timeout: Option<f64>) -> PyResult<PreparedStatement> {
+    fn with_request_timeout(
+        &self,
+        timeout: Option<f64>,
+    ) -> Result<PreparedStatement, StatementConfigError> {
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "timeout must be a positive, finite number (in seconds)",
-            ));
+            return Err(StatementConfigError::InvalidRequestTimeout { value: secs });
         }
 
         let mut p = self._inner.clone();
@@ -182,13 +184,14 @@ impl Statement {
             .map(SerialConsistency::to_python)
     }
 
-    fn with_request_timeout(&self, timeout: Option<f64>) -> PyResult<Statement> {
+    fn with_request_timeout(
+        &self,
+        timeout: Option<f64>,
+    ) -> Result<Statement, StatementConfigError> {
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "timeout must be a positive, finite number (in seconds)",
-            ));
+            return Err(StatementConfigError::InvalidRequestTimeout { value: secs });
         }
 
         let mut s = self._inner.clone();
