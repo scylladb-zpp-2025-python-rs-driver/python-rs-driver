@@ -236,7 +236,7 @@ fn format_location(loc: &DeserializationErrorLocation) -> String {
 /// based on the provided `DeserializationErrorLocation`.
 fn attach_location_attrs(
     py: Python<'_>,
-    err: &Bound<'_, pyo3::PyAny>, // The exception instance we're attaching attributes to
+    err: &Bound<'_, pyo3::exceptions::PyBaseException>, // The exception instance we're attaching attributes to
     loc: &DeserializationErrorLocation,
 ) {
     // Row
@@ -266,14 +266,26 @@ fn attach_location_attrs(
     let inner_list = pyo3::types::PyList::empty(py);
     for seg in &loc.inner {
         let item = match seg {
-            InnerSegment::ListIndex(i) => ("list", *i).into_pyobject(py).unwrap().into_any(),
-            InnerSegment::MapIndex(i) => ("map", *i).into_pyobject(py).unwrap().into_any(),
-            InnerSegment::TupleIndex(i) => ("tuple", *i).into_pyobject(py).unwrap().into_any(),
-            InnerSegment::UdtField(f) => ("udt_field", f.as_str())
-                .into_pyobject(py)
-                .unwrap()
-                .into_any(),
-            InnerSegment::VectorIndex(i) => ("vector", *i).into_pyobject(py).unwrap().into_any(),
+            InnerSegment::ListIndex(i) => match ("list", *i).into_pyobject(py) {
+                Ok(obj) => obj.into_any(),
+                Err(_) => continue,
+            },
+            InnerSegment::MapIndex(i) => match ("map", *i).into_pyobject(py) {
+                Ok(obj) => obj.into_any(),
+                Err(_) => continue,
+            },
+            InnerSegment::TupleIndex(i) => match ("tuple", *i).into_pyobject(py) {
+                Ok(obj) => obj.into_any(),
+                Err(_) => continue,
+            },
+            InnerSegment::UdtField(f) => match ("udt_field", f.as_str()).into_pyobject(py) {
+                Ok(obj) => obj.into_any(),
+                Err(_) => continue,
+            },
+            InnerSegment::VectorIndex(i) => match ("vector", *i).into_pyobject(py) {
+                Ok(obj) => obj.into_any(),
+                Err(_) => continue,
+            },
         };
         let _ = inner_list.append(item);
     }
@@ -288,17 +300,15 @@ impl From<DriverDeserializationError> for PyErr {
             match e.kind {
                 DeserializationErrorKind::UnsupportedType { cql } => {
                     let message = if location_as_string.is_empty() {
-                        cql
+                        format!("Unsupported CQL type: {cql}")
                     } else {
-                        format!("{cql}{location_as_string}")
+                        format!("Unsupported CQL type: {cql}{location_as_string}")
                     };
 
                     let err = UnsupportedTypeErrorPy::new_err(message);
 
                     // Set location attributes
-                    if let Ok(inst) = err.value(py).cast::<pyo3::PyAny>() {
-                        attach_location_attrs(py, inst, &e.location);
-                    }
+                    attach_location_attrs(py, err.value(py), &e.location);
                     err
                 }
 
@@ -318,9 +328,7 @@ impl From<DriverDeserializationError> for PyErr {
                     let err = DecodeFailedErrorPy::new_err(message);
 
                     // Set location attributes
-                    if let Ok(inst) = err.value(py).cast::<pyo3::PyAny>() {
-                        attach_location_attrs(py, inst, &e.location);
-                    }
+                    attach_location_attrs(py, err.value(py), &e.location);
                     err
                 }
 
@@ -336,10 +344,8 @@ impl From<DriverDeserializationError> for PyErr {
                     // Attach original python exception as cause
                     err.set_cause(py, Some(*source));
 
-                    // Set location attributes on the new error instance
-                    if let Ok(inst) = err.value(py).cast::<pyo3::PyAny>() {
-                        attach_location_attrs(py, inst, &e.location);
-                    }
+                    // Set location attributes
+                    attach_location_attrs(py, err.value(py), &e.location);
                     err
                 }
 
@@ -354,9 +360,7 @@ impl From<DriverDeserializationError> for PyErr {
                     let err = WrongDeserializerErrorPy::new_err(message);
 
                     // Set location attributes
-                    if let Ok(inst) = err.value(py).cast::<pyo3::PyAny>() {
-                        attach_location_attrs(py, inst, &e.location);
-                    }
+                    attach_location_attrs(py, err.value(py), &e.location);
                     err
                 }
             }
