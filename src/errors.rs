@@ -15,7 +15,11 @@ create_exception!(errors, PyConversionFailedErrorPy, DeserializationErrorPy);
 create_exception!(errors, WrongDeserializerErrorPy, DeserializationErrorPy);
 
 create_exception!(errors, ExecutionErrorPy, ScyllaErrorPy);
+
 create_exception!(errors, ConnectionErrorPy, ExecutionErrorPy);
+create_exception!(errors, RuntimeTaskJoinFailedPy, ConnectionErrorPy);
+create_exception!(errors, NewSessionErrorPy, ConnectionErrorPy);
+
 create_exception!(errors, SessionConfigErrorPy, ExecutionErrorPy);
 create_exception!(errors, InvalidPortErrorPy, SessionConfigErrorPy);
 create_exception!(errors, ContactPointsTypeErrorPy, SessionConfigErrorPy);
@@ -379,13 +383,45 @@ impl From<DriverExecutionError> for PyErr {
 }
 
 #[derive(Debug)]
-pub enum ConnectionError {}
+pub enum ConnectionError {
+    /// The Tokio task running session creation failed to join.
+    RuntimeTaskJoinFailed,
+    /// The Rust driver failed to establish a new session.
+    NewSessionError {
+        source: Box<scylla::errors::NewSessionError>,
+    },
+}
 
-impl From<ConnectionError> for PyErr {
-    fn from(_e: ConnectionError) -> PyErr {
-        ConnectionErrorPy::new_err("Temporary ConnectionError") // Placeholder until we define the variants and their data
+impl ConnectionError {
+    /* Constructors */
+    #[must_use]
+    pub fn runtime_task_join_failed() -> Self {
+        Self::RuntimeTaskJoinFailed
+    }
+
+    #[must_use]
+    pub fn new_session_error(source: scylla::errors::NewSessionError) -> Self {
+        Self::NewSessionError {
+            source: Box::new(source),
+        }
     }
 }
+
+impl From<ConnectionError> for PyErr {
+    fn from(e: ConnectionError) -> PyErr {
+        Python::attach(|_py| match e {
+            ConnectionError::RuntimeTaskJoinFailed => {
+                RuntimeTaskJoinFailedPy::new_err("internal runtime error while creating session")
+            }
+
+            ConnectionError::NewSessionError { source } => {
+                NewSessionErrorPy::new_err(format!("failed to establish session: {source}"))
+            }
+        })
+    }
+}
+
+/* Session configuration errors */
 
 #[derive(Debug)]
 pub enum SessionConfigError {
@@ -546,6 +582,11 @@ pub(crate) fn errors(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<
     )?;
     module.add("ExecutionError", _py.get_type::<ExecutionErrorPy>())?;
     module.add("ConnectionError", _py.get_type::<ConnectionErrorPy>())?;
+    module.add(
+        "RuntimeTaskJoinFailed",
+        _py.get_type::<RuntimeTaskJoinFailedPy>(),
+    )?;
+    module.add("NewSessionError", _py.get_type::<NewSessionErrorPy>())?;
     module.add("SessionConfigError", _py.get_type::<SessionConfigErrorPy>())?;
     module.add("InvalidPortError", _py.get_type::<InvalidPortErrorPy>())?;
     module.add(

@@ -5,7 +5,7 @@ use pyo3::types::{PyInt, PySequence, PyString};
 use scylla::client::session::SessionConfig;
 
 use crate::RUNTIME;
-use crate::errors::{ConnectionErrorPy, SessionConfigError};
+use crate::errors::{ConnectionError, SessionConfigError};
 use crate::execution_profile::ExecutionProfile;
 use crate::session::Session;
 
@@ -64,17 +64,17 @@ impl SessionBuilder {
         Ok(Self { config: cfg })
     }
 
-    async fn connect(&self) -> PyResult<Session> {
+    async fn connect(&self) -> Result<Session, ConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
             .spawn(async move { scylla::client::session::Session::connect(config).await })
             .await
-            .expect("Driver should not panic");
+            .map_err(|_| ConnectionError::runtime_task_join_failed())?;
         match session_result {
             Ok(session) => Ok(Session {
                 _inner: Arc::new(session),
             }),
-            Err(_e) => Err(ConnectionErrorPy::new_err("Temporary ConnectionError")), // Placeholder until we define the variants and their data
+            Err(err) => Err(ConnectionError::new_session_error(err)),
         }
     }
 }
