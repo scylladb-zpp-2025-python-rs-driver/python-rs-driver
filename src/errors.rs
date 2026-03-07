@@ -44,6 +44,9 @@ create_exception!(
     SessionQueryErrorPy
 );
 
+create_exception!(errors, StatementConfigErrorPy, ExecutionErrorPy);
+create_exception!(errors, InvalidRequestTimeoutErrorPy, StatementConfigErrorPy);
+
 // Policy: DriverError types are pure Rust and contain PyErr only as source
 // in cases where the error originated from Python code (e.g. during extraction or user callbacks).
 // Conversion to PyErr happens at the boundary (e.g. in #[pymethods] implementations)
@@ -393,6 +396,7 @@ pub enum DriverExecutionError {
     ConnectionError(ConnectionError),
     SessionConfigError(SessionConfigError),
     SessionQueryError(SessionQueryError),
+    StatementConfigError(StatementConfigError),
 }
 
 impl From<DriverExecutionError> for PyErr {
@@ -401,6 +405,7 @@ impl From<DriverExecutionError> for PyErr {
             DriverExecutionError::ConnectionError(e) => e.into(),
             DriverExecutionError::SessionConfigError(e) => e.into(),
             DriverExecutionError::SessionQueryError(e) => e.into(),
+            DriverExecutionError::StatementConfigError(e) => e.into(),
         }
     }
 }
@@ -683,6 +688,33 @@ impl From<SessionQueryError> for PyErr {
     }
 }
 
+#[derive(Debug)]
+pub enum StatementConfigError {
+    /// The provided request timeout is not a positive finite number of seconds.
+    InvalidRequestTimeout { value: f64 },
+}
+
+impl StatementConfigError {
+    /* Constructors */
+
+    #[must_use]
+    pub fn invalid_request_timeout(value: f64) -> Self {
+        Self::InvalidRequestTimeout { value }
+    }
+}
+
+impl From<StatementConfigError> for PyErr {
+    fn from(e: StatementConfigError) -> PyErr {
+        match e {
+            StatementConfigError::InvalidRequestTimeout { value } => {
+                InvalidRequestTimeoutErrorPy::new_err(format!(
+                    "timeout must be a positive, finite number (in seconds), got {value}"
+                ))
+            }
+        }
+    }
+}
+
 #[pymodule]
 pub(crate) fn errors(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("ScyllaError", _py.get_type::<ScyllaErrorPy>())?;
@@ -756,6 +788,14 @@ pub(crate) fn errors(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<
     module.add(
         "CannotPreparePreparedStatement",
         _py.get_type::<CannotPreparePreparedStatementPy>(),
+    )?;
+    module.add(
+        "StatementConfigError",
+        _py.get_type::<StatementConfigErrorPy>(),
+    )?;
+    module.add(
+        "InvalidRequestTimeoutError",
+        _py.get_type::<InvalidRequestTimeoutErrorPy>(),
     )?;
     Ok(())
 }
