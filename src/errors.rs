@@ -513,10 +513,9 @@ impl From<SessionConfigError> for PyErr {
     fn from(e: SessionConfigError) -> PyErr {
         Python::attach(|py| match e {
             SessionConfigError::InvalidPort { source } => {
-                let message =
-                    ("Invalid port value: expected an integer between 0 and 65535.").to_string();
-
-                let err = InvalidPortErrorPy::new_err(message);
+                let err = InvalidPortErrorPy::new_err(
+                    "Invalid port value: expected an integer between 0 and 65535.",
+                );
 
                 err.set_cause(py, Some(*source));
                 err
@@ -527,9 +526,9 @@ impl From<SessionConfigError> for PyErr {
             ),
 
             SessionConfigError::ContactPointsLengthFailed { source } => {
-                let message = "failed to determine the length of contact_points".to_string();
-
-                let err = ContactPointsLengthFailedPy::new_err(message);
+                let err = ContactPointsLengthFailedPy::new_err(
+                    "Failed to determine the length of contact_points",
+                );
 
                 err.set_cause(py, Some(*source));
                 err
