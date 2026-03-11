@@ -1,6 +1,7 @@
-from .results import PagingState, RequestResult, RowFactory
 from typing import Any
 
+from .batch import Batch
+from .results import PagingState, RequestResult, RowFactory
 from .statement import PreparedStatement, Statement
 
 class Session:
@@ -58,5 +59,31 @@ class Session:
         -------
         RequestResult
             Query results with paging support.
+        """
+        ...
+
+    async def batch(
+        self,
+        batch: Batch,
+        /,
+        *,
+        factory: RowFactory | None = None,
+    ) -> RequestResult:
+        """
+        Execute a batch statement, which can contain many `Statement`s and `PreparedStatement`s.
+
+        Parameters
+        ----------
+        batch : Batch
+            The batch of statements and their values to execute.
+
+        Returns
+        -------
+        RequestResult
+            For non-LWT batches, the result does not contain rows.
+            For LWT batches, the result contains rows with a boolean `[applied]` column.
+            In each returned row, columns other than `[applied]` contain either the current
+            values of that row (if the condition was not met) or `None` values (if it was met).
+
         """
         ...
