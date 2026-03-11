@@ -1,0 +1,23 @@
+from enum import IntEnum
+from typing import Any, Sequence
+
+from .statement import PreparedStatement, Statement
+
+class BatchType(IntEnum):
+    Logged = ...
+    Unlogged = ...
+    Counter = ...
+
+class Batch:
+    """
+    CQL batch statement with immutable configuration.
+
+    Any mix of prepared and unprepared statements is allowed.
+    For maximum performance, it is recommended to use prepared statements
+    whenever possible.
+    """
+    def __init__(self, batch_type: BatchType = BatchType.Logged) -> None: ...
+    def add(self, statement: str | Statement | PreparedStatement, values: Any | None = None) -> None: ...
+    def add_all(self, items: Sequence[tuple[str | Statement | PreparedStatement, Any | None]]) -> None: ...
+    @property
+    def type(self) -> BatchType: ...

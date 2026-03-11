@@ -5,6 +5,7 @@ use deserialize::results;
 use pyo3::prelude::*;
 use tokio::runtime::Runtime;
 
+mod batch;
 mod deserialize;
 mod enums;
 mod execution_profile;
@@ -41,5 +42,6 @@ fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?;
     add_submodule(py, module, "types", types::types)?;
     add_submodule(py, module, "value", value::value)?;
+    add_submodule(py, module, "batch", batch::batch)?;
     Ok(())
 }

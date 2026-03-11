@@ -11,6 +11,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyString;
 use scylla::response::query_result::QueryResult;
 use scylla::statement;
+use scylla::statement::batch::BatchStatement;
 use scylla::statement::unprepared;
 use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 
@@ -183,6 +184,15 @@ impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
             "Invalid statement type: expected str | Statement | PreparedStatement, got {}",
             obj.get_type().name()?
         )))
+    }
+}
+
+impl From<ExecutableStatement> for BatchStatement {
+    fn from(s: ExecutableStatement) -> Self {
+        match s {
+            ExecutableStatement::Prepared(p) => BatchStatement::PreparedStatement(p),
+            ExecutableStatement::Unprepared(u) => BatchStatement::Query(u),
+        }
     }
 }
 
