@@ -14,7 +14,7 @@ use scylla::statement;
 use scylla::statement::unprepared;
 use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone)]
 pub(crate) struct Session {
     pub(crate) _inner: Arc<scylla::client::session::Session>,

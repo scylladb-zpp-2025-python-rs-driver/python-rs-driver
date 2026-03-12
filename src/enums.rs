@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use scylla::statement;
 
-#[pyclass(eq, eq_int, frozen)]
+#[pyclass(eq, eq_int, frozen, from_py_object)]
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Consistency {
     Any,
@@ -51,7 +51,7 @@ impl Consistency {
     }
 }
 
-#[pyclass(eq, eq_int, frozen)]
+#[pyclass(eq, eq_int, frozen, from_py_object)]
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum SerialConsistency {
     Serial,
