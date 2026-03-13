@@ -1,6 +1,10 @@
+from typing import Iterator
+
 import pytest
+from scylla.cluster import ClusterState, NodeShard
 from scylla.enums import Consistency, SerialConsistency
 from scylla.execution_profile import ExecutionProfile
+from scylla.policies.load_balancing import RoutingInfo
 from scylla.session_builder import SessionBuilder
 from scylla.statement import PreparedStatement, Statement
 from scylla.types import Unset
@@ -53,7 +57,23 @@ def test_execution_profile_builder_serial_consistency():
     assert actual_serial_consistency == expected_serial_consistency
 
 
-def test_execution_profile_timeout():
+def test_execution_profile_get_load_balancing_policy_roundtrip() -> None:
+    class DummyPolicy:
+        def pick_targets(self, routing_info: RoutingInfo, cluster_state: ClusterState) -> Iterator[NodeShard]:
+            return iter([])
+
+    policy = DummyPolicy()
+    profile = ExecutionProfile(policy=policy)
+    retrieved = profile.get_load_balancing_policy()
+    assert retrieved is policy
+
+
+def test_execution_profile_get_load_balancing_policy_none() -> None:
+    profile = ExecutionProfile()
+    assert profile.get_load_balancing_policy() is None
+
+
+def test_execution_profile_timeout() -> None:
     expected_timeout = 10.5
     profile = ExecutionProfile(timeout=expected_timeout)
     assert isinstance(profile, ExecutionProfile)
@@ -232,7 +252,47 @@ def test_statement_chaining():
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
-async def test_invalid_consistency_for_statement():
+async def test_statement_with_and_get_load_balancing_policy() -> None:
+    class DummyPolicy:
+        counter = 0
+
+        def pick_targets(self, routing_info: RoutingInfo, cluster_state: ClusterState) -> Iterator[NodeShard]:
+            self.counter += 1
+            return iter([n.node_shard for n in cluster_state.get_nodes_info()])
+
+    policy = DummyPolicy()
+    stmt = Statement("SELECT * FROM system.local").with_load_balancing_policy(policy)
+    builder = SessionBuilder(["127.0.0.2"], 9042)
+    session = await builder.connect()
+    await session.execute(stmt)
+    assert stmt.get_load_balancing_policy() is policy
+    assert policy.counter == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_statement_with_and_without_load_balancing_policy() -> None:
+    class DummyPolicy:
+        counter = 0
+
+        def pick_targets(self, routing_info: RoutingInfo, cluster_state: ClusterState) -> Iterator[NodeShard]:
+            self.counter += 1
+            return iter([])
+
+    policy = DummyPolicy()
+    stmt = Statement("SELECT * FROM system.local").with_load_balancing_policy(policy)
+    stmt = stmt.without_load_balancing_policy()
+    builder = SessionBuilder(["127.0.0.2"], 9042)
+    session = await builder.connect()
+    await session.execute(stmt)
+
+    assert stmt.get_load_balancing_policy() is None
+    assert policy.counter == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_invalid_consistency_for_statement() -> None:
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
     stmt = Statement("SELECT * FROM system.local").with_consistency(Consistency.Three)
