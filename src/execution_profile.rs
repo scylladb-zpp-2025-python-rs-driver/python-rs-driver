@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::enums::{Consistency, SerialConsistency};
 
-#[pyclass(frozen)]
+#[pyclass(frozen, from_py_object)]
 #[derive(Clone)]
 pub(crate) struct ExecutionProfile {
     pub(crate) _inner: client::execution_profile::ExecutionProfile,
