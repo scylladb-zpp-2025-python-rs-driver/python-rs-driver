@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::RUNTIME;
+use crate::batch::PyBatch;
 use crate::deserialize::results::{Pager, PyPagingState, RequestResult, RowFactory};
 use crate::serialize::value_list::PyValueList;
 use crate::statement::PreparedStatement;
@@ -11,6 +12,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyString;
 use scylla::response::query_result::QueryResult;
 use scylla::statement;
+use scylla::statement::batch::BatchStatement;
 use scylla::statement::unprepared;
 use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 
@@ -58,6 +60,23 @@ impl Session {
                 "Cannot prepare a PreparedStatement; expected a str or Statement".to_string(),
             )),
         }
+    }
+
+    #[pyo3(signature = (batch, /, *,  factory=None))]
+    async fn batch(
+        &self,
+        batch: PyBatch,
+        factory: Option<Py<RowFactory>>,
+    ) -> PyResult<RequestResult> {
+        let result = self
+            .session_spawn_on_runtime(async move |s| {
+                s.batch(&batch._inner, batch.values)
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+            })
+            .await?;
+
+        Ok(RequestResult::new(result, Pager::unpaged(), factory))
     }
 }
 
@@ -183,6 +202,15 @@ impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
             "Invalid statement type: expected str | Statement | PreparedStatement, got {}",
             obj.get_type().name()?
         )))
+    }
+}
+
+impl From<ExecutableStatement> for BatchStatement {
+    fn from(s: ExecutableStatement) -> Self {
+        match s {
+            ExecutableStatement::Prepared(p) => BatchStatement::PreparedStatement(p),
+            ExecutableStatement::Unprepared(u) => BatchStatement::Query(u),
+        }
     }
 }
 
