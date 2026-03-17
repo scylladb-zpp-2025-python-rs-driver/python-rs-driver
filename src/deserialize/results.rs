@@ -14,6 +14,7 @@ use scylla_cql::deserialize::result::RawRowIterator;
 use scylla_cql::deserialize::row::{ColumnIterator, RawColumn};
 use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 use stable_deref_trait::StableDeref;
+use std::iter::Enumerate;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -395,11 +396,29 @@ pub struct RowColumnCursor {
     // - a `RawRowIterator` to advance between rows
     // - a `ColumnIterator` for iterating columns of the current row
     yoked: Yoke<Cursor<'static>, QueryResultCart>,
+
+    // Cached Python strings for column names. Column names are identical
+    // across all rows, so we create them once and reuse via clone_ref.
+    column_names: Vec<Py<PyString>>,
 }
 
 impl RowColumnCursor {
-    fn new(query_result: Arc<QueryResult>) -> Self {
+    fn new(py: Python<'_>, query_result: Arc<QueryResult>) -> Self {
         let cart = QueryResultCart(query_result);
+
+        // Pre-create Python strings for column names — they are
+        // identical for every row and can be reused via clone_ref.
+        let column_names: Vec<Py<PyString>> = {
+            let raw_rows_with_metadata = cart.deserialized_metadata_and_rows().expect(
+                "deserialized_metadata_and_rows can't be None after is_rows() returned true",
+            );
+            raw_rows_with_metadata
+                .metadata()
+                .col_specs()
+                .iter()
+                .map(|spec| PyString::new(py, spec.name()).unbind())
+                .collect()
+        };
 
         let yoked = Yoke::attach_to_cart(cart, |cart| {
             let raw_rows_with_metadata = cart.deserialized_metadata_and_rows().expect(
@@ -410,7 +429,7 @@ impl RowColumnCursor {
             let row_iterator =
                 RawRowIterator::new(raw_rows_with_metadata.rows_count(), col_specs, frame_slice);
 
-            let column_iterator = ColumnIterator::new(col_specs, frame_slice);
+            let column_iterator = ColumnIterator::new(col_specs, frame_slice).enumerate();
 
             Cursor {
                 row_iterator,
@@ -419,20 +438,23 @@ impl RowColumnCursor {
             }
         });
 
-        Self { yoked }
+        Self {
+            yoked,
+            column_names,
+        }
     }
 
     fn next_column(&mut self, py: Python<'_>) -> PyResult<Column> {
         self.yoked.with_mut_return(|view| view.next_column())?;
 
         let cursor = self.yoked.get();
-        let raw_col = cursor
+        let (column_index, raw_col) = cursor
             .current_raw_column
             .as_ref()
             .ok_or_else(|| PyErr::new::<PyStopIteration, _>(""))?;
 
         let value = PyDeserializedValue::deserialize_py(raw_col.spec.typ(), raw_col.slice, py)?;
-        let column_name = PyString::new(py, raw_col.spec.name()).unbind();
+        let column_name = Py::clone_ref(&self.column_names[*column_index], py);
 
         Ok(Column { column_name, value })
     }
@@ -556,7 +578,7 @@ impl RowsIteratorKind {
             return Ok(RowsIteratorKind::NonRows);
         }
 
-        let row_col_cursor = Py::new(py, RowColumnCursor::new(query_result))?;
+        let row_col_cursor = Py::new(py, RowColumnCursor::new(py, query_result))?;
 
         Ok(RowsIteratorKind::Rows {
             row_col_cursor,
@@ -566,7 +588,7 @@ impl RowsIteratorKind {
 
     fn update(&mut self, py: Python, query_result: Arc<QueryResult>) -> PyResult<()> {
         if let RowsIteratorKind::Rows { row_col_cursor, .. } = self {
-            *row_col_cursor = Py::new(py, RowColumnCursor::new(query_result))?;
+            *row_col_cursor = Py::new(py, RowColumnCursor::new(py, query_result))?;
         }
         Ok(())
     }
@@ -721,8 +743,8 @@ unsafe impl StableDeref for QueryResultCart {}
 #[derive(Yokeable)]
 struct Cursor<'a> {
     row_iterator: RawRowIterator<'a, 'a>,
-    column_iterator: ColumnIterator<'a, 'a>,
-    current_raw_column: Option<RawColumn<'a, 'a>>,
+    column_iterator: Enumerate<ColumnIterator<'a, 'a>>,
+    current_raw_column: Option<(usize, RawColumn<'a, 'a>)>,
 }
 
 impl<'a> Cursor<'a> {
@@ -730,6 +752,9 @@ impl<'a> Cursor<'a> {
         self.current_raw_column = self
             .column_iterator
             .next()
+            .map(|(column_index, raw_column_result)| {
+                raw_column_result.map(|raw_col| (column_index, raw_col))
+            })
             .transpose()
             .map_err(PyDeserializationError::from)?;
 
@@ -741,7 +766,7 @@ impl<'a> Cursor<'a> {
 
         match column_iterator {
             Ok(column_iterator) => {
-                self.column_iterator = column_iterator;
+                self.column_iterator = column_iterator.enumerate();
                 Some(Ok(()))
             }
             Err(err) => Some(Err(err.into_py_deser())),
