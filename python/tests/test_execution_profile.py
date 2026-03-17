@@ -108,7 +108,7 @@ def test_statement_with_and_get_consistency():
     expected_consistency = Consistency.All
     stmt = stmt.with_consistency(expected_consistency)
 
-    actual_consistency = stmt.get_consistency()
+    actual_consistency = stmt.consistency
     assert isinstance(actual_consistency, Consistency)
     assert actual_consistency == expected_consistency
 
@@ -118,7 +118,7 @@ def test_statement_without_consistency():
     stmt = stmt.with_consistency(Consistency.Quorum)
     stmt = stmt.without_consistency()
 
-    actual_consistency = stmt.get_consistency()
+    actual_consistency = stmt.consistency
     assert actual_consistency is None
 
 
@@ -127,7 +127,7 @@ def test_statement_with_and_get_serial_consistency():
     expected_serial_consistency = SerialConsistency.LocalSerial
     stmt = stmt.with_serial_consistency(expected_serial_consistency)
 
-    actual_serial_consistency = stmt.get_serial_consistency()
+    actual_serial_consistency = stmt.serial_consistency
     assert isinstance(actual_serial_consistency, SerialConsistency)
     assert actual_serial_consistency == expected_serial_consistency
 
@@ -137,7 +137,7 @@ def test_statement_without_serial_consistency():
     stmt = stmt.with_serial_consistency(SerialConsistency.Serial)
     stmt = stmt.without_serial_consistency()
 
-    actual_serial_consistency = stmt.get_serial_consistency()
+    actual_serial_consistency = stmt.serial_consistency
     assert actual_serial_consistency is None
 
 
@@ -146,7 +146,7 @@ def test_statement_with_and_get_request_timeout():
     expected_timeout = 7.25
     stmt = stmt.with_request_timeout(expected_timeout)
 
-    actual_timeout = stmt.get_request_timeout()
+    actual_timeout = stmt.request_timeout
     assert isinstance(actual_timeout, float)
     assert actual_timeout == expected_timeout
 
@@ -155,7 +155,7 @@ def test_statement_with_timeout_set_to_none():
     stmt = Statement("SELECT * FROM system.local")
     stmt = stmt.with_request_timeout(None)
 
-    actual_timeout = stmt.get_request_timeout()
+    actual_timeout = stmt.request_timeout
     assert actual_timeout is None
 
 
@@ -164,7 +164,7 @@ def test_statement_without_request_timeout():
     stmt = stmt.with_request_timeout(10.0)
     stmt = stmt.without_request_timeout()
 
-    actual_timeout = stmt.get_request_timeout()
+    actual_timeout = stmt.request_timeout
     assert actual_timeout is Unset
 
 
@@ -202,7 +202,7 @@ def test_statement_with_and_get_execution_profile():
     profile = ExecutionProfile(timeout=expected_timeout)
     stmt = stmt.with_execution_profile(profile)
 
-    actual_profile = stmt.get_execution_profile()
+    actual_profile = stmt.execution_profile
     assert isinstance(actual_profile, ExecutionProfile)
     assert actual_profile.get_request_timeout() == expected_timeout
 
@@ -213,7 +213,7 @@ def test_statement_without_execution_profile():
     stmt = stmt.with_execution_profile(profile)
     stmt = stmt.without_execution_profile()
 
-    actual_profile = stmt.get_execution_profile()
+    actual_profile = stmt.execution_profile
     assert actual_profile is None
 
 
@@ -225,9 +225,9 @@ def test_statement_chaining():
         .with_request_timeout(5.0)
     )
 
-    assert stmt.get_consistency() == Consistency.Quorum
-    assert stmt.get_serial_consistency() == SerialConsistency.Serial
-    assert stmt.get_request_timeout() == 5.0
+    assert stmt.consistency == Consistency.Quorum
+    assert stmt.serial_consistency == SerialConsistency.Serial
+    assert stmt.request_timeout == 5.0
 
 
 @pytest.mark.asyncio
@@ -264,7 +264,7 @@ async def test_prepared_with_and_get_consistency():
     expected_consistency = Consistency.All
     prepared = prepared.with_consistency(expected_consistency)
 
-    actual_consistency = prepared.get_consistency()
+    actual_consistency = prepared.consistency
     assert isinstance(actual_consistency, Consistency)
     assert actual_consistency == expected_consistency
 
@@ -280,7 +280,7 @@ async def test_prepared_with_and_without_consistency():
     prepared = prepared.with_consistency(expected_consistency)
     prepared = prepared.without_consistency()
 
-    actual_consistency = prepared.get_consistency()
+    actual_consistency = prepared.consistency
     assert actual_consistency is None
 
 
@@ -308,7 +308,7 @@ async def test_prepared_with_and_get_execution_profile():
     expected_profile = ExecutionProfile(timeout=expected_timeout)
     prepared = prepared.with_execution_profile(expected_profile)
 
-    actual_profile = prepared.get_execution_profile()
+    actual_profile = prepared.execution_profile
     assert isinstance(actual_profile, ExecutionProfile)
     assert actual_profile.get_request_timeout() == expected_profile.get_request_timeout()
 
@@ -325,7 +325,7 @@ async def test_prepared_with_and_without_execution_profile():
     prepared = prepared.with_execution_profile(expected_profile)
     prepared = prepared.without_execution_profile()
 
-    actual_profile = prepared.get_execution_profile()
+    actual_profile = prepared.execution_profile
     assert actual_profile is None
 
 
@@ -352,7 +352,7 @@ async def test_prepared_with_and_get_request_timeout():
     expected_timeout = 10.5
     prepared = prepared.with_request_timeout(expected_timeout)
 
-    actual_timeout = prepared.get_request_timeout()
+    actual_timeout = prepared.request_timeout
     assert isinstance(actual_timeout, float)
     assert actual_timeout == expected_timeout
 
@@ -368,7 +368,7 @@ async def test_prepared_with_and_without_request_timeout():
     prepared = prepared.with_request_timeout(expected_timeout)
     prepared = prepared.without_request_timeout()
 
-    actual_timeout = prepared.get_request_timeout()
+    actual_timeout = prepared.request_timeout
     assert type(actual_timeout) is type(Unset)
     assert actual_timeout is Unset
     assert str(actual_timeout) == "Unset"
@@ -384,7 +384,7 @@ async def test_prepared_with_timeout_set_to_none():
     expected_timeout = None
     prepared = prepared.with_request_timeout(expected_timeout)
 
-    actual_timeout = prepared.get_request_timeout()
+    actual_timeout = prepared.request_timeout
     assert actual_timeout is None
 
 
@@ -411,7 +411,7 @@ async def test_prepared_with_and_get_serial_consistency():
     expected_serial_consistency = SerialConsistency.Serial
     prepared = prepared.with_serial_consistency(expected_serial_consistency)
 
-    actual_serial_consistency = prepared.get_serial_consistency()
+    actual_serial_consistency = prepared.serial_consistency
     assert isinstance(actual_serial_consistency, SerialConsistency)
     assert actual_serial_consistency == expected_serial_consistency
 
@@ -427,5 +427,5 @@ async def test_prepared_with_and_without_serial_consistency():
     prepared = prepared.with_serial_consistency(expected_serial_consistency)
     prepared = prepared.without_serial_consistency()
 
-    actual_serial_consistency = prepared.get_serial_consistency()
+    actual_serial_consistency = prepared.serial_consistency
     assert actual_serial_consistency is None

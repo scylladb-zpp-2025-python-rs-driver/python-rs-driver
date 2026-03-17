@@ -28,6 +28,7 @@ impl PreparedStatement {
         PreparedStatement { _inner: p }
     }
 
+    #[getter]
     fn get_execution_profile(&self) -> Option<ExecutionProfile> {
         self._inner
             .get_execution_profile_handle()
@@ -48,6 +49,7 @@ impl PreparedStatement {
         PreparedStatement { _inner: p }
     }
 
+    #[getter]
     fn get_consistency(&self) -> Option<Consistency> {
         self._inner.get_consistency().map(Consistency::to_python)
     }
@@ -64,6 +66,7 @@ impl PreparedStatement {
         PreparedStatement { _inner: p }
     }
 
+    #[getter]
     fn get_serial_consistency(&self) -> Option<SerialConsistency> {
         // TODO: implement returning Unset like in get_request_timeout
         self._inner
@@ -97,6 +100,7 @@ impl PreparedStatement {
         PreparedStatement { _inner: p }
     }
 
+    #[getter]
     fn get_request_timeout(&self) -> PyResult<Py<PyAny>> {
         match self._inner.get_request_timeout() {
             Some(t) if t == Duration::MAX => Ok(Python::attach(|py| py.None())),
@@ -111,6 +115,7 @@ impl PreparedStatement {
         PreparedStatement { _inner: p }
     }
 
+    #[getter]
     fn get_page_size(&self) -> i32 {
         self._inner.get_page_size()
     }
@@ -146,6 +151,7 @@ impl Statement {
         Statement { _inner: s }
     }
 
+    #[getter]
     fn get_execution_profile(&self) -> Option<ExecutionProfile> {
         self._inner
             .get_execution_profile_handle()
@@ -166,6 +172,7 @@ impl Statement {
         Statement { _inner: s }
     }
 
+    #[getter]
     fn get_consistency(&self) -> Option<Consistency> {
         self._inner.get_consistency().map(Consistency::to_python)
     }
@@ -182,6 +189,7 @@ impl Statement {
         Statement { _inner: s }
     }
 
+    #[getter]
     fn get_serial_consistency(&self) -> Option<SerialConsistency> {
         // TODO: implement returning Unset like in get_request_timeout
         self._inner
@@ -215,6 +223,7 @@ impl Statement {
         Statement { _inner: s }
     }
 
+    #[getter]
     fn get_request_timeout(&self) -> PyResult<Py<PyAny>> {
         match self._inner.get_request_timeout() {
             Some(t) if t == Duration::MAX => Ok(Python::attach(|py| py.None())),
@@ -229,6 +238,7 @@ impl Statement {
         Statement { _inner: s }
     }
 
+    #[getter]
     fn get_page_size(&self) -> i32 {
         self._inner.get_page_size()
     }
