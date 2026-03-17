@@ -121,11 +121,11 @@ impl PreparedStatement {
     }
 
     #[getter]
-    fn get_request_timeout(&self) -> PyResult<Py<PyAny>> {
+    fn get_request_timeout(&self, py: Python) -> PyResult<Py<PyAny>> {
         match self._inner.get_request_timeout() {
-            Some(t) if t == Duration::MAX => Ok(Python::attach(|py| py.None())),
-            Some(t) => Python::attach(|py| PyFloat::new(py, t.as_secs_f64()).into_py_any(py)),
-            None => Python::attach(|py| UnsetType::get_instance(py).into_py_any(py)),
+            Some(t) if t == Duration::MAX => Ok(py.None()),
+            Some(t) => PyFloat::new(py, t.as_secs_f64()).into_py_any(py),
+            None => UnsetType::get_instance(py).into_py_any(py),
         }
     }
 
@@ -261,11 +261,11 @@ impl Statement {
     }
 
     #[getter]
-    fn get_request_timeout(&self) -> PyResult<Py<PyAny>> {
+    fn get_request_timeout(&self, py: Python) -> PyResult<Py<PyAny>> {
         match self._inner.get_request_timeout() {
-            Some(t) if t == Duration::MAX => Ok(Python::attach(|py| py.None())),
-            Some(t) => Python::attach(|py| PyFloat::new(py, t.as_secs_f64()).into_py_any(py)),
-            None => Python::attach(|py| UnsetType::get_instance(py).into_py_any(py)),
+            Some(t) if t == Duration::MAX => Ok(py.None()),
+            Some(t) => PyFloat::new(py, t.as_secs_f64()).into_py_any(py),
+            None => UnsetType::get_instance(py).into_py_any(py),
         }
     }
 
