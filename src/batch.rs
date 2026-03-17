@@ -49,16 +49,26 @@ pub(crate) struct PyBatch {
     is_serial_consistency_set: bool,
 }
 
+impl PyBatch {
+    pub(crate) fn new(
+        _inner: Batch,
+        values: Vec<PyValueList>,
+        is_serial_consistency_set: bool,
+    ) -> Self {
+        Self {
+            _inner,
+            values,
+            is_serial_consistency_set,
+        }
+    }
+}
+
 #[pymethods]
 impl PyBatch {
     #[new]
     #[pyo3(signature = (batch_type=PyBatchType::Logged))]
-    fn new(batch_type: PyBatchType) -> Self {
-        Self {
-            _inner: Batch::new(batch_type.into()),
-            values: vec![],
-            is_serial_consistency_set: false,
-        }
+    fn py_new(batch_type: PyBatchType) -> Self {
+        Self::new(Batch::new(batch_type.into()), vec![], false)
     }
 
     #[pyo3(signature = (statement, values=None))]
@@ -79,24 +89,16 @@ impl PyBatch {
         self._inner.get_type().into()
     }
 
-    fn with_execution_profile(&self, profile: ExecutionProfile) -> PyBatch {
+    fn with_execution_profile(&self, profile: ExecutionProfile) -> Self {
         let mut batch = self._inner.clone();
         batch.set_execution_profile_handle(Some(profile._inner.into_handle()));
-        PyBatch {
-            _inner: batch,
-            values: self.values.clone(),
-            is_serial_consistency_set: self.is_serial_consistency_set,
-        }
+        Self::new(batch, self.values.clone(), self.is_serial_consistency_set)
     }
 
-    fn without_execution_profile(&self) -> PyBatch {
+    fn without_execution_profile(&self) -> Self {
         let mut batch = self._inner.clone();
         batch.set_execution_profile_handle(None);
-        PyBatch {
-            _inner: batch,
-            values: self.values.clone(),
-            is_serial_consistency_set: self.is_serial_consistency_set,
-        }
+        Self::new(batch, self.values.clone(), self.is_serial_consistency_set)
     }
 
     #[getter]
@@ -108,24 +110,16 @@ impl PyBatch {
             })
     }
 
-    fn with_consistency(&self, c: Consistency) -> PyBatch {
+    fn with_consistency(&self, c: Consistency) -> Self {
         let mut batch = self._inner.clone();
         batch.set_consistency(c.to_rust());
-        PyBatch {
-            _inner: batch,
-            values: self.values.clone(),
-            is_serial_consistency_set: self.is_serial_consistency_set,
-        }
+        Self::new(batch, self.values.clone(), self.is_serial_consistency_set)
     }
 
-    fn without_consistency(&self) -> PyBatch {
+    fn without_consistency(&self) -> Self {
         let mut batch = self._inner.clone();
         batch.unset_consistency();
-        PyBatch {
-            _inner: batch,
-            values: self.values.clone(),
-            is_serial_consistency_set: self.is_serial_consistency_set,
-        }
+        Self::new(batch, self.values.clone(), self.is_serial_consistency_set)
     }
 
     #[getter]
@@ -133,24 +127,16 @@ impl PyBatch {
         self._inner.get_consistency().map(Consistency::to_python)
     }
 
-    fn with_serial_consistency(&self, sc: Option<SerialConsistency>) -> PyBatch {
+    fn with_serial_consistency(&self, sc: Option<SerialConsistency>) -> Self {
         let mut batch = self._inner.clone();
         batch.set_serial_consistency(sc.map(|sc| sc.to_rust()));
-        PyBatch {
-            _inner: batch,
-            values: self.values.clone(),
-            is_serial_consistency_set: true,
-        }
+        Self::new(batch, self.values.clone(), true)
     }
 
-    fn without_serial_consistency(&self) -> PyBatch {
+    fn without_serial_consistency(&self) -> Self {
         let mut batch = self._inner.clone();
         batch.unset_serial_consistency();
-        PyBatch {
-            _inner: batch,
-            values: self.values.clone(),
-            is_serial_consistency_set: false,
-        }
+        Self::new(batch, self.values.clone(), false)
     }
 
     #[getter]
@@ -164,7 +150,7 @@ impl PyBatch {
         }
     }
 
-    fn with_request_timeout(&self, timeout: Option<f64>) -> PyResult<PyBatch> {
+    fn with_request_timeout(&self, timeout: Option<f64>) -> PyResult<Self> {
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
@@ -181,21 +167,17 @@ impl PyBatch {
 
         let mut batch = self._inner.clone();
         batch.set_request_timeout(Some(timeout));
-        Ok(PyBatch {
-            _inner: batch,
-            values: self.values.clone(),
-            is_serial_consistency_set: self.is_serial_consistency_set,
-        })
+        Ok(Self::new(
+            batch,
+            self.values.clone(),
+            self.is_serial_consistency_set,
+        ))
     }
 
-    fn without_request_timeout(&self) -> PyBatch {
+    fn without_request_timeout(&self) -> Self {
         let mut batch = self._inner.clone();
         batch.set_request_timeout(None);
-        PyBatch {
-            _inner: batch,
-            values: self.values.clone(),
-            is_serial_consistency_set: self.is_serial_consistency_set,
-        }
+        Self::new(batch, self.values.clone(), self.is_serial_consistency_set)
     }
 
     #[getter]
