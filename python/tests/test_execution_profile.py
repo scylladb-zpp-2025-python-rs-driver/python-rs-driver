@@ -138,7 +138,7 @@ def test_statement_without_serial_consistency():
     stmt = stmt.without_serial_consistency()
 
     actual_serial_consistency = stmt.serial_consistency
-    assert actual_serial_consistency is None
+    assert actual_serial_consistency is Unset
 
 
 def test_statement_with_and_get_request_timeout():
@@ -428,4 +428,4 @@ async def test_prepared_with_and_without_serial_consistency():
     prepared = prepared.without_serial_consistency()
 
     actual_serial_consistency = prepared.serial_consistency
-    assert actual_serial_consistency is None
+    assert actual_serial_consistency is Unset
