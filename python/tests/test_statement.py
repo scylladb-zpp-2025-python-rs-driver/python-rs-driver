@@ -81,3 +81,24 @@ async def test_statement_with_page_size():
 
     assert isinstance(actual_page_size, int)
     assert actual_page_size == expected_page_size
+
+
+def test_statement_with_request_timeout_too_large():
+    query_str = "SELECT cluster_name FROM system.local;"
+    statement = Statement(query_str)
+
+    with pytest.raises(ValueError):
+        statement.with_request_timeout(99999999999999999999.9)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_with_request_timeout_too_large():
+    builder = SessionBuilder(["127.0.0.2"], 9042)
+    session = await builder.connect()
+
+    query_str = "SELECT cluster_name FROM system.local"
+    prepared = await session.prepare(query_str)
+
+    with pytest.raises(ValueError):
+        prepared.with_request_timeout(99999999999999999999.9)

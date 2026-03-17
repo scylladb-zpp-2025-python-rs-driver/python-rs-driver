@@ -1,3 +1,4 @@
+use pyo3::exceptions::PyValueError;
 use pyo3::types::{PyFloat, PyString};
 use pyo3::{IntoPyObjectExt, prelude::*};
 use scylla::statement::prepared;
@@ -79,8 +80,14 @@ impl PreparedStatement {
             ));
         }
 
+        let timeout = match timeout {
+            None => Duration::MAX,
+            Some(secs) => Duration::try_from_secs_f64(secs)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?,
+        };
+
         let mut p = self._inner.clone();
-        p.set_request_timeout(Some(timeout.map_or(Duration::MAX, Duration::from_secs_f64)));
+        p.set_request_timeout(Some(timeout));
         Ok(PreparedStatement { _inner: p })
     }
 
@@ -191,8 +198,14 @@ impl Statement {
             ));
         }
 
+        let timeout = match timeout {
+            None => Duration::MAX,
+            Some(secs) => Duration::try_from_secs_f64(secs)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?,
+        };
+
         let mut s = self._inner.clone();
-        s.set_request_timeout(Some(timeout.map_or(Duration::MAX, Duration::from_secs_f64)));
+        s.set_request_timeout(Some(timeout));
         Ok(Statement { _inner: s })
     }
 
