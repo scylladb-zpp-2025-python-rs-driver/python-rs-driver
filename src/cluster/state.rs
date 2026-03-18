@@ -32,7 +32,6 @@ pub(crate) struct PyClusterState {
 }
 
 impl PyClusterState {
-    #[expect(unused)]
     pub(crate) fn new<'py>(_inner: Arc<ClusterState>, py: Python<'py>) -> PyResult<Self> {
         Ok(Self {
             _inner,
