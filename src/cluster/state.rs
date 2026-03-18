@@ -22,7 +22,6 @@ pub(crate) struct PyClusterState {
 }
 
 impl PyClusterState {
-    #[expect(unused)]
     pub(crate) fn new<'py>(_inner: Arc<ClusterState>, py: Python<'py>) -> PyResult<Self> {
         let known_nodes = PyDict::new(py);
         for node in _inner.get_nodes_info().iter() {
