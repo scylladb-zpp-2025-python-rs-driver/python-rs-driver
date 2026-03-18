@@ -7,7 +7,8 @@ use pyo3::{
 use scylla::cluster::ClusterState;
 
 use crate::{
-    errors::DriverClusterStateTokenError, routing::PyToken, serialize::value_list::PyValueList,
+    cluster::node::PyNode, errors::DriverClusterStateTokenError, routing::PyToken,
+    serialize::value_list::PyValueList,
 };
 
 #[pyclass(name = "ClusterState", frozen, skip_from_py_object)]
@@ -15,6 +16,24 @@ pub(crate) struct PyClusterState {
     pub(crate) _inner: Arc<ClusterState>,
     /// Invariant: Always contains all known nodes by the Rust Driver
     pub(crate) known_nodes: Py<PyDict>,
+}
+
+impl TryFrom<Arc<ClusterState>> for PyClusterState {
+    type Error = PyErr;
+
+    fn try_from(inner: Arc<ClusterState>) -> Result<Self, Self::Error> {
+        let known_nodes = Python::attach(|py| {
+            let dict = PyDict::new(py);
+            for (host_id, node) in &inner.known_peers {
+                dict.set_item(host_id, PyNode::from(Arc::clone(node)))?
+            }
+            Ok::<Py<PyDict>, PyErr>(dict.unbind())
+        })?;
+        Ok(Self {
+            _inner: inner,
+            known_nodes,
+        })
+    }
 }
 
 #[pymethods]

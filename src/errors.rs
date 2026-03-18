@@ -417,10 +417,16 @@ impl From<DriverDeserializationError> for PyErr {
 #[must_use]
 pub enum DriverSessionConnectionError {
     /// The Tokio task running session creation failed to join.
-    RuntimeTaskJoinFailed { message: String },
+    RuntimeTaskJoinFailed {
+        message: String,
+    },
     /// The Rust driver failed to establish a new session.
     NewSessionError {
         source: Box<scylla::errors::NewSessionError>,
+    },
+
+    PythonConversionError {
+        source: PyErr,
     },
 }
 
@@ -436,6 +442,10 @@ impl DriverSessionConnectionError {
             source: Box::new(source),
         }
     }
+
+    pub(crate) fn python_conversion_error(source: PyErr) -> Self {
+        Self::PythonConversionError { source }
+    }
 }
 
 impl From<DriverSessionConnectionError> for PyErr {
@@ -450,6 +460,8 @@ impl From<DriverSessionConnectionError> for PyErr {
             DriverSessionConnectionError::NewSessionError { source } => {
                 SessionConnectionError::new_err(format!("failed to establish session: {source}"))
             }
+
+            DriverSessionConnectionError::PythonConversionError { source } => source,
         }
     }
 }
