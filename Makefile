@@ -21,9 +21,9 @@ ci: static test
 static: static-rust static-python
 
 .PHONY: static-rust
-static-rust: fmt-rust fmt-check-rust check-rust clippy clippy-all-features
+static-rust: fmt-check-rust check-rust clippy
 .PHONY: static-python
-static-python: fmt-python lint type-check
+static-python: fmt-check-python check-python type-check
 
 .PHONY: fmt
 fmt: fmt-rust fmt-python
@@ -42,15 +42,19 @@ check-rust:
 
 .PHONY: clippy
 clippy:
-	RUSTFLAGS=-Dwarnings cargo clippy --all-targets
-
-.PHONY: clippy-all-features
-clippy-all-features:
 	RUSTFLAGS=-Dwarnings cargo clippy --all-targets --all-features
 
 .PHONY: fmt-python
 fmt-python:
 	uv run ruff format .
+
+.PHONY: fmt-check-python
+fmt-check-python:
+	uv run ruff format --check
+
+.PHONY: check-python
+check-python:
+	uv run ruff check
 
 .PHONY: lint
 lint:
