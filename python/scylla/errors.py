@@ -7,7 +7,9 @@ from ._rust.errors import (  # pyright: ignore[reportMissingModuleSource]
     PrepareError,
     ExecuteError,
     SchemaAgreementError,
+    StatementConfigError,
 )
+
 
 __all__ = [
     "ScyllaError",
@@ -17,4 +19,5 @@ __all__ = [
     "PrepareError",
     "ExecuteError",
     "SchemaAgreementError",
+    "StatementConfigError",
 ]

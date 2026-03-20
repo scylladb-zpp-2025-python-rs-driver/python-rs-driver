@@ -1,10 +1,11 @@
+use pyo3::prelude::*;
 use pyo3::types::{PyFloat, PyString};
-use pyo3::{IntoPyObjectExt, prelude::*};
 use scylla::statement::prepared;
 use scylla::statement::unprepared;
 use std::time::Duration;
 
 use crate::enums::{Consistency, SerialConsistency};
+use crate::errors::StatementConfigError;
 use crate::execution_profile::ExecutionProfile;
 use crate::types::UnsetType;
 
@@ -70,17 +71,26 @@ impl PreparedStatement {
             .map(SerialConsistency::to_python)
     }
 
-    fn with_request_timeout(&self, timeout: Option<f64>) -> PyResult<PreparedStatement> {
+    fn with_request_timeout(
+        &self,
+        timeout: Option<f64>,
+    ) -> Result<PreparedStatement, StatementConfigError> {
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "timeout must be a positive, finite number (in seconds)",
-            ));
+            return Err(StatementConfigError::InvalidRequestTimeout { value: secs });
         }
 
+        let timeout = match timeout {
+            None => Duration::MAX,
+            Some(secs) => Duration::try_from_secs_f64(secs)
+                .map_err(|_| StatementConfigError::request_timeout_conversion_failed(secs))?,
+        };
+
         let mut p = self._inner.clone();
-        p.set_request_timeout(Some(timeout.map_or(Duration::MAX, Duration::from_secs_f64)));
+
+        p.set_request_timeout(Some(timeout));
+
         Ok(PreparedStatement { _inner: p })
     }
 
@@ -90,11 +100,11 @@ impl PreparedStatement {
         PreparedStatement { _inner: p }
     }
 
-    fn get_request_timeout(&self) -> PyResult<Py<PyAny>> {
+    fn get_request_timeout(&self, py: Python<'_>) -> Py<PyAny> {
         match self._inner.get_request_timeout() {
-            Some(t) if t == Duration::MAX => Ok(Python::attach(|py| py.None())),
-            Some(t) => Python::attach(|py| PyFloat::new(py, t.as_secs_f64()).into_py_any(py)),
-            None => Python::attach(|py| UnsetType::get_instance(py).into_py_any(py)),
+            Some(t) if t == Duration::MAX => py.None(),
+            Some(t) => PyFloat::new(py, t.as_secs_f64()).into(),
+            None => UnsetType::get_instance(py).into(),
         }
     }
 
@@ -117,9 +127,9 @@ pub(crate) struct Statement {
 #[pymethods]
 impl Statement {
     #[new]
-    fn new(query_str: String) -> PyResult<Statement> {
+    fn new(query_str: String) -> Statement {
         let s = unprepared::Statement::from(query_str);
-        Ok(Statement { _inner: s })
+        Statement { _inner: s }
     }
 
     #[getter]
@@ -182,13 +192,14 @@ impl Statement {
             .map(SerialConsistency::to_python)
     }
 
-    fn with_request_timeout(&self, timeout: Option<f64>) -> PyResult<Statement> {
+    fn with_request_timeout(
+        &self,
+        timeout: Option<f64>,
+    ) -> Result<Statement, StatementConfigError> {
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "timeout must be a positive, finite number (in seconds)",
-            ));
+            return Err(StatementConfigError::InvalidRequestTimeout { value: secs });
         }
 
         let mut s = self._inner.clone();
@@ -202,11 +213,11 @@ impl Statement {
         Statement { _inner: s }
     }
 
-    fn get_request_timeout(&self) -> PyResult<Py<PyAny>> {
+    fn get_request_timeout(&self, py: Python<'_>) -> Py<PyAny> {
         match self._inner.get_request_timeout() {
-            Some(t) if t == Duration::MAX => Ok(Python::attach(|py| py.None())),
-            Some(t) => Python::attach(|py| PyFloat::new(py, t.as_secs_f64()).into_py_any(py)),
-            None => Python::attach(|py| UnsetType::get_instance(py).into_py_any(py)),
+            Some(t) if t == Duration::MAX => py.None(),
+            Some(t) => PyFloat::new(py, t.as_secs_f64()).into(),
+            None => UnsetType::get_instance(py).into(),
         }
     }
 
