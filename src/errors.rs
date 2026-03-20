@@ -22,6 +22,8 @@ create_exception!(errors, PrepareErrorPy, ScyllaErrorPy);
 create_exception!(errors, SchemaAgreementErrorPy, ScyllaErrorPy);
 create_exception!(errors, StatementConfigErrorPy, ScyllaErrorPy);
 
+create_exception!(errors, BatchErrorPy, ScyllaErrorPy);
+
 // Policy: DriverError types are pure Rust and contain PyErr only as source
 // in cases where the error originated from Python code (e.g. during extraction or user callbacks).
 // Conversion to PyErr happens at the boundary (e.g. in #[pymethods] implementations)
@@ -461,6 +463,56 @@ impl From<StatementConfigError> for PyErr {
     }
 }
 
+/// Errors related to batch execution and batch statement configuration.
+#[derive(Debug)]
+#[must_use]
+pub enum BatchError {
+    /// The provided request timeout is not a positive finite number of seconds.
+    InvalidRequestTimeout { value: f64 },
+    /// Failed to convert the provided request timeout value into a valid duration.
+    RequestTimeoutConversionFailed { value: f64 },
+    /// An error occurred in Python code while handling a batch value.
+    PythonConversionFailed { source: Box<PyErr> },
+}
+
+impl BatchError {
+    /* Constructors */
+
+    pub fn invalid_request_timeout(value: f64) -> Self {
+        Self::InvalidRequestTimeout { value }
+    }
+
+    pub fn request_timeout_conversion_failed(value: f64) -> Self {
+        Self::RequestTimeoutConversionFailed { value }
+    }
+
+    pub fn python_conversion_failed(source: PyErr) -> Self {
+        Self::PythonConversionFailed {
+            source: Box::new(source),
+        }
+    }
+}
+
+impl From<BatchError> for PyErr {
+    fn from(e: BatchError) -> PyErr {
+        match e {
+            BatchError::InvalidRequestTimeout { value } => BatchErrorPy::new_err(format!(
+                "timeout must be a positive, finite number (in seconds), got {value}"
+            )),
+            BatchError::RequestTimeoutConversionFailed { value } => BatchErrorPy::new_err(format!(
+                "Failed to convert timeout value {value} to a valid duration"
+            )),
+            BatchError::PythonConversionFailed { source } => Python::attach(|py| {
+                let err =
+                    BatchErrorPy::new_err("Python conversion failed while handling batch value");
+
+                err.set_cause(py, Some(*source));
+                err
+            }),
+        }
+    }
+}
+
 #[pymodule]
 pub(crate) fn errors(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("ScyllaError", py.get_type::<ScyllaErrorPy>())?;
@@ -480,5 +532,6 @@ pub(crate) fn errors(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<(
         "StatementConfigError",
         py.get_type::<StatementConfigErrorPy>(),
     )?;
+    module.add("BatchError", py.get_type::<BatchErrorPy>())?;
     Ok(())
 }

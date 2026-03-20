@@ -4,7 +4,7 @@ import pytest
 import pytest_asyncio
 from scylla.batch import Batch, BatchType
 from scylla.enums import Consistency, SerialConsistency
-from scylla.errors import ExecuteError
+from scylla.errors import BatchError, ExecuteError
 from scylla.execution_profile import ExecutionProfile
 from scylla.session import Session
 from scylla.session_builder import SessionBuilder
@@ -422,5 +422,26 @@ async def test_batch_multiple_batch_executions(session: Session, table_factory: 
 
 def test_batch_timeout_too_large():
     batch = Batch()
-    with pytest.raises(ValueError):
+
+    with pytest.raises(BatchError) as exc_info:
         batch = batch.with_request_timeout(1e30)
+
+    assert "failed to convert timeout value" in str(exc_info.value).lower()
+
+
+def test_batch_negative_timeout():
+    batch = Batch()
+
+    with pytest.raises(BatchError) as exc_info:
+        batch.with_request_timeout(-1.0)
+
+    assert "timeout must be a positive, finite number" in str(exc_info.value).lower()
+
+
+def test_batch_zero_timeout():
+    batch = Batch()
+
+    with pytest.raises(BatchError) as exc_info:
+        batch.with_request_timeout(0.0)
+
+    assert "timeout must be a positive, finite number" in str(exc_info.value).lower()
