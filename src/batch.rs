@@ -112,7 +112,7 @@ impl PyBatch {
 
     fn with_consistency(&self, c: Consistency) -> Self {
         let mut batch = self._inner.clone();
-        batch.set_consistency(c.to_rust());
+        batch.set_consistency(c.into());
         Self::new(batch, self.values.clone(), self.is_serial_consistency_set)
     }
 
@@ -124,12 +124,12 @@ impl PyBatch {
 
     #[getter]
     fn get_consistency(&self) -> Option<Consistency> {
-        self._inner.get_consistency().map(Consistency::to_python)
+        self._inner.get_consistency().map(|c| c.into())
     }
 
     fn with_serial_consistency(&self, sc: Option<SerialConsistency>) -> Self {
         let mut batch = self._inner.clone();
-        batch.set_serial_consistency(sc.map(|sc| sc.to_rust()));
+        batch.set_serial_consistency(sc.map(|sc| sc.into()));
         Self::new(batch, self.values.clone(), true)
     }
 
@@ -145,7 +145,7 @@ impl PyBatch {
             return UnsetType::get_instance(py).into_py_any(py);
         }
         match self._inner.get_serial_consistency() {
-            Some(sc) => SerialConsistency::to_python(sc).into_py_any(py),
+            Some(sc) => SerialConsistency::from(sc).into_py_any(py),
             None => Ok(py.None()),
         }
     }

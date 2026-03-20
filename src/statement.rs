@@ -56,7 +56,7 @@ impl PreparedStatement {
 
     fn with_consistency(&self, c: Consistency) -> Self {
         let mut p = self._inner.clone();
-        p.set_consistency(c.to_rust());
+        p.set_consistency(c.into());
         Self::new(p, self.is_serial_consistency_set)
     }
 
@@ -68,12 +68,12 @@ impl PreparedStatement {
 
     #[getter]
     fn get_consistency(&self) -> Option<Consistency> {
-        self._inner.get_consistency().map(Consistency::to_python)
+        self._inner.get_consistency().map(|c| c.into())
     }
 
     fn with_serial_consistency(&self, sc: Option<SerialConsistency>) -> Self {
         let mut p = self._inner.clone();
-        p.set_serial_consistency(sc.map(|sc| sc.to_rust()));
+        p.set_serial_consistency(sc.map(|sc| sc.into()));
         Self::new(p, true)
     }
 
@@ -89,7 +89,7 @@ impl PreparedStatement {
             return UnsetType::get_instance(py).into_py_any(py);
         }
         match self._inner.get_serial_consistency() {
-            Some(sc) => SerialConsistency::to_python(sc).into_py_any(py),
+            Some(sc) => SerialConsistency::from(sc).into_py_any(py),
             None => Ok(py.None()),
         }
     }
@@ -196,7 +196,7 @@ impl Statement {
 
     fn with_consistency(&self, c: Consistency) -> Self {
         let mut s = self._inner.clone();
-        s.set_consistency(c.to_rust());
+        s.set_consistency(c.into());
         Self::new(s, self.is_serial_consistency_set)
     }
 
@@ -208,12 +208,12 @@ impl Statement {
 
     #[getter]
     fn get_consistency(&self) -> Option<Consistency> {
-        self._inner.get_consistency().map(Consistency::to_python)
+        self._inner.get_consistency().map(|c| c.into())
     }
 
     fn with_serial_consistency(&self, sc: Option<SerialConsistency>) -> Self {
         let mut s = self._inner.clone();
-        s.set_serial_consistency(sc.map(|sc| sc.to_rust()));
+        s.set_serial_consistency(sc.map(|sc| sc.into()));
         Self::new(s, true)
     }
 
@@ -229,7 +229,7 @@ impl Statement {
             return UnsetType::get_instance(py).into_py_any(py);
         }
         match self._inner.get_serial_consistency() {
-            Some(sc) => SerialConsistency::to_python(sc).into_py_any(py),
+            Some(sc) => SerialConsistency::from(sc).into_py_any(py),
             None => Ok(py.None()),
         }
     }
