@@ -1,6 +1,11 @@
 from __future__ import annotations
 from ._rust.errors import (  # pyright: ignore[reportMissingModuleSource]
     ScyllaError,
+    RowIterationError,
+    DeserializationError,
+    UnsupportedTypeDeserializationError,
+    DecodeFailedError,
+    PyConversionFailedError,
     ConnectionError,
     SessionConfigError,
     StatementConversionError,
@@ -19,6 +24,11 @@ from ._rust.errors import (  # pyright: ignore[reportMissingModuleSource]
 
 __all__ = [
     "ScyllaError",
+    "RowIterationError",
+    "DeserializationError",
+    "UnsupportedTypeDeserializationError",
+    "DecodeFailedError",
+    "PyConversionFailedError",
     "ConnectionError",
     "SessionConfigError",
     "StatementConversionError",
