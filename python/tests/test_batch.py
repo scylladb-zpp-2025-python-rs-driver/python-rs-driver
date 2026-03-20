@@ -4,6 +4,7 @@ import pytest
 import pytest_asyncio
 from scylla.batch import Batch, BatchType
 from scylla.enums import Consistency, SerialConsistency
+from scylla.errors import ExecuteError
 from scylla.execution_profile import ExecutionProfile
 from scylla.session import Session
 from scylla.session_builder import SessionBuilder
@@ -117,8 +118,11 @@ async def test_simple_batch(session: Session, table_factory: TableFactory):
 async def test_simple_batch_bad_query(session: Session):
     batch = Batch(BatchType.Logged)
     batch.add("meow")
-    with pytest.raises(RuntimeError):
+
+    with pytest.raises(ExecuteError) as exc_info:
         await session.batch(batch)
+
+    assert "failed to execute" in str(exc_info.value).lower()
 
 
 @pytest.mark.asyncio

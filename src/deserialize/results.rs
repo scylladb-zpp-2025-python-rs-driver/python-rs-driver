@@ -707,7 +707,8 @@ impl Pager {
 
         let (query_result, new_paging_response) = match result {
             Ok(v) => v,
-            Err(e) => return Some(Err(e)),
+            // Until we have proper error handling, we convert internal ExecuteError to PyErr
+            Err(e) => return Some(Err(e.into())),
         };
 
         *paging_response = new_paging_response;

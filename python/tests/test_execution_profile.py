@@ -4,6 +4,7 @@ from scylla.execution_profile import ExecutionProfile
 from scylla.session_builder import SessionBuilder
 from scylla.statement import PreparedStatement, Statement
 from scylla.types import Unset
+from scylla.errors import ExecuteError
 
 
 def test_execution_profile_builder():
@@ -79,9 +80,9 @@ async def test_invalid_consistency_for_query():
     profile = ExecutionProfile(consistency=Consistency.Three)
     builder = SessionBuilder(["127.0.0.2"], 9042, execution_profile=profile)
     session = await builder.connect()
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(ExecuteError) as exc_info:
         _ = await session.execute("SELECT * FROM system.local")
-        assert "Not enough nodes are alive to satisfy required consistency level" in str(exc_info.value)
+    assert "failed to execute statement" in str(exc_info.value).lower()
 
 
 @pytest.mark.asyncio
@@ -91,9 +92,9 @@ async def test_invalid_consistency_for_prepared_statement():
     builder = SessionBuilder(["127.0.0.2"], 9042, execution_profile=profile)
     session = await builder.connect()
     prepared = await session.prepare("SELECT * FROM system.local")
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(ExecuteError) as exc_info:
         _ = await session.execute(prepared)
-        assert "Not enough nodes are alive to satisfy required consistency level" in str(exc_info.value)
+    assert "failed to execute statement" in str(exc_info.value).lower()
 
 
 def test_statement_creation():
@@ -236,9 +237,9 @@ async def test_invalid_consistency_for_statement():
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
     stmt = Statement("SELECT * FROM system.local").with_consistency(Consistency.Three)
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(ExecuteError) as exc_info:
         _ = await session.execute(stmt)
-        assert "Not enough nodes are alive to satisfy required consistency level" in str(exc_info.value)
+    assert "failed to execute statement" in str(exc_info.value).lower()
 
 
 @pytest.mark.asyncio

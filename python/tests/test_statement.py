@@ -1,6 +1,8 @@
 import pytest
 from scylla.session_builder import SessionBuilder
 from scylla.statement import PreparedStatement, Statement
+from scylla.errors import PrepareError, StatementConversionError
+from typing import Any, cast
 
 
 @pytest.mark.asyncio
@@ -81,3 +83,54 @@ async def test_statement_with_page_size():
 
     assert isinstance(actual_page_size, int)
     assert actual_page_size == expected_page_size
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepare_prepared_statement_raises_session_query_error():
+    builder = SessionBuilder(["127.0.0.2"], 9042)
+    session = await builder.connect()
+
+    prepared = await session.prepare("SELECT * FROM system.local")
+
+    with pytest.raises(PrepareError) as exc_info:
+        await session.prepare(cast(Any, prepared))
+
+    assert "cannot prepare a preparedstatement" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepare_invalid_query_raises_session_query_error():
+    builder = SessionBuilder(["127.0.0.2"], 9042)
+    session = await builder.connect()
+
+    with pytest.raises(PrepareError) as exc_info:
+        await session.prepare("THIS IS NOT CQL")
+
+    assert "failed to prepare statement" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepare_invalid_statement_type_raises_statement_conversion_error():
+    builder = SessionBuilder(["127.0.0.2"], 9042)
+    session = await builder.connect()
+
+    with pytest.raises(StatementConversionError) as exc_info:
+        await session.prepare(123)  # type: ignore[arg-type]
+
+    assert "invalid statement type" in str(exc_info.value).lower()
+    assert "expected a str, statement, or preparedstatement" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_execute_invalid_statement_type_raises_statement_conversion_error():
+    builder = SessionBuilder(["127.0.0.2"], 9042)
+    session = await builder.connect()
+
+    with pytest.raises(StatementConversionError) as exc_info:
+        await session.execute(cast(Any, 123))
+
+    assert "invalid statement type" in str(exc_info.value).lower()

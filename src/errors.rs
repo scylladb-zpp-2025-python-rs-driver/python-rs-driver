@@ -13,6 +13,14 @@ create_exception!(errors, ConnectionErrorPy, ScyllaErrorPy);
 
 create_exception!(errors, SessionConfigErrorPy, ScyllaErrorPy);
 
+create_exception!(errors, StatementConversionErrorPy, ScyllaErrorPy);
+
+create_exception!(errors, ExecuteErrorPy, ScyllaErrorPy);
+
+create_exception!(errors, PrepareErrorPy, ScyllaErrorPy);
+
+create_exception!(errors, SchemaAgreementErrorPy, ScyllaErrorPy);
+
 // Policy: DriverError types are pure Rust and contain PyErr only as source
 // in cases where the error originated from Python code (e.g. during extraction or user callbacks).
 // Conversion to PyErr happens at the boundary (e.g. in #[pymethods] implementations)
@@ -205,10 +213,228 @@ impl From<SessionConfigError> for PyErr {
     }
 }
 
+/// Errors that can occur during conversion of Python objects into statements for execution.
+#[derive(Debug)]
+#[must_use]
+pub enum StatementConversionError {
+    /// The provided statement argument is of an unsupported type.
+    InvalidStatementType { got: String },
+    /// Failed to convert a Python string object into a Rust string when extracting a statement.
+    StatementStringConversionFailed { source: Box<PyErr> },
+}
+
+impl StatementConversionError {
+    /* Constructors */
+
+    pub fn invalid_statement_type(got: String) -> Self {
+        Self::InvalidStatementType { got }
+    }
+
+    pub fn statement_string_conversion_failed(source: PyErr) -> Self {
+        Self::StatementStringConversionFailed {
+            source: Box::new(source),
+        }
+    }
+}
+
+impl From<StatementConversionError> for PyErr {
+    fn from(e: StatementConversionError) -> PyErr {
+        Python::attach(|py| match e {
+            StatementConversionError::InvalidStatementType { got } => {
+                StatementConversionErrorPy::new_err(format!(
+                    "Invalid statement type: expected a str, Statement, or PreparedStatement, got {got}"
+                ))
+            }
+
+            StatementConversionError::StatementStringConversionFailed { source } => {
+                let err = StatementConversionErrorPy::new_err(
+                    "Failed to convert statement string to Rust string",
+                );
+
+                err.set_cause(py, Some(*source));
+                err
+            }
+        })
+    }
+}
+
+/// Errors that can occur during execution of a query (session.execute),
+/// excluding deserialization errors which are represented separately in RowIterationError.
+#[derive(Debug)]
+#[must_use]
+pub enum ExecuteError {
+    /// paging_state parameter in session.execute must be None.
+    PagingStateMustBeNoneForUnpagedExecution,
+    /// The Rust driver failed while executing a query.
+    RustDriverExecutionError {
+        source: Box<scylla::errors::ExecutionError>,
+    },
+    /// The Tokio runtime task responsible for executing the query failed to join.
+    RuntimeTaskJoinFailed { message: Box<str> },
+}
+
+impl ExecuteError {
+    /* Constructors */
+
+    pub fn paging_state_must_be_none_for_unpaged_execution() -> Self {
+        Self::PagingStateMustBeNoneForUnpagedExecution
+    }
+
+    pub fn rust_driver_execution_error(source: scylla::errors::ExecutionError) -> Self {
+        Self::RustDriverExecutionError {
+            source: Box::new(source),
+        }
+    }
+
+    pub fn runtime_task_join_failed(err: tokio::task::JoinError) -> Self {
+        Self::RuntimeTaskJoinFailed {
+            message: err.to_string().into_boxed_str(),
+        }
+    }
+}
+
+impl From<ExecuteError> for PyErr {
+    fn from(e: ExecuteError) -> PyErr {
+        match e {
+            ExecuteError::PagingStateMustBeNoneForUnpagedExecution => {
+                ExecuteErrorPy::new_err("Paging state must be None for unpaged execution")
+            }
+
+            ExecuteError::RustDriverExecutionError { source } => {
+                let message = format!("Failed to execute statement: {source}");
+
+                ExecuteErrorPy::new_err(message)
+            }
+
+            ExecuteError::RuntimeTaskJoinFailed { message } => ExecuteErrorPy::new_err(format!(
+                "Internal driver error: runtime error while executing query: {message}"
+            )),
+        }
+    }
+}
+
+// Allow converting a tokio::task::JoinError into ExecuteError
+// so that callers that spawn tasks can map JoinError -> ExecuteError via the `From` trait.
+impl From<tokio::task::JoinError> for ExecuteError {
+    fn from(err: tokio::task::JoinError) -> Self {
+        // Use the existing constructor which accepts JoinError
+        ExecuteError::runtime_task_join_failed(err)
+    }
+}
+
+/// Errors that can occur during preparation of a statement.
+#[derive(Debug)]
+#[must_use]
+pub enum PrepareError {
+    /// The Rust driver failed while preparing a statement.
+    #[allow(clippy::enum_variant_names)]
+    RustDriverPrepareError {
+        source: Box<scylla::errors::PrepareError>,
+    },
+    /// Attempted to prepare an already prepared statement.
+    CannotPreparePreparedStatement,
+}
+
+impl PrepareError {
+    /* Constructors */
+
+    pub fn rust_driver_prepare_error(source: scylla::errors::PrepareError) -> Self {
+        Self::RustDriverPrepareError {
+            source: Box::new(source),
+        }
+    }
+
+    pub fn cannot_prepare_prepared_statement() -> Self {
+        Self::CannotPreparePreparedStatement
+    }
+}
+
+impl From<PrepareError> for PyErr {
+    fn from(e: PrepareError) -> PyErr {
+        match e {
+            PrepareError::RustDriverPrepareError { source } => {
+                let message = format!("Failed to prepare statement: {source}");
+
+                PrepareErrorPy::new_err(message)
+            }
+
+            PrepareError::CannotPreparePreparedStatement => PrepareErrorPy::new_err(
+                "Cannot prepare a PreparedStatement; expected a str or Statement",
+            ),
+        }
+    }
+}
+
+/// Errors that can occur during schema agreement checks.
+#[derive(Debug)]
+#[must_use]
+pub enum SchemaAgreementError {
+    /// The Rust driver failed to check for schema agreement.
+    RustDriverSchemaAgreementError {
+        source: Box<scylla::errors::SchemaAgreementError>,
+    },
+    /// The Tokio runtime task responsible for checking schema agreement failed to join.
+    RuntimeTaskJoinFailed { message: Box<str> },
+}
+
+impl SchemaAgreementError {
+    /* Constructors */
+
+    pub fn rust_driver_schema_agreement_error(
+        source: scylla::errors::SchemaAgreementError,
+    ) -> Self {
+        Self::RustDriverSchemaAgreementError {
+            source: Box::new(source),
+        }
+    }
+
+    pub fn runtime_task_join_failed(err: tokio::task::JoinError) -> Self {
+        Self::RuntimeTaskJoinFailed {
+            message: err.to_string().into_boxed_str(),
+        }
+    }
+}
+
+impl From<SchemaAgreementError> for PyErr {
+    fn from(e: SchemaAgreementError) -> PyErr {
+        match e {
+            SchemaAgreementError::RustDriverSchemaAgreementError { source } => {
+                let message = format!("Failed to check schema agreement: {source}");
+
+                SchemaAgreementErrorPy::new_err(message)
+            }
+
+            SchemaAgreementError::RuntimeTaskJoinFailed { message } => {
+                SchemaAgreementErrorPy::new_err(format!(
+                    "Internal driver error: runtime error while checking schema agreement: {message}"
+                ))
+            }
+        }
+    }
+}
+
+// Allow converting a tokio::task::JoinError into SchemaAgreementError
+// so that callers that spawn tasks can map JoinError -> SchemaAgreementError via the `From` trait.
+impl From<tokio::task::JoinError> for SchemaAgreementError {
+    fn from(err: tokio::task::JoinError) -> Self {
+        SchemaAgreementError::runtime_task_join_failed(err)
+    }
+}
+
 #[pymodule]
 pub(crate) fn errors(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("ScyllaError", py.get_type::<ScyllaErrorPy>())?;
     module.add("ConnectionError", py.get_type::<ConnectionErrorPy>())?;
     module.add("SessionConfigError", py.get_type::<SessionConfigErrorPy>())?;
+    module.add(
+        "StatementConversionError",
+        py.get_type::<StatementConversionErrorPy>(),
+    )?;
+    module.add("PrepareError", py.get_type::<PrepareErrorPy>())?;
+    module.add(
+        "SchemaAgreementError",
+        py.get_type::<SchemaAgreementErrorPy>(),
+    )?;
+    module.add("ExecuteError", py.get_type::<ExecuteErrorPy>())?;
     Ok(())
 }
