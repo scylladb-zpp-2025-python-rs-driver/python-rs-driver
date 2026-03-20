@@ -9,8 +9,13 @@ from ._rust.errors import (  # pyright: ignore[reportMissingModuleSource]
     SchemaAgreementError,
     StatementConfigError,
     BatchError,
+    SerializationError,
+    UnsupportedTypeSerializationError,
+    TypeMismatchSerializationError,
+    ValueOverflowSerializationError,
+    SerializeFailedError,
+    PySerializationFailedError,
 )
-
 
 __all__ = [
     "ScyllaError",
@@ -22,4 +27,10 @@ __all__ = [
     "SchemaAgreementError",
     "StatementConfigError",
     "BatchError",
+    "SerializationError",
+    "UnsupportedTypeSerializationError",
+    "TypeMismatchSerializationError",
+    "ValueOverflowSerializationError",
+    "SerializeFailedError",
+    "PySerializationFailedError",
 ]
