@@ -11,6 +11,7 @@ from decimal import Decimal
 from datetime import time
 from dateutil.relativedelta import relativedelta
 import pytest_asyncio
+from scylla._rust.errors import DeserializationError, RowIterationError  # pyright: ignore[reportMissingModuleSource]
 from scylla._rust.session import Session  # pyright: ignore[reportMissingModuleSource]
 from scylla._rust.session_builder import SessionBuilder  # pyright: ignore[reportMissingModuleSource]
 
@@ -1177,3 +1178,39 @@ async def test_timestamp_overflow(
     )
 
     assert isinstance(row["value"], datetime.datetime)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_timestamp_overflow_raises_deserialization_error(session: Session, table_factory: TableFactory):
+    table = await table_factory(
+        "id int PRIMARY KEY, value timestamp",
+        "timestamp_overflow_table",
+    )
+
+    await session.execute(f"INSERT INTO {table} (id, value) VALUES (1, {10**16})")
+
+    result = await session.execute(f"SELECT * FROM {table} WHERE id = 1")
+
+    with pytest.raises(DeserializationError) as exc_info:
+        await result.first_row()
+
+    assert "column" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_row_factory_python_error_is_wrapped(session: Session, table_factory: TableFactory):
+    class FailingFactory(RowFactory):
+        def build(self, column_iterator: ColumnIterator):
+            raise ValueError("factory boom")
+
+    table = await table_factory("id int PRIMARY KEY, x int", "row_factory_fail_table")
+    await session.execute(f"INSERT INTO {table} (id, x) VALUES (1, 10)")
+
+    result = await session.execute(f"SELECT * FROM {table}", factory=FailingFactory())
+
+    with pytest.raises(RowIterationError) as exc_info:
+        await result.first_row()
+
+    assert exc_info.value.__cause__ is not None

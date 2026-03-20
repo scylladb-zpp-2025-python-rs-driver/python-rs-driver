@@ -1,8 +1,7 @@
-use crate::deserialize::PyDeserializationError;
 use crate::deserialize::conversion::{CqlDurationWrapper, CqlVarintWrapper};
+use crate::errors::DriverDeserializationError;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveTime, Utc};
-use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::{PyDictMethods, PyListMethods, PyModule, PyModuleMethods, PySetMethods};
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{
@@ -48,7 +47,7 @@ pub(crate) trait PyDeserializeValue<'frame, 'metadata, 'py>: Sized {
         typ: &'metadata ColumnType<'metadata>,
         v: Option<FrameSlice<'frame>>,
         py: Python<'py>,
-    ) -> Result<PyDeserializedValue, PyDeserializationError>;
+    ) -> Result<PyDeserializedValue, DriverDeserializationError>;
 }
 
 impl PyDeserializedValue {
@@ -97,7 +96,7 @@ impl<'frame, 'metadata, 'py> PyDeserializeValue<'frame, 'metadata, 'py> for PyDe
         typ: &'metadata ColumnType<'metadata>,
         v: Option<FrameSlice<'frame>>,
         py: Python<'py>,
-    ) -> Result<Self, PyDeserializationError> {
+    ) -> Result<Self, DriverDeserializationError> {
         deser_cql_py_value(py, typ, v)
     }
 }
@@ -107,11 +106,11 @@ pub(crate) struct PyDeserializedValue {
 }
 
 struct PyValueOrError {
-    result: Result<PyDeserializedValue, PyDeserializationError>,
+    result: Result<PyDeserializedValue, DriverDeserializationError>,
 }
 
 impl PyValueOrError {
-    fn new(result: Result<PyDeserializedValue, PyDeserializationError>) -> Self {
+    fn new(result: Result<PyDeserializedValue, DriverDeserializationError>) -> Self {
         PyValueOrError { result }
     }
 }
@@ -119,7 +118,7 @@ impl PyValueOrError {
 impl<'py> IntoPyObject<'py> for PyValueOrError {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
-    type Error = PyDeserializationError;
+    type Error = DriverDeserializationError;
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         self.result.map(|value| {
             let Ok(obj) = value.into_pyobject(py);
@@ -148,26 +147,36 @@ fn deserialize_sequence<'frame, 'metadata, 'py, T, FBuild>(
     py: Python<'py>,
     elem_typ: &'metadata ColumnType<'metadata>,
     mut builder: FBuild,
-) -> Result<(), PyDeserializationError>
+) -> Result<(), DriverDeserializationError>
 where
     T: PyDeserializeValue<'frame, 'metadata, 'py>,
     FBuild: FnMut(PyDeserializedValue) -> PyResult<()>,
 {
-    let count = types::read_int_length(v.as_slice_mut()).map_err(|err| {
-        mk_deser_err::<T>(
-            typ,
-            SetOrListDeserializationErrorKind::LengthDeserializationFailed(
-                DeserializationError::new(err),
-            ),
-        )
-    })?;
+    let count = types::read_int_length(v.as_slice_mut())
+        .map_err(|err| {
+            mk_deser_err::<T>(
+                typ,
+                SetOrListDeserializationErrorKind::LengthDeserializationFailed(
+                    DeserializationError::new(err),
+                ),
+            )
+        })
+        .map_err(DriverDeserializationError::scylla_decode_failed)?;
 
     let raw_iter = FixedLengthBytesSequenceIterator::new(count, v);
 
-    for raw in raw_iter {
-        let raw = raw.map_err(DeserializationError::new)?;
-        let item = T::deserialize_py(elem_typ, raw, py)?;
-        builder(item)?;
+    for (i, raw) in raw_iter.enumerate() {
+        let raw = raw
+            .map_err(DeserializationError::new)
+            .map_err(DriverDeserializationError::scylla_decode_failed)
+            // Element i could not be read
+            .map_err(|err| err.in_sequence_index(i))?;
+
+        let item = T::deserialize_py(elem_typ, raw, py).map_err(|err| err.in_sequence_index(i))?;
+        builder(item)
+            .map_err(DriverDeserializationError::python_conversion_failed)
+            // Element i could not be added to the collection
+            .map_err(|err| err.in_sequence_index(i))?;
     }
 
     Ok(())
@@ -181,16 +190,18 @@ where
         typ: &'metadata ColumnType<'metadata>,
         v: Option<FrameSlice<'frame>>,
         py: Python<'py>,
-    ) -> Result<PyDeserializedValue, PyDeserializationError> {
+    ) -> Result<PyDeserializedValue, DriverDeserializationError> {
         let elem_typ = match typ {
             ColumnType::Collection {
                 frozen: _,
                 typ: CollectionType::List(elem_typ),
             } => elem_typ,
             _ => {
-                return Err(PyDeserializationError::from(PyRuntimeError::new_err(
-                    "internal error: List deserializer called for non-list column type",
-                )));
+                let expected = "List";
+                let got = format!("{typ:?}");
+                return Err(DriverDeserializationError::wrong_deserializer(
+                    expected, got,
+                ));
             }
         };
 
@@ -241,25 +252,31 @@ where
     K: PyDeserializeValue<'frame, 'metadata, 'py>,
     V: PyDeserializeValue<'frame, 'metadata, 'py>,
 {
-    type Item = Result<(PyDeserializedValue, PyDeserializedValue), PyDeserializationError>;
+    type Item = Result<(PyDeserializedValue, PyDeserializedValue), DriverDeserializationError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let raw_k = match self.raw_iter.next()? {
             Ok(raw_k) => raw_k,
             Err(err) => {
-                return Some(Err(PyDeserializationError::from(mk_deser_err::<Self>(
+                let scylla_err = mk_deser_err::<Self>(
                     self.col_typ,
                     BuiltinDeserializationErrorKind::RawCqlBytesReadError(err),
-                ))));
+                );
+                return Some(Err(DriverDeserializationError::scylla_decode_failed(
+                    scylla_err,
+                )));
             }
         };
         let raw_v = match self.raw_iter.next()? {
             Ok(raw_v) => raw_v,
             Err(err) => {
-                return Some(Err(PyDeserializationError::from(mk_deser_err::<Self>(
+                let scylla_err = mk_deser_err::<Self>(
                     self.col_typ,
                     BuiltinDeserializationErrorKind::RawCqlBytesReadError(err),
-                ))));
+                );
+                return Some(Err(DriverDeserializationError::scylla_decode_failed(
+                    scylla_err,
+                )));
             }
         };
 
@@ -290,16 +307,18 @@ where
         typ: &'metadata ColumnType<'metadata>,
         v: Option<FrameSlice<'frame>>,
         py: Python<'py>,
-    ) -> Result<PyDeserializedValue, PyDeserializationError> {
+    ) -> Result<PyDeserializedValue, DriverDeserializationError> {
         let (key_typ, value_typ) = match typ {
             ColumnType::Collection {
                 frozen: _,
                 typ: CollectionType::Map(key_typ, value_typ),
             } => (key_typ, value_typ),
             _ => {
-                return Err(PyDeserializationError::from(PyRuntimeError::new_err(
-                    "internal error: Map deserializer called for non-map column type",
-                )));
+                let expected = "Map";
+                let got = format!("{:?}", typ);
+                return Err(DriverDeserializationError::wrong_deserializer(
+                    expected, got,
+                ));
             }
         };
 
@@ -307,22 +326,26 @@ where
             return Ok(PyDeserializedValue::new(PyDict::new(py).into_any()));
         };
 
-        let count = types::read_int_length(v.as_slice_mut()).map_err(|err| {
-            mk_deser_err::<Self>(
-                typ,
-                MapDeserializationErrorKind::LengthDeserializationFailed(
-                    DeserializationError::new(err),
-                ),
-            )
-        })?;
+        let count = types::read_int_length(v.as_slice_mut())
+            .map_err(|err| {
+                mk_deser_err::<Self>(
+                    typ,
+                    MapDeserializationErrorKind::LengthDeserializationFailed(
+                        DeserializationError::new(err),
+                    ),
+                )
+            })
+            .map_err(DriverDeserializationError::scylla_decode_failed)?;
 
         let map_iter =
             MapIterator::<'_, '_, '_, K, V>::new(typ, key_typ, value_typ, 2 * count, v, py);
         let dict = PyDict::new(py);
 
-        for item in map_iter {
-            let (key, value) = item?;
-            dict.set_item(key, value)?;
+        for (i, item) in map_iter.enumerate() {
+            let (key, value) = item.map_err(|e| e.in_map_index(i))?;
+            dict.set_item(key, value)
+                .map_err(DriverDeserializationError::python_conversion_failed)
+                .map_err(|e| e.in_map_index(i))?;
         }
 
         Ok(PyDeserializedValue::new(dict.into_any()))
@@ -341,24 +364,30 @@ where
         typ: &'metadata ColumnType<'metadata>,
         v: Option<FrameSlice<'frame>>,
         py: Python<'py>,
-    ) -> Result<PyDeserializedValue, PyDeserializationError> {
+    ) -> Result<PyDeserializedValue, DriverDeserializationError> {
         let elem_typ = match typ {
             ColumnType::Collection {
                 frozen: _,
                 typ: CollectionType::Set(elem_typ),
             } => elem_typ,
             _ => {
-                return Err(PyDeserializationError::from(PyRuntimeError::new_err(
-                    "internal error: Set deserializer called for non-set column type",
-                )));
+                let expected = "Set";
+                let got = format!("{:?}", typ);
+                return Err(DriverDeserializationError::wrong_deserializer(
+                    expected, got,
+                ));
             }
         };
 
         let Some(v) = v else {
-            return Ok(PyDeserializedValue::new(PySet::empty(py)?.into_any()));
+            return Ok(PyDeserializedValue::new(
+                PySet::empty(py)
+                    .map_err(DriverDeserializationError::python_conversion_failed)?
+                    .into_any(),
+            ));
         };
 
-        let set = PySet::empty(py)?;
+        let set = PySet::empty(py).map_err(DriverDeserializationError::python_conversion_failed)?;
 
         deserialize_sequence::<T, _>(typ, v, py, elem_typ, |item| set.add(item))?;
 
@@ -406,51 +435,59 @@ where
         element_length: usize,
     ) -> Option<<Self as Iterator>::Item> {
         self.remaining = self.remaining.checked_sub(1)?;
-        let raw = self.slice.read_n_bytes(element_length).map_err(|err| {
-            mk_deser_err::<Self>(
-                self.collection_type,
-                BuiltinDeserializationErrorKind::RawCqlBytesReadError(err),
-            )
-        });
 
-        Some(
-            raw.map_err(PyDeserializationError::from)
-                .and_then(|raw| T::deserialize_py(self.element_type, raw, self.py)),
-        )
+        let raw = self
+            .slice
+            .read_n_bytes(element_length)
+            .map_err(|err| {
+                mk_deser_err::<Self>(
+                    self.collection_type,
+                    BuiltinDeserializationErrorKind::RawCqlBytesReadError(err),
+                )
+            })
+            .map_err(DriverDeserializationError::scylla_decode_failed);
+
+        Some(raw.and_then(|raw| T::deserialize_py(self.element_type, raw, self.py)))
     }
 
     fn next_variable_length_elem(&mut self) -> Option<<Self as Iterator>::Item> {
         self.remaining = self.remaining.checked_sub(1)?;
-        let size = types::unsigned_vint_decode(self.slice.as_slice_mut()).map_err(|err| {
-            mk_deser_err::<Self>(
-                self.collection_type,
-                BuiltinDeserializationErrorKind::RawCqlBytesReadError(
-                    LowLevelDeserializationError::IoError(Arc::new(err)),
-                ),
-            )
-        });
+
+        let size = types::unsigned_vint_decode(self.slice.as_slice_mut())
+            .map_err(|err| {
+                mk_deser_err::<Self>(
+                    self.collection_type,
+                    BuiltinDeserializationErrorKind::RawCqlBytesReadError(
+                        LowLevelDeserializationError::IoError(Arc::new(err)),
+                    ),
+                )
+            })
+            .map_err(DriverDeserializationError::scylla_decode_failed);
+
         let raw = size
             .and_then(|size| {
-                size.try_into().map_err(|_| {
-                    mk_deser_err::<Self>(
-                        self.collection_type,
-                        BuiltinDeserializationErrorKind::ValueOverflow,
-                    )
-                })
+                size.try_into()
+                    .map_err(|_| {
+                        mk_deser_err::<Self>(
+                            self.collection_type,
+                            BuiltinDeserializationErrorKind::ValueOverflow,
+                        )
+                    })
+                    .map_err(DriverDeserializationError::scylla_decode_failed)
             })
             .and_then(|size: usize| {
-                self.slice.read_n_bytes(size).map_err(|err| {
-                    mk_deser_err::<Self>(
-                        self.collection_type,
-                        BuiltinDeserializationErrorKind::RawCqlBytesReadError(err),
-                    )
-                })
+                self.slice
+                    .read_n_bytes(size)
+                    .map_err(|err| {
+                        mk_deser_err::<Self>(
+                            self.collection_type,
+                            BuiltinDeserializationErrorKind::RawCqlBytesReadError(err),
+                        )
+                    })
+                    .map_err(DriverDeserializationError::scylla_decode_failed)
             });
 
-        Some(
-            raw.map_err(PyDeserializationError::from)
-                .and_then(|raw| T::deserialize_py(self.element_type, raw, self.py)),
-        )
+        Some(raw.and_then(|raw| T::deserialize_py(self.element_type, raw, self.py)))
     }
 }
 
@@ -458,7 +495,7 @@ impl<'frame, 'metadata, 'py, T> Iterator for VectorIterator<'frame, 'metadata, '
 where
     T: PyDeserializeValue<'frame, 'metadata, 'py>,
 {
-    type Item = Result<PyDeserializedValue, PyDeserializationError>;
+    type Item = Result<PyDeserializedValue, DriverDeserializationError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.element_length {
@@ -485,16 +522,18 @@ where
         typ: &'metadata ColumnType<'metadata>,
         v: Option<FrameSlice<'frame>>,
         py: Python<'py>,
-    ) -> Result<PyDeserializedValue, PyDeserializationError> {
+    ) -> Result<PyDeserializedValue, DriverDeserializationError> {
         let (element_type, dimensions) = match typ {
             ColumnType::Vector {
                 typ: element_type,
                 dimensions,
             } => (element_type, dimensions),
             _ => {
-                return Err(PyDeserializationError::from(PyRuntimeError::new_err(
-                    "internal error: Vector deserializer called for non-vector column type",
-                )));
+                let expected = "Vector";
+                let got = format!("{:?}", typ);
+                return Err(DriverDeserializationError::wrong_deserializer(
+                    expected, got,
+                ));
             }
         };
 
@@ -512,8 +551,12 @@ where
         );
 
         let list = PyList::empty(py);
-        for value in vector_iterator {
-            list.append(value?).map_err(DeserializationError::new)?;
+        for (i, value) in vector_iterator.enumerate() {
+            let value = value.map_err(|e| e.in_vector_index(i))?;
+
+            list.append(value)
+                .map_err(DriverDeserializationError::python_conversion_failed)
+                .map_err(|e| e.in_vector_index(i))?;
         }
 
         Ok(PyDeserializedValue::new(list.into_any()))
@@ -524,7 +567,7 @@ fn deser_cql_py_value<'py, 'metadata, 'frame>(
     py: Python<'py>,
     typ: &'metadata ColumnType<'metadata>,
     val: Option<FrameSlice<'frame>>,
-) -> Result<PyDeserializedValue, PyDeserializationError> {
+) -> Result<PyDeserializedValue, DriverDeserializationError> {
     if let Some(v) = val
         && v.as_slice().is_empty()
     {
@@ -532,7 +575,10 @@ fn deser_cql_py_value<'py, 'metadata, 'frame>(
             Native(NativeType::Ascii) | Native(NativeType::Blob) | Native(NativeType::Text) => {
                 // can't be empty
             }
-            _ => return Ok(PyDeserializedValue::empty_value(py)?),
+            _ => {
+                return PyDeserializedValue::empty_value(py)
+                    .map_err(DriverDeserializationError::python_conversion_failed);
+            }
         }
     }
 
@@ -546,48 +592,63 @@ fn deser_cql_py_value<'py, 'metadata, 'frame>(
                 match native_type {
                     // CQL Counter → Python int
                     NativeType::Counter => {
-                        let v = Counter::deserialize(typ, Some(v))?;
+                        let v = Counter::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?;
                         PyInt::new(py, v.0).into_any()
                     }
                     // CQL Decimal → Python decimal.Decimal
                     NativeType::Decimal => {
-                        let d: BigDecimal = CqlDecimalBorrowed::deserialize(typ, Some(v))?.into();
-                        d.into_pyobject(py)?.into_any()
+                        let d: BigDecimal = CqlDecimalBorrowed::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?
+                            .into();
+                        d.into_pyobject(py)
+                            .map_err(DriverDeserializationError::python_conversion_failed)?
+                            .into_any()
                     }
                     // CQL TinyInt → Python int
                     NativeType::TinyInt => {
-                        let v = i8::deserialize(typ, Some(v))?;
+                        let v = i8::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?;
                         PyInt::new(py, v).into_any()
                     }
                     // CQL SmallInt → Python int
                     NativeType::SmallInt => {
-                        let v = i16::deserialize(typ, Some(v))?;
+                        let v = i16::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?;
                         PyInt::new(py, v).into_any()
                     }
                     // CQL Int → Python int
                     NativeType::Int => {
-                        let v = i32::deserialize(typ, Some(v))?;
+                        let v = i32::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?;
                         PyInt::new(py, v).into_any()
                     }
                     // CQL BigInt → Python int
                     NativeType::BigInt => {
-                        let v = i64::deserialize(typ, Some(v))?;
+                        let v = i64::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?;
                         PyInt::new(py, v).into_any()
                     }
                     // CQL Varint → Python int
                     NativeType::Varint => {
-                        let varint: CqlVarintWrapper =
-                            CqlVarintBorrowed::deserialize(typ, Some(v))?.into();
-                        varint.into_pyobject(py)?.into_any()
+                        let varint: CqlVarintWrapper = CqlVarintBorrowed::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?
+                            .into();
+                        varint
+                            .into_pyobject(py)
+                            .map_err(DriverDeserializationError::python_conversion_failed)?
+                            .into_any()
                     }
                     // CQL Double → Python float
                     NativeType::Double => {
-                        let v = f64::deserialize(typ, Some(v))?;
+                        let v = f64::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?;
                         PyFloat::new(py, v).into_any()
                     }
                     // CQL Float → Python float
                     NativeType::Float => {
-                        let v = f32::deserialize(typ, Some(v))?;
+                        let v = f32::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?;
                         PyFloat::new(py, v as f64).into_any()
                     }
                     // CQL Ascii → Python str
@@ -596,63 +657,92 @@ fn deser_cql_py_value<'py, 'metadata, 'frame>(
                         let v = <&str as DeserializeValue<'frame, 'metadata>>::deserialize(
                             typ,
                             Some(v),
-                        )?;
+                        )
+                        .map_err(DriverDeserializationError::scylla_decode_failed)?;
                         PyString::new(py, v).into_any()
                     }
                     // CQL Boolean → Python bool
                     NativeType::Boolean => {
-                        let v = bool::deserialize(typ, Some(v))?;
+                        let v = bool::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?;
                         PyBool::new(py, v).to_owned().into_any()
                     }
                     // CQL Date → Python datetime.date
                     NativeType::Date => {
-                        let date: chrono::NaiveDate = CqlDate::deserialize(typ, Some(v))?
+                        let date: chrono::NaiveDate = CqlDate::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?
                             .try_into()
-                            .map_err(DeserializationError::new)?;
+                            .map_err(DeserializationError::new)
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?;
 
-                        date.into_pyobject(py)?.into_any()
+                        date.into_pyobject(py)
+                            .map_err(DriverDeserializationError::python_conversion_failed)?
+                            .into_any()
                     }
                     // CQL Timestamp → Python datetime.datetime (UTC)
                     NativeType::Timestamp => {
-                        let t: DateTime<Utc> = CqlTimestamp::deserialize(typ, Some(v))?
+                        let t: DateTime<Utc> = CqlTimestamp::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?
                             .try_into()
-                            .map_err(DeserializationError::new)?;
+                            .map_err(DeserializationError::new)
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?;
 
-                        t.into_pyobject(py)?.into_any()
+                        t.into_pyobject(py)
+                            .map_err(DriverDeserializationError::python_conversion_failed)?
+                            .into_any()
                     }
                     // CQL Time → Python datetime.time
                     NativeType::Time => {
-                        let time: NaiveTime = CqlTime::deserialize(typ, Some(v))?
+                        let time: NaiveTime = CqlTime::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?
                             .try_into()
-                            .map_err(DeserializationError::new)?;
-                        time.into_pyobject(py)?.into_any()
+                            .map_err(DeserializationError::new)
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?;
+                        time.into_pyobject(py)
+                            .map_err(DriverDeserializationError::python_conversion_failed)?
+                            .into_any()
                     }
                     // CQL Duration → Python dateutil.relativedelta.relativedelta
                     NativeType::Duration => {
-                        let d: CqlDurationWrapper = CqlDuration::deserialize(typ, Some(v))?.into();
-                        d.into_pyobject(py)?.into_any()
+                        let d: CqlDurationWrapper = CqlDuration::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?
+                            .into();
+                        d.into_pyobject(py)
+                            .map_err(DriverDeserializationError::python_conversion_failed)?
+                            .into_any()
                     }
                     // CQL Blob → Python bytes
                     NativeType::Blob => PyBytes::new(py, v.as_slice()).into_any(),
                     // CQL Inet → Python ipaddress.IPv4Address / ipaddress.IPv6Address
                     NativeType::Inet => {
-                        let v = IpAddr::deserialize(typ, Some(v))?;
-                        v.into_pyobject(py)?.into_any()
+                        let v = IpAddr::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?;
+                        v.into_pyobject(py)
+                            .map_err(DriverDeserializationError::python_conversion_failed)?
+                            .into_any()
                     }
                     // CQL Uuid → Python uuid.UUID
                     NativeType::Uuid => {
-                        let v = uuid::Uuid::deserialize(typ, Some(v))?;
-                        v.into_pyobject(py)?.into_any()
+                        let v = uuid::Uuid::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?;
+                        v.into_pyobject(py)
+                            .map_err(DriverDeserializationError::python_conversion_failed)?
+                            .into_any()
                     }
                     // CQL Uuid → Python uuid.UUID
                     NativeType::Timeuuid => {
-                        let v: uuid::Uuid = CqlTimeuuid::deserialize(typ, Some(v))?.into();
-                        v.into_pyobject(py)?.into_any()
+                        let v: uuid::Uuid = CqlTimeuuid::deserialize(typ, Some(v))
+                            .map_err(DriverDeserializationError::scylla_decode_failed)?
+                            .into();
+                        v.into_pyobject(py)
+                            .map_err(DriverDeserializationError::python_conversion_failed)?
+                            .into_any()
                     }
-                    _ => unimplemented!(
-                        "unsupported CQL Native type {:?}; may be added in the future",
-                        native_type
-                    ),
+                    _ => {
+                        return Err(DriverDeserializationError::unsupported_type(format!(
+                            "{typ:?}"
+                        )));
+                    }
                 }
             })
         }
@@ -672,10 +762,11 @@ fn deser_cql_py_value<'py, 'metadata, 'frame>(
             CollectionType::Set(_type_name) => {
                 Set::<PyDeserializedValue>::deserialize_py(typ, val, py)?
             }
-            _ => unimplemented!(
-                "unsupported CQL collection type {:?}; may be added in the future",
-                col_typ
-            ),
+            _ => {
+                return Err(DriverDeserializationError::unsupported_type(format!(
+                    "{col_typ:?}"
+                )));
+            }
         },
         // CQL UserDefinedType (UDT) → Python dict[str, value]
         ColumnType::UserDefinedType {
@@ -685,16 +776,22 @@ fn deser_cql_py_value<'py, 'metadata, 'frame>(
                 return Ok(PyDeserializedValue::none(py));
             };
 
-            let iter = UdtIterator::deserialize(typ, Some(v))?;
+            let iter = UdtIterator::deserialize(typ, Some(v))
+                .map_err(DriverDeserializationError::scylla_decode_failed)?;
 
             let dict = PyDict::new(py);
 
             for ((col_name, col_type), res) in iter {
-                let v = res?;
+                let v = res
+                    .map_err(DriverDeserializationError::scylla_decode_failed)
+                    .map_err(|e| e.in_udt_field(col_name.clone()))?;
 
-                let val = PyDeserializedValue::deserialize_py(col_type, v.flatten(), py)?;
+                let val = PyDeserializedValue::deserialize_py(col_type, v.flatten(), py)
+                    .map_err(|e| e.in_udt_field(col_name.clone()))?;
 
-                dict.set_item(col_name.to_string(), val)?;
+                dict.set_item(col_name.clone(), val)
+                    .map_err(DriverDeserializationError::python_conversion_failed)
+                    .map_err(|e| e.in_udt_field(col_name.clone()))?;
             }
 
             PyDeserializedValue::new(dict.into_any())
@@ -707,25 +804,32 @@ fn deser_cql_py_value<'py, 'metadata, 'frame>(
                 return Ok(PyDeserializedValue::none(py));
             };
 
-            let t = type_names.iter().map(|typ| -> PyValueOrError {
-                let result: Result<PyDeserializedValue, PyDeserializationError> = v
-                    .read_cql_bytes()
-                    // low-level → DeserializationError
-                    .map_err(DeserializationError::new)
-                    // DeserializationError → PyDeserializationError
-                    .map_err(PyDeserializationError::from)
-                    // Option<&[u8]> → PyDeserializedValue
-                    .and_then(|raw| PyDeserializedValue::deserialize_py(typ, raw, py));
-                PyValueOrError::new(result)
-            });
+            let t = type_names
+                .iter()
+                .enumerate()
+                .map(|(i, typ)| -> PyValueOrError {
+                    let result: Result<PyDeserializedValue, DriverDeserializationError> = v
+                        .read_cql_bytes()
+                        // low-level → DeserializationError
+                        .map_err(DeserializationError::new)
+                        // DeserializationError → DriverDeserializationError
+                        .map_err(DriverDeserializationError::scylla_decode_failed)
+                        // Option<&[u8]> → PyDeserializedValue
+                        .and_then(|raw| PyDeserializedValue::deserialize_py(typ, raw, py))
+                        // Add context about which tuple index failed
+                        .map_err(|e| e.in_tuple_index(i));
+                    PyValueOrError::new(result)
+                });
 
-            let tuple = PyTuple::new(py, t)?;
+            let tuple = PyTuple::new(py, t)
+                .map_err(DriverDeserializationError::python_conversion_failed)?;
             PyDeserializedValue::new(tuple.into_any())
         }
-        _ => unimplemented!(
-            "unsupported CQL Column type {:?}; may be added in the future",
-            typ
-        ),
+        _ => {
+            return Err(DriverDeserializationError::unsupported_type(format!(
+                "{typ:?}"
+            )));
+        }
     })
 }
 
