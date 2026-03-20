@@ -76,6 +76,9 @@ class Session:
         ----------
         batch : Batch
             The batch of statements and their values to execute.
+        factory : RowFactory | None, optional
+            Row factory to use for constructing row objects. If None, uses default
+            dictionary mapping. Default is None.
 
         Returns
         -------
