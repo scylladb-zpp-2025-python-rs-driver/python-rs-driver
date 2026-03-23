@@ -7,8 +7,12 @@ use pyo3::{
 use scylla::cluster::ClusterState;
 
 use crate::{
-    cache::Cache, cluster::metadata::PyKeyspace, cluster::node::PyNode,
-    errors::DriverClusterStateTokenError, routing::PyToken, serialize::value_list::PyValueList,
+    cache::Cache,
+    cluster::metadata::PyKeyspace,
+    cluster::node::PyNode,
+    errors::DriverClusterStateTokenError,
+    routing::{PyReplicaLocator, PyToken},
+    serialize::value_list::PyValueList,
 };
 
 #[pyclass(name = "ClusterState", frozen, skip_from_py_object)]
@@ -138,6 +142,11 @@ impl PyClusterState {
                 .map_err(DriverClusterStateTokenError::python_conversion_failed)?;
         }
         Ok(list)
+    }
+
+    #[getter]
+    fn get_replica_locator<'py>(slf: PyRef<'py, Self>) -> PyResult<PyReplicaLocator> {
+        Ok(PyReplicaLocator::from(slf))
     }
 
     fn __repr__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyString>> {
