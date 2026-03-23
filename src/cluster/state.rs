@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::{
     cluster::{metadata::PyKeyspace, node::PyNode},
-    routing::PyToken,
+    routing::{PyReplicaLocator, PyToken},
     serialize::value_list::PyValueList,
 };
 
@@ -224,6 +224,11 @@ impl PyClusterState {
             list.append(py_node?)?;
         }
         Ok(list)
+    }
+
+    #[getter]
+    fn get_replica_locator<'py>(slf: PyRef<'py, Self>) -> PyResult<PyReplicaLocator> {
+        Ok(PyReplicaLocator::from(slf))
     }
 
     fn __repr__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyString>> {
