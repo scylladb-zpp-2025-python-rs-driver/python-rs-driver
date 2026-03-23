@@ -7,6 +7,7 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyNone};
+use scylla::errors::ClusterStateTokenError as RustClusterStateTokenError;
 
 /* Python exception classes */
 
@@ -48,6 +49,8 @@ create_exception!(errors, TypeMismatchSerializationError, SerializationError);
 create_exception!(errors, ValueOverflowSerializationError, SerializationError);
 create_exception!(errors, SerializeFailedError, SerializationError);
 create_exception!(errors, PySerializationFailedError, SerializationError);
+
+create_exception!(errors, ClusterStateTokenError, ScyllaError);
 
 // Policy: DriverError types are pure Rust and contain PyErr only as source
 // in cases where the error originated from Python code (e.g. during extraction or user callbacks).
@@ -1158,6 +1161,60 @@ impl From<DriverSerializationError> for scylla::serialize::SerializationError {
     }
 }
 
+/// Errors that can occur during cluster state operations.
+#[derive(Debug)]
+pub(crate) enum DriverClusterStateTokenError {
+    /// Failed to calculate token.
+    TokenCalculation { message: String },
+    /// Failed to serialize values required to compute partition key.
+    Serialization { message: String },
+    /// `ClusterState` doesn't currently have metadata for the requested table.
+    UnknownTable { message: String },
+    /// An FFI-related error occurred (e.g., Python conversion, node creation).
+    PythonConversionFailed(PyErr),
+}
+
+impl DriverClusterStateTokenError {
+    pub(crate) fn python_conversion_failed(err: PyErr) -> Self {
+        Self::PythonConversionFailed(err)
+    }
+}
+
+impl From<RustClusterStateTokenError> for DriverClusterStateTokenError {
+    fn from(e: RustClusterStateTokenError) -> Self {
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match e {
+            RustClusterStateTokenError::TokenCalculation(e) => Self::TokenCalculation {
+                message: e.to_string(),
+            },
+            RustClusterStateTokenError::Serialization(e) => Self::Serialization {
+                message: e.to_string(),
+            },
+            RustClusterStateTokenError::UnknownTable { keyspace, table } => Self::UnknownTable {
+                message: format!("Can't find metadata for requested table ({keyspace}.{table})."),
+            },
+            _ => unreachable!("clippy testifies that the match is exhaustive"),
+        }
+    }
+}
+
+impl From<DriverClusterStateTokenError> for PyErr {
+    fn from(e: DriverClusterStateTokenError) -> PyErr {
+        match e {
+            DriverClusterStateTokenError::TokenCalculation { message } => {
+                ClusterStateTokenError::new_err(message)
+            }
+            DriverClusterStateTokenError::Serialization { message } => {
+                ClusterStateTokenError::new_err(message)
+            }
+            DriverClusterStateTokenError::UnknownTable { message } => {
+                ClusterStateTokenError::new_err(message)
+            }
+            DriverClusterStateTokenError::PythonConversionFailed(err) => err,
+        }
+    }
+}
+
 #[pymodule]
 pub(crate) fn errors(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("ScyllaError", py.get_type::<ScyllaError>())?;
@@ -1215,6 +1272,10 @@ pub(crate) fn errors(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<(
     module.add(
         "PySerializationFailedError",
         py.get_type::<PySerializationFailedError>(),
+    )?;
+    module.add(
+        "ClusterStateTokenError",
+        py.get_type::<ClusterStateTokenError>(),
     )?;
     Ok(())
 }
