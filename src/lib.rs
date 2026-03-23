@@ -6,6 +6,7 @@ use pyo3::prelude::*;
 use tokio::runtime::Runtime;
 
 mod batch;
+mod cluster;
 mod deserialize;
 mod enums;
 mod execution_profile;
@@ -44,6 +45,7 @@ fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(py, module, "types", types::types)?;
     add_submodule(py, module, "value", value::value)?;
     add_submodule(py, module, "batch", batch::batch)?;
+    add_submodule(py, module, "cluster", cluster::cluster)?;
     add_submodule(py, module, "routing", routing::routing)?;
     Ok(())
 }
