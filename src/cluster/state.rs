@@ -7,8 +7,8 @@ use pyo3::{
 use scylla::cluster::ClusterState;
 
 use crate::{
-    cluster::node::PyNode, errors::DriverClusterStateTokenError, routing::PyToken,
-    serialize::value_list::PyValueList,
+    cache::Cache, cluster::metadata::PyKeyspace, cluster::node::PyNode,
+    errors::DriverClusterStateTokenError, routing::PyToken, serialize::value_list::PyValueList,
 };
 
 #[pyclass(name = "ClusterState", frozen, skip_from_py_object)]
@@ -16,6 +16,7 @@ pub(crate) struct PyClusterState {
     pub(crate) _inner: Arc<ClusterState>,
     /// Invariant: Always contains all known nodes by the Rust Driver
     pub(crate) known_nodes: Py<PyDict>,
+    pub(crate) keyspaces: Cache<String, PyKeyspace>,
 }
 
 impl TryFrom<Arc<ClusterState>> for PyClusterState {
@@ -32,12 +33,41 @@ impl TryFrom<Arc<ClusterState>> for PyClusterState {
         Ok(Self {
             _inner: inner,
             known_nodes,
+            keyspaces: Cache::new(),
         })
     }
 }
 
 #[pymethods]
 impl PyClusterState {
+    fn get_keyspace<'py>(
+        &self,
+        py: Python<'py>,
+        keyspace: Py<PyString>,
+    ) -> PyResult<Option<Py<PyKeyspace>>> {
+        self.keyspaces.get_or_init(py, keyspace.to_str(py)?, |key| {
+            self._inner
+                .get_keyspace(key)
+                .map(|ks| Py::new(py, PyKeyspace::from(ks.clone())))
+                .transpose()
+        })
+    }
+
+    #[getter]
+    fn get_keyspaces<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyMappingProxy>> {
+        self.keyspaces.get_or_init_python_mapping(py, || {
+            self._inner
+                .keyspaces_iter()
+                .map(|(name, keyspace)| {
+                    (
+                        name.to_string(),
+                        Py::new(py, PyKeyspace::from(keyspace.clone())),
+                    )
+                })
+                .collect()
+        })
+    }
+
     #[getter]
     fn get_nodes_info<'py>(&self, py: Python<'py>) -> Bound<'py, PyMappingProxy> {
         PyMappingProxy::new(py, self.known_nodes.bind(py).as_mapping())

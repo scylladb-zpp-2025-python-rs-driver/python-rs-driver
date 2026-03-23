@@ -5,6 +5,7 @@ from typing import Mapping
 from uuid import UUID
 
 from ..routing import Shard, Token
+from .metadata import Keyspace
 
 class Node:
     """
@@ -64,9 +65,23 @@ class Node:
 
 class ClusterState:
     """
-    Represents state of the cluster allowing access to known nodes and token calculation.
+    Represents state of the cluster allowing access to known nodes,
+    keyspaces and token calculation.
+
     """
 
+    def get_keyspace(self, keyspace: str) -> Keyspace | None:
+        """
+        Get the keyspace by name.
+        """
+        ...
+    @property
+    def keyspaces(self) -> Mapping[str, Keyspace]:
+        """
+        Access the keyspaces of the cluster as a dictionary of
+        keyspace name to Keyspace object.
+        """
+        ...
     @property
     def nodes_info(self) -> Mapping[UUID, Node]:
         """

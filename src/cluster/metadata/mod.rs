@@ -352,6 +352,17 @@ pub(crate) struct PyKeyspace {
     pub(crate) views: Cache<String, PyMaterializedView>,
 }
 
+impl From<Keyspace> for PyKeyspace {
+    fn from(inner: Keyspace) -> Self {
+        Self {
+            _inner: inner,
+            strategy: OnceLock::new(),
+            tables: Cache::new(),
+            views: Cache::new(),
+        }
+    }
+}
+
 #[pymethods]
 impl PyKeyspace {
     #[getter]
