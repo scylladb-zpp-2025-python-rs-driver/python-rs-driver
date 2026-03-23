@@ -4,6 +4,7 @@ from ipaddress import IPv4Address, IPv6Address
 from uuid import UUID
 
 from ..routing import Shard, Token
+from .metadata import Keyspace
 
 class NodeShard:
     """
@@ -79,9 +80,23 @@ class Node:
 
 class ClusterState:
     """
-    Represents state of the cluster allowing access to known nodes and token calculation.
+    Represents state of the cluster allowing access to known nodes,
+    keyspaces and token calculation.
+
     """
 
+    def get_keyspace(self, keyspace: str) -> Keyspace | None:
+        """
+        Get the keyspace by name.
+        """
+        ...
+    @property
+    def keyspaces(self) -> dict[str, Keyspace]:
+        """
+        Access the keyspaces of the cluster as a dictionary of
+        keyspace name to Keyspace object.
+        """
+        ...
     @property
     def nodes_info(self) -> dict[UUID, Node]:
         """

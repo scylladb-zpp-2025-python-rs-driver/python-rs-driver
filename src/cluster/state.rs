@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, atomic::AtomicBool};
 
 use pyo3::{
     IntoPyObjectExt,
@@ -8,7 +8,11 @@ use pyo3::{
 };
 use scylla::cluster::ClusterState;
 
-use crate::{cluster::node::PyNode, routing::PyToken, serialize::value_list::PyValueList};
+use crate::{
+    cluster::{metadata::PyKeyspace, node::PyNode},
+    routing::PyToken,
+    serialize::value_list::PyValueList,
+};
 
 #[pyclass(name = "ClusterState", frozen, skip_from_py_object)]
 pub(crate) struct PyClusterState {
@@ -19,6 +23,13 @@ pub(crate) struct PyClusterState {
     ///
     /// Invariant: `PyDict<Uuid, Py<PyNode>>`
     known_nodes: Py<PyDict>,
+    /// Stores a tuple of cached keyspaces as PyDict
+    /// with erased type information and cache flag.
+    ///
+    /// Cache flag signals if all keyspaces are cached.
+    ///
+    /// Invariant: `PyDict<Py<PyString>, Py<PyKeyspace>>`
+    keyspaces: (Py<PyDict>, AtomicBool),
 }
 
 impl PyClusterState {
@@ -36,12 +47,59 @@ impl PyClusterState {
         Ok(Self {
             _inner,
             known_nodes: known_nodes.unbind(),
+            keyspaces: (PyDict::new(py).unbind(), AtomicBool::new(false)),
         })
     }
 }
 
 #[pymethods]
 impl PyClusterState {
+    fn get_keyspace<'py>(
+        &self,
+        py: Python<'py>,
+        keyspace: Py<PyString>,
+    ) -> PyResult<Option<Py<PyAny>>> {
+        match self.keyspaces.0.bind(py).get_item(&keyspace)? {
+            Some(keyspace) => Ok(Some(keyspace.unbind().clone_ref(py))),
+            None => {
+                // O(1) return when all keyspaces are in cache.
+                if self.keyspaces.1.load(std::sync::atomic::Ordering::Relaxed) {
+                    return Ok(None);
+                }
+                // PyKespace isn't in cache or keyspace with that name doesn't exist.
+                let Some(ks) = self._inner.get_keyspace(keyspace.bind(py).to_str()?) else {
+                    return Ok(None);
+                };
+                let py_keyspace = PyKeyspace::new(py, ks.clone())?.into_py_any(py)?;
+                self.keyspaces
+                    .0
+                    .bind(py)
+                    .set_item(keyspace, py_keyspace.clone_ref(py))?;
+                Ok(Some(py_keyspace))
+            }
+        }
+    }
+
+    #[getter]
+    fn get_keyspaces<'py>(&self, py: Python<'py>) -> PyResult<Py<PyDict>> {
+        if self.keyspaces.1.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(self.keyspaces.0.clone_ref(py));
+        }
+
+        let rust_keyspaces = self._inner.keyspaces_iter();
+        let cache = self.keyspaces.0.bind(py);
+        for (name, rs_ks) in rust_keyspaces {
+            if cache.get_item(name)?.is_none() {
+                let py_keyspace = PyKeyspace::new(py, rs_ks.clone())?.into_py_any(py)?;
+                cache.set_item(name, py_keyspace.clone_ref(py))?;
+            }
+        }
+        self.keyspaces
+            .1
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(self.keyspaces.0.clone_ref(py))
+    }
+
     #[getter]
     fn get_nodes_info<'py>(&self, py: Python<'py>) -> Py<PyDict> {
         self.known_nodes.clone_ref(py)

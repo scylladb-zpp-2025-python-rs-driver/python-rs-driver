@@ -403,7 +403,6 @@ pub(crate) struct PyKeyspace {
 }
 
 impl PyKeyspace {
-    #[expect(unused)]
     pub(crate) fn new<'py>(py: Python<'py>, _inner: Keyspace) -> PyResult<Self> {
         let _ = py;
         Ok(Self {
