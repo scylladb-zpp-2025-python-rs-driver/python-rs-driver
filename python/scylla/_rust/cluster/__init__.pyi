@@ -3,7 +3,7 @@ from __future__ import annotations
 from ipaddress import IPv4Address, IPv6Address
 from uuid import UUID
 
-from ..routing import Shard, Token
+from ..routing import ReplicaLocator, Shard, Token
 from .metadata import Keyspace
 
 class NodeShard:
@@ -81,8 +81,7 @@ class Node:
 class ClusterState:
     """
     Represents state of the cluster allowing access to known nodes,
-    keyspaces and token calculation.
-
+    keyspaces, replica locator and token calculation.
     """
 
     def get_keyspace(self, keyspace: str) -> Keyspace | None:
@@ -123,6 +122,12 @@ class ClusterState:
 
         `partition_key` must be a `Sequence` of partition key values or a
         `Mapping` of column names to partition key values.
+        """
+        ...
+    @property
+    def replica_locator(self) -> ReplicaLocator:
+        """
+        Access replica location info.
         """
         ...
     def __repr__(self) -> str: ...

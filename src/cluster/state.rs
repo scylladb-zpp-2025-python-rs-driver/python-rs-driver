@@ -10,7 +10,7 @@ use scylla::cluster::ClusterState;
 
 use crate::{
     cluster::{metadata::PyKeyspace, node::PyNode},
-    routing::PyToken,
+    routing::{PyReplicaLocator, PyToken},
     serialize::value_list::PyValueList,
 };
 
@@ -172,6 +172,11 @@ impl PyClusterState {
             list.append(py_node?)?;
         }
         Ok(list)
+    }
+
+    #[getter]
+    fn get_replica_locator<'py>(&self, py: Python<'py>) -> PyReplicaLocator {
+        PyReplicaLocator::from((Arc::clone(&self._inner), self.known_nodes.clone_ref(py)))
     }
 
     fn __repr__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyString>> {
