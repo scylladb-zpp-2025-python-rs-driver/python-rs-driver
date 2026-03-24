@@ -1,0 +1,133 @@
+benchmarks:
+  - name: insert
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: serialization
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: deserialization
+    starting-step: 100
+    no-steps: 3
+    step-progress: 500
+    progress-type: additive
+
+  - name: batch
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: paging
+    starting-step: 100
+    no-steps: 3
+    step-progress: 500
+    progress-type: additive
+
+  - name: select-small
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: select-large
+    starting-step: 100
+    no-steps: 3
+    step-progress: 500
+    progress-type: additive
+
+  - name: concurrent-insert
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: concurrent-select
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: concurrent-serialization
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: concurrent-deserialization
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: concurrent-paging
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+backends:
+  - name: Python-RS
+    benchmark-name: insert
+    build-command: "true"
+    run-command: uv run python insert.py
+
+  - name: Python-RS
+    benchmark-name: serialization
+    build-command: "true"
+    run-command: uv run python ser.py
+
+  - name: Python-RS
+    benchmark-name: deserialization
+    build-command: "true"
+    run-command: uv run python deser.py
+
+  - name: Python-RS
+    benchmark-name: batch
+    build-command: "true"
+    run-command: uv run python batch.py
+
+  - name: Python-RS
+    benchmark-name: paging
+    build-command: "true"
+    run-command: uv run python paging.py
+
+  - name: Python-RS
+    benchmark-name: select-small
+    build-command: "true"
+    run-command: uv run python small_select.py
+
+  - name: Python-RS
+    benchmark-name: select-large
+    build-command: "true"
+    run-command: uv run python large_select.py
+
+  - name: python-RS-concurrent
+    benchmark-name: concurrent-insert
+    build-command: "true"
+    run-command: uv run python concurrent_insert.py
+
+  - name: python-RS-concurrent
+    benchmark-name: concurrent-select
+    build-command: "true"
+    run-command: uv run python concurrent_select.py
+
+  - name: python-RS-concurrent
+    benchmark-name: concurrent-serialization
+    build-command: "true"
+    run-command: uv run python concurrent_ser.py
+
+  - name: python-RS-concurrent
+    benchmark-name: concurrent-deserialization
+    build-command: "true"
+    run-command: uv run python concurrent_deser.py
+
+  - name: python-RS-concurrent
+    benchmark-name: concurrent-paging
+    build-command: "true"
+    run-command: uv run python concurrent_paging.py
