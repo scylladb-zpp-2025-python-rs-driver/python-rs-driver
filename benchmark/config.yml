@@ -107,27 +107,27 @@ backends:
     build-command: "true"
     run-command: uv run python large_select.py
 
-  - name: python-RS-concurrent
+  - name: Python-RS-concurrent
     benchmark-name: concurrent-insert
     build-command: "true"
     run-command: uv run python concurrent_insert.py
 
-  - name: python-RS-concurrent
+  - name: Python-RS-concurrent
     benchmark-name: concurrent-select
     build-command: "true"
     run-command: uv run python concurrent_select.py
 
-  - name: python-RS-concurrent
+  - name: Python-RS-concurrent
     benchmark-name: concurrent-serialization
     build-command: "true"
     run-command: uv run python concurrent_ser.py
 
-  - name: python-RS-concurrent
+  - name: Python-RS-concurrent
     benchmark-name: concurrent-deserialization
     build-command: "true"
     run-command: uv run python concurrent_deser.py
 
-  - name: python-RS-concurrent
+  - name: Python-RS-concurrent
     benchmark-name: concurrent-paging
     build-command: "true"
     run-command: uv run python concurrent_paging.py
