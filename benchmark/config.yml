@@ -1,0 +1,133 @@
+benchmarks:
+  - name: insert
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: serialization
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: deserialization
+    starting-step: 100
+    no-steps: 3
+    step-progress: 500
+    progress-type: additive
+
+  - name: batch
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: paging
+    starting-step: 100
+    no-steps: 3
+    step-progress: 500
+    progress-type: additive
+
+  - name: select-small
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: select-large
+    starting-step: 100
+    no-steps: 3
+    step-progress: 500
+    progress-type: additive
+
+  - name: concurrent-insert
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: concurrent-select
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: concurrent-serialization
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: concurrent-deserialization
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+  - name: concurrent-paging
+    starting-step: 1000
+    no-steps: 3
+    step-progress: 5000
+    progress-type: additive
+
+backends:
+  - name: driver-test
+    benchmark-name: insert
+    build-command: "true"
+    run-command: python3 insert.py
+
+  - name: driver-test
+    benchmark-name: serialization
+    build-command: "true"
+    run-command: python3 ser.py
+
+  - name: driver-test
+    benchmark-name: deserialization
+    build-command: "true"
+    run-command: python3 deser.py
+
+  - name: driver-test
+    benchmark-name: batch
+    build-command: "true"
+    run-command: python3 batch.py
+
+  - name: driver-test
+    benchmark-name: paging
+    build-command: "true"
+    run-command: python3 paging.py
+
+  - name: driver-test
+    benchmark-name: select-small
+    build-command: "true"
+    run-command: python3 small_select.py
+
+  - name: driver-test
+    benchmark-name: select-large
+    build-command: "true"
+    run-command: python3 large_select.py
+
+  - name: concurrent-driver-test
+    benchmark-name: concurrent-insert
+    build-command: "true"
+    run-command: python3 concurrent_insert.py
+
+  - name: concurrent-driver-test
+    benchmark-name: concurrent-select
+    build-command: "true"
+    run-command: python3 concurrent_select.py
+
+  - name: concurrent-driver-test
+    benchmark-name: concurrent-serialization
+    build-command: "true"
+    run-command: python3 concurrent_ser.py
+
+  - name: concurrent-driver-test
+    benchmark-name: concurrent-deserialization
+    build-command: "true"
+    run-command: python3 concurrent_deser.py
+
+  - name: concurrent-driver-test
+    benchmark-name: concurrent-paging
+    build-command: "true"
+    run-command: python3 concurrent_paging.py
