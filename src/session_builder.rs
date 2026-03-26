@@ -1,6 +1,8 @@
 use crate::RUNTIME;
 use crate::execution_profile::ExecutionProfile;
-use crate::policies::{InternalAuthenticator, PyAuthenticator};
+use crate::policies::{
+    InternalAddressTranslator, InternalAuthenticator, PyAddressTranslator, PyAuthenticator,
+};
 use crate::session::Session;
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
@@ -57,6 +59,17 @@ impl SessionBuilder {
     ) -> PyRefMut<'py, Self> {
         slf.config.authenticator = Some(Arc::new(InternalAuthenticator {
             python_authenticator: authenticator,
+        }));
+
+        slf
+    }
+
+    fn address_translator<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        translator: Py<PyAddressTranslator>,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.address_translator = Some(Arc::new(InternalAddressTranslator {
+            python_translator: translator,
         }));
 
         slf

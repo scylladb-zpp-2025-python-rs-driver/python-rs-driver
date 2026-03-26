@@ -1,4 +1,7 @@
-from typing import Any, Optional
+from typing import Any
+import ipaddress
+import uuid
+from typing import Optional, Tuple
 
 class Authenticator:
     """
@@ -18,4 +21,32 @@ class Authenticator:
 
     def success(self, token: Optional[bytes]) -> None:
         """Called when authentication is successful."""
+        ...
+
+class PeerInfo:
+    """
+    Information about a ScyllaDB node discovered by the driver.
+    """
+
+    @property
+    def host_id(self) -> uuid.UUID: ...
+    @property
+    def address(self) -> Tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, int]: ...
+    @property
+    def datacenter(self) -> Optional[str]: ...
+    @property
+    def rack(self) -> Optional[str]: ...
+    def __repr__(self) -> str: ...
+
+class AddressTranslator:
+    """
+    Base class for implementing custom address translation.
+    Subclass this to provide your own translation logic.
+    """
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+    def translate(self, info: PeerInfo) -> Tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, int]:
+        """
+        Translates a node's address.
+        Must return a tuple of (ip_address, port_integer).
+        """
         ...
