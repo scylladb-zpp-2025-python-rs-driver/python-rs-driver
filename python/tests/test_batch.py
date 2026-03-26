@@ -12,8 +12,7 @@ from scylla.types import Unset
 
 
 async def set_up() -> Session:
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     await session.execute("""
             CREATE KEYSPACE IF NOT EXISTS testks
@@ -51,8 +50,7 @@ async def table_factory(session: Session) -> AsyncGenerator[TableFactory, None]:
 
 
 async def set_up_without_tablets() -> Session:
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     await session.execute("""
             CREATE KEYSPACE IF NOT EXISTS testks_without_tablets
