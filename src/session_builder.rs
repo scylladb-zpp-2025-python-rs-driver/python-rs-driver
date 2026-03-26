@@ -1,13 +1,13 @@
-use std::sync::Arc;
-
-use pyo3::prelude::*;
-use pyo3::types::{PyInt, PySequence, PyString};
-use scylla::client::session::SessionConfig;
-
 use crate::RUNTIME;
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::session::Session;
+use pyo3::prelude::*;
+use pyo3::types::PySequence;
+use scylla::client::session::SessionConfig;
+use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr;
+use std::sync::Arc;
 
 #[pyclass]
 struct SessionBuilder {
@@ -17,55 +17,25 @@ struct SessionBuilder {
 #[pymethods]
 impl SessionBuilder {
     #[new]
-    #[pyo3(signature = (contact_points, port, execution_profile=None))]
-    fn new(
-        contact_points: Bound<'_, PySequence>,
-        port: Bound<'_, PyInt>,
-        execution_profile: Option<ExecutionProfile>,
-    ) -> Result<Self, DriverSessionConfigError> {
-        let mut cfg = SessionConfig::new();
-
-        let port = port
-            .extract::<u16>()
-            .map_err(DriverSessionConfigError::invalid_port)?;
-
-        if contact_points.is_instance_of::<PyString>() {
-            return Err(DriverSessionConfigError::contact_points_type_error());
+    fn new() -> Self {
+        Self {
+            config: SessionConfig::new(),
         }
+    }
+    fn contact_points<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        contact_points: ContactPoints,
+    ) -> PyRefMut<'py, Self> {
+        contact_points.add_known_nodes(&mut slf.config);
+        slf
+    }
 
-        let contact_points_iter = contact_points
-            .try_iter()
-            .map_err(DriverSessionConfigError::contact_points_not_iterable)?;
-
-        for (i, item_result) in contact_points_iter.enumerate() {
-            let item = match item_result {
-                Ok(item) => item,
-                Err(err) => {
-                    return Err(DriverSessionConfigError::contact_point_access_failed(
-                        i, err,
-                    ));
-                }
-            };
-
-            let s = item
-                .cast_into::<PyString>()
-                .map_err(|err| DriverSessionConfigError::contact_point_type_error(i, err.into()))?;
-
-            let s = s
-                .to_str()
-                .map_err(|err| DriverSessionConfigError::contact_point_conversion_failed(i, err))?;
-            if s.contains(":") {
-                cfg.add_known_node(s);
-            } else {
-                cfg.add_known_node(format!("{}:{}", s, port));
-            }
-        }
-
-        if let Some(execution_profile) = execution_profile {
-            cfg.default_execution_profile_handle = execution_profile._inner.into_handle();
-        }
-
-        Ok(Self { config: cfg })
+    fn execution_profile<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        execution_profile: ExecutionProfile,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.default_execution_profile_handle = execution_profile._inner.into_handle();
+        slf
     }
 
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
@@ -79,6 +49,95 @@ impl SessionBuilder {
             }),
             Err(err) => Err(DriverSessionConnectionError::new_session_error(err)),
         }
+    }
+}
+
+enum ContactPoint {
+    Host(String),
+    SocketAddr(SocketAddr),
+}
+
+impl ContactPoint {
+    fn add_known_node(self, config: &mut SessionConfig) {
+        match self {
+            ContactPoint::Host(host) => config.add_known_node(host),
+            ContactPoint::SocketAddr(addr) => config.add_known_node_addr(addr),
+        }
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for ContactPoint {
+    type Error = DriverSessionConfigError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(s) = obj.extract::<String>() {
+            return Ok(ContactPoint::Host(s));
+        }
+
+        if let Ok((host_str, port)) = obj.extract::<(&str, u16)>() {
+            return if let Ok(ip) = IpAddr::from_str(host_str) {
+                Ok(ContactPoint::SocketAddr(SocketAddr::new(ip, port)))
+            } else {
+                Ok(ContactPoint::Host(format!("{}:{}", host_str, port)))
+            };
+        }
+
+        if let Ok((host, port)) = obj.extract::<(IpAddr, u16)>() {
+            return Ok(ContactPoint::SocketAddr(SocketAddr::new(host, port)));
+        }
+
+        Err(DriverSessionConfigError::contact_point_type_error(obj))
+    }
+}
+
+enum ContactPoints {
+    Single(ContactPoint),
+    Multiple(Vec<ContactPoint>),
+}
+
+impl ContactPoints {
+    fn add_known_nodes(self, config: &mut SessionConfig) {
+        match self {
+            ContactPoints::Single(cp) => cp.add_known_node(config),
+            ContactPoints::Multiple(seq) => {
+                for cp in seq.into_iter() {
+                    cp.add_known_node(config);
+                }
+            }
+        }
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for ContactPoints {
+    type Error = DriverSessionConfigError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(s) = obj.extract::<ContactPoint>() {
+            return Ok(ContactPoints::Single(s));
+        }
+
+        if let Ok(seq) = obj.cast::<PySequence>() {
+            let iter = seq
+                .try_iter()
+                .map_err(DriverSessionConfigError::contact_points_iteration_failed)?;
+
+            let list: Vec<ContactPoint> = iter
+                .enumerate()
+                .map(|(index, item_result)| {
+                    let item = item_result.map_err(|e| {
+                        DriverSessionConfigError::contact_points_invalid_item(index, e)
+                    })?;
+
+                    item.extract::<ContactPoint>().map_err(|e| {
+                        DriverSessionConfigError::contact_points_invalid_item(index, e.into())
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            return Ok(ContactPoints::Multiple(list));
+        }
+
+        Err(DriverSessionConfigError::contact_point_type_error(obj))
     }
 }
 

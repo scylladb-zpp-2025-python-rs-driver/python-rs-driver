@@ -7,7 +7,7 @@ from scylla.session_builder import SessionBuilder
 
 async def main():
     # Let's connect to cluster and establish a session
-    session = await SessionBuilder(["127.0.0.2"], 9042).connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     # Let's create a table
     table_name = "example_table"

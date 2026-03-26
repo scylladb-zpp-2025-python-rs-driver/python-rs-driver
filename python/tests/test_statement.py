@@ -8,8 +8,7 @@ from typing import Any, cast
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepare_statement_with_str():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
     prepared = await session.prepare("SELECT * FROM system.local")
     print(prepared)
 
@@ -17,8 +16,7 @@ async def test_prepare_statement_with_str():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepare_statement_with_statement():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
     statement = Statement("SELECT * FROM system.local")
     assert isinstance(statement, Statement)
     prepared = await session.prepare(statement)
@@ -28,8 +26,7 @@ async def test_prepare_statement_with_statement():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepare_and_execute():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
     query_str = "SELECT cluster_name FROM system.local"
     prepare_with_statement = await session.prepare(Statement(query_str))
     prepared_with_str = await session.prepare(query_str)
@@ -48,8 +45,7 @@ async def test_prepare_and_execute():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepare_and_str():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
     query_str = "SELECT cluster_name FROM system.local;"
     statement = Statement(query_str)
     prepared = await session.prepare(query_str)
@@ -88,8 +84,7 @@ async def test_statement_with_page_size():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepare_prepared_statement_raises_session_query_error():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     prepared = await session.prepare("SELECT * FROM system.local")
 
@@ -102,8 +97,7 @@ async def test_prepare_prepared_statement_raises_session_query_error():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepare_invalid_query_raises_session_query_error():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     with pytest.raises(PrepareError) as exc_info:
         await session.prepare("THIS IS NOT CQL")
@@ -114,8 +108,7 @@ async def test_prepare_invalid_query_raises_session_query_error():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepare_invalid_statement_type_raises_statement_conversion_error():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     with pytest.raises(StatementConversionError) as exc_info:
         await session.prepare(123)  # type: ignore[arg-type]
@@ -127,8 +120,7 @@ async def test_prepare_invalid_statement_type_raises_statement_conversion_error(
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_execute_invalid_statement_type_raises_statement_conversion_error():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     with pytest.raises(StatementConversionError) as exc_info:
         await session.execute(cast(Any, 123))
