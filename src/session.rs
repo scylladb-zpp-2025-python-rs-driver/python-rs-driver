@@ -90,6 +90,18 @@ impl Session {
 
         Ok(schema_version)
     }
+
+    async fn check_schema_agreement(&self) -> PyResult<Option<uuid::Uuid>> {
+        let schema_version = self
+            .session_spawn_on_runtime(async move |s| {
+                s.check_schema_agreement()
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+            })
+            .await?;
+
+        Ok(schema_version)
+    }
 }
 
 impl Session {

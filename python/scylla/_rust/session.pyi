@@ -107,3 +107,22 @@ class Session:
             If the schema agreement could not be reached.
         """
         ...
+
+    async def check_schema_agreement(self) -> uuid.UUID | None:
+        """
+        Check if all nodes in the cluster agree on the current schema version.
+
+        Unlike `await_schema_agreement`, this method does not wait for agreement to be reached,
+        but instead returns the current state immediately.
+
+        Returns
+        -------
+        uuid.UUID | None
+            The agreed schema version as a UUID object if all nodes agree, None otherwise.
+
+        Raises
+        ------
+        RuntimeError
+            If the schema agreement check failed.
+        """
+        ...
