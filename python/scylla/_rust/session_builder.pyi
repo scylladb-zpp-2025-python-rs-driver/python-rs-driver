@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from ipaddress import IPv4Address, IPv6Address
 
-from .policies import AuthenticatorProvider
+from .policies import AuthenticatorProvider, AddressTranslator
 from .execution_profile import ExecutionProfile
 from .session import Session
 
@@ -104,6 +104,21 @@ class SessionBuilder:
         ----------
         authenticator : AuthenticatorProvider
             An instance of a class inheriting from :class:`AuthenticatorProvider`.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
+
+    def address_translator(self, translator: AddressTranslator) -> SessionBuilder:
+        """
+        Registers a custom Python-defined address translator.
+
+        Parameters
+        ----------
+        translator : AddressTranslator
+            An instance of a class inheriting from :class:`AddressTranslator`.
 
         Returns
         -------

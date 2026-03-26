@@ -1,7 +1,10 @@
 use crate::RUNTIME;
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
-use crate::policies::{InternalAuthenticatorProvider, PyAuthenticatorProvider};
+use crate::policies::{
+    InternalAddressTranslator, InternalAuthenticatorProvider, PyAddressTranslator,
+    PyAuthenticatorProvider,
+};
 use crate::session::Session;
 use pyo3::prelude::*;
 use pyo3::types::PySequence;
@@ -59,6 +62,18 @@ impl SessionBuilder {
 
         slf
     }
+
+    fn address_translator<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        translator: Py<PyAddressTranslator>,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.address_translator = Some(Arc::new(InternalAddressTranslator {
+            python_translator: translator,
+        }));
+
+        slf
+    }
+
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME

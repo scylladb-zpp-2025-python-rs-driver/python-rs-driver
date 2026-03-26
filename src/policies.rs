@@ -1,9 +1,12 @@
 use async_trait::async_trait;
 use pyo3::exceptions::PyNotImplementedError;
 use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
-use pyo3::types::{PyDict, PyTuple};
+use pyo3::types::{PyDict, PyString, PyTuple};
 use pyo3::{Bound, Py, PyResult, Python, pyclass, pymethods, pymodule};
 use scylla::authentication::{AuthError, AuthenticatorProvider, AuthenticatorSession};
+use scylla::errors::{CustomTranslationError, TranslationError};
+use scylla::policies::address_translator::{AddressTranslator, UntranslatedPeer};
+use std::net::{IpAddr, SocketAddr};
 
 #[derive(Clone)]
 #[pyclass(subclass, skip_from_py_object, name = "AuthenticatorProvider")]
@@ -122,9 +125,91 @@ impl AuthenticatorSession for InternalAuthenticator {
     }
 }
 
+#[pyclass(subclass, skip_from_py_object, name = "AddressTranslator")]
+pub(crate) struct PyAddressTranslator {}
+
+#[pymethods]
+impl PyAddressTranslator {
+    #[expect(unused_variables)]
+    #[new]
+    #[pyo3(signature = (*args, **kwargs))]
+    pub fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Self {
+        PyAddressTranslator {}
+    }
+
+    fn translate(&self, _addr: Py<PyUntranslatedPeer>) -> PyResult<(IpAddr, u16)> {
+        Err(PyNotImplementedError::new_err("Method is not implemented"))
+    }
+}
+
+pub(crate) struct InternalAddressTranslator {
+    pub(crate) python_translator: Py<PyAddressTranslator>,
+}
+
+#[async_trait]
+impl AddressTranslator for InternalAddressTranslator {
+    async fn translate_address(
+        &self,
+        untranslated_peer: &UntranslatedPeer,
+    ) -> Result<SocketAddr, TranslationError> {
+        let result = Python::attach(|py| -> PyResult<(IpAddr, u16)> {
+            let py_trans = self.python_translator.bind(py);
+            let py_peer_info = PyUntranslatedPeer::from(untranslated_peer);
+
+            py_trans
+                .call_method1("translate", (py_peer_info,))?
+                .extract::<(IpAddr, u16)>()
+        })
+        .map_err(CustomTranslationError::new)?;
+
+        Ok(SocketAddr::from(result))
+    }
+}
+
+#[pyclass(get_all, name = "UntranslatedPeer", frozen)]
+pub struct PyUntranslatedPeer {
+    pub host_id: uuid::Uuid,
+    pub untranslated_address: (IpAddr, u16),
+    pub datacenter: Option<String>,
+    pub rack: Option<String>,
+}
+
+#[pymethods]
+impl PyUntranslatedPeer {
+    fn __repr__(&self, py: Python<'_>) -> PyResult<Py<PyString>> {
+        let (ip, port) = self.untranslated_address;
+
+        let repr_str = PyString::from_fmt(
+            py,
+            format_args!(
+                "UntranslatedPeer(host_id='{}', untranslated_address=('{}', {}), datacenter={:?}, rack={:?})",
+                self.host_id, ip, port, self.datacenter, self.rack
+            ),
+        )?;
+
+        Ok(repr_str.into())
+    }
+}
+
+impl From<&UntranslatedPeer<'_>> for PyUntranslatedPeer {
+    fn from(peer: &UntranslatedPeer) -> Self {
+        Self {
+            host_id: peer.host_id(),
+            untranslated_address: (
+                peer.untranslated_address().ip(),
+                peer.untranslated_address().port(),
+            ),
+            datacenter: peer.datacenter().map(|s| s.to_string()),
+            rack: peer.rack().map(|s| s.to_string()),
+        }
+    }
+}
+
 #[pymodule]
 pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyAuthenticatorProvider>()?;
     module.add_class::<PyAuthenticator>()?;
+    module.add_class::<PyUntranslatedPeer>()?;
+    module.add_class::<PyAddressTranslator>()?;
     Ok(())
 }

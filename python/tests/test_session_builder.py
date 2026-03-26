@@ -4,7 +4,9 @@ from scylla.errors import SessionConfigError
 import pytest
 from typing import Any, Optional, Generator
 from scylla.session_builder import SessionBuilder
-from scylla.policies import Authenticator, AuthenticatorProvider
+
+from scylla.policies import Authenticator, AuthenticatorProvider, AddressTranslator, UntranslatedPeer
+
 
 from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
     create_scylla_cluster,
@@ -138,3 +140,69 @@ async def test_builtin_user_credentials(ccm_contact_points: list[tuple[str, int]
     session = await builder.connect()
     result = await session.execute("SELECT cluster_name FROM system.local")
     assert await result.first_row() is not None
+
+
+Address = ipaddress.IPv4Address | ipaddress.IPv6Address
+
+
+class MockAddressTranslator(AddressTranslator):
+    default_ip: Address
+    default_port: int
+    call_log: list[UntranslatedPeer]
+
+    def __init__(self, default_ip: Address, default_port: int) -> None:
+        super().__init__()
+        self.default_ip = default_ip
+        self.default_port = default_port
+        self.call_log = []
+
+    def translate(self, info: UntranslatedPeer) -> tuple[Address, int]:
+        self.call_log.append(info)
+        return self.default_ip, self.default_port
+
+
+class FailingTranslator(AddressTranslator):
+    def translate(self, info: UntranslatedPeer) -> tuple[Address, int]:
+        raise RuntimeError("Translation Exploded!")
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_custom_address_translator_discovery():
+    translator = MockAddressTranslator(ipaddress.IPv4Address("127.0.0.2"), 9042)
+
+    builder = (
+        SessionBuilder()
+        .contact_points([("127.0.0.2", 9042)])
+        .address_translator(translator)
+        .user("cassandra", "cassandra")
+    )
+
+    _ = await builder.connect()
+
+    assert len(translator.call_log) > 0, "Translator was never called!"
+
+    translated_ips = [str(p.untranslated_address[0]) for p in translator.call_log]
+
+    print(f"Nodes seen by translator: {translated_ips}")
+
+    assert "127.0.0.3" in translated_ips or "127.0.0.4" in translated_ips
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+@pytest.mark.xfail(reason="Currently, Python exceptions in the translator do not propagate to the driver")
+async def test_address_translator_failing_python_side():
+    translator = FailingTranslator()
+
+    builder = (
+        SessionBuilder()
+        .contact_points([("127.0.0.2", 9042)])
+        .user("cassandra", "cassandra")
+        .address_translator(translator)
+    )
+
+    with pytest.raises(Exception) as excinfo:
+        await builder.connect()
+
+    assert "Translation Exploded" in str(excinfo.value)
