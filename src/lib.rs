@@ -9,6 +9,7 @@ mod batch;
 mod deserialize;
 mod enums;
 mod execution_profile;
+mod policies;
 mod serialize;
 mod session;
 mod session_builder;
@@ -43,5 +44,6 @@ fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(py, module, "types", types::types)?;
     add_submodule(py, module, "value", value::value)?;
     add_submodule(py, module, "batch", batch::batch)?;
+    add_submodule(py, module, "policies", policies::policies)?;
     Ok(())
 }

@@ -1,9 +1,11 @@
 use crate::RUNTIME;
 use crate::execution_profile::ExecutionProfile;
+use crate::policies::{InternalAuthenticator, PyAuthenticator};
 use crate::session::Session;
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
 use pyo3::types::{PySequence, PyTuple};
+use scylla::authentication::PlainTextAuthenticator;
 use scylla::client::session::SessionConfig;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -37,6 +39,26 @@ impl SessionBuilder {
         execution_profile: ExecutionProfile,
     ) -> PyRefMut<'py, Self> {
         slf.config.default_execution_profile_handle = execution_profile._inner.into_handle();
+        slf
+    }
+
+    fn user<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        username: String,
+        password: String,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.authenticator = Some(Arc::new(PlainTextAuthenticator::new(username, password)));
+        slf
+    }
+
+    fn authenticator_provider<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        authenticator: Py<PyAuthenticator>,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.authenticator = Some(Arc::new(InternalAuthenticator {
+            python_authenticator: authenticator,
+        }));
+
         slf
     }
 
