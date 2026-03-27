@@ -1,4 +1,3 @@
-from ._rust.policies import Authenticator, AddressTranslator, PeerInfo  # pyright: ignore[reportMissingModuleSource]
+from ._rust.policies import Authenticator, AddressTranslator, PeerInfo, TimestampGenerator  # pyright: ignore[reportMissingModuleSource]
 
-__all__ = ["Authenticator", "AddressTranslator", "PeerInfo"]
-
+__all__ = ["Authenticator", "AddressTranslator", "PeerInfo", "TimestampGenerator"]

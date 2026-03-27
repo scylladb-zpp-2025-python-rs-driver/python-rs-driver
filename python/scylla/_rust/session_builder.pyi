@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from ipaddress import IPv4Address, IPv6Address
 
-from .policies import Authenticator, AddressTranslator
+from .policies import Authenticator, AddressTranslator, TimestampGenerator
 from .execution_profile import ExecutionProfile
 from .session import Session
 
@@ -119,6 +119,25 @@ class SessionBuilder:
         ----------
         translator : AddressTranslator
             An instance of a class inheriting from :class:`AddressTranslator`.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
+
+    def timestamp_generator(self, generator: TimestampGenerator) -> SessionBuilder:
+        """
+        Registers a custom Python-defined timestamp generator.
+
+        The generator is used to assign client-side timestamps to requests.
+        If the custom generator fails or is not implemented, it will fall back
+        to the current system timestamp.
+
+        Parameters
+        ----------
+        generator : TimestampGenerator
+            An instance of a class inheriting from :class:`TimestampGenerator`.
 
         Returns
         -------

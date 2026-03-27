@@ -2,8 +2,9 @@ import ipaddress
 
 import pytest
 from typing import Optional, Any, Generator
+from _pytest.logging import LogCaptureFixture
 from scylla.session_builder import SessionBuilder
-from scylla.policies import Authenticator, AddressTranslator, PeerInfo
+from scylla.policies import Authenticator, AddressTranslator, PeerInfo, TimestampGenerator
 
 from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
     create_scylla_cluster,
@@ -159,3 +160,76 @@ async def test_address_translator_failing_python_side():
         await builder.connect()
 
     assert "Translation Exploded" in str(excinfo.value)
+
+
+class MockTimestampGenerator(TimestampGenerator):
+    fixed_ts: int
+    called: bool
+
+    def __init__(self, fixed_ts: int) -> None:
+        super().__init__()
+        self.fixed_ts = fixed_ts
+        self.called = False
+
+    def next_timestamp(self) -> int:
+        self.called = True
+        return self.fixed_ts
+
+
+class FailingTimestampGenerator(TimestampGenerator):
+    def next_timestamp(self) -> int:
+        raise RuntimeError("Timestamp Generation Exploded!")
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_custom_timestamp_generator_success() -> None:
+    my_custom_ts = 1122334455
+    ts_gen = MockTimestampGenerator(my_custom_ts)
+
+    builder = (
+        SessionBuilder()
+        .contact_points([("127.0.0.2", 9042)])
+        .user("cassandra", "cassandra")
+        .timestamp_generator(ts_gen)
+    )
+
+    session = await builder.connect()
+
+    await session.execute(
+        "CREATE KEYSPACE IF NOT EXISTS ks WITH REPLICATION = "
+        "{'class': 'NetworkTopologyStrategy', 'replication_factor': 1}"
+    )
+    await session.execute("CREATE TABLE IF NOT EXISTS ks.verify_ts (id int PRIMARY KEY, val text)")
+    await session.execute("INSERT INTO ks.verify_ts (id, val) VALUES (99, 'hello')")
+
+    result = await session.execute("SELECT WRITETIME(val) FROM ks.verify_ts WHERE id = 99")
+    row = await result.first_row()
+
+    assert row is not None
+
+    db_timestamp = row["writetime(val)"]
+    assert db_timestamp == my_custom_ts
+    assert ts_gen.called is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_custom_timestamp_generator_fallback_on_failure(
+    caplog: LogCaptureFixture,
+) -> None:
+    ts_gen = FailingTimestampGenerator()
+
+    builder = (
+        SessionBuilder()
+        .contact_points([("127.0.0.2", 9042)])
+        .user("cassandra", "cassandra")
+        .timestamp_generator(ts_gen)
+    )
+
+    session = await builder.connect()
+
+    await session.execute("SELECT now() FROM system.local")
+
+    assert "Failed to generate custom timestamp from Python" in caplog.text
+    assert "Timestamp Generation Exploded!" in caplog.text
