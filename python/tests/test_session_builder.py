@@ -4,7 +4,15 @@ import pytest
 from typing import Optional, Any, Generator
 from _pytest.logging import LogCaptureFixture
 from scylla.session_builder import SessionBuilder
-from scylla.policies import Authenticator, AddressTranslator, PeerInfo, TimestampGenerator
+
+from scylla.policies import (
+    Authenticator,
+    AddressTranslator,
+    PeerInfo,
+    TimestampGenerator,
+    HostFilter,
+    Peer,
+)
 
 from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
     create_scylla_cluster,
@@ -233,3 +241,63 @@ async def test_custom_timestamp_generator_fallback_on_failure(
 
     assert "Failed to generate custom timestamp from Python" in caplog.text
     assert "Timestamp Generation Exploded!" in caplog.text
+
+
+class AcceptAllHostFilter(HostFilter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.called = False
+        self.last_peer_host_id: Optional[object] = None
+        self.last_peer_address: Optional[tuple[object, int]] = None
+
+    def accept(self, peer: Peer) -> bool:
+        self.called = True
+        self.last_peer_host_id = peer.host_id
+        self.last_peer_address = peer.address
+        return True
+
+
+class FailingHostFilter(HostFilter):
+    def accept(self, peer: Peer) -> bool:
+        raise RuntimeError("Host Filter Exploded!")
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_custom_host_filter_success() -> None:
+    host_filter = AcceptAllHostFilter()
+
+    builder = (
+        SessionBuilder().contact_points([("127.0.0.2", 9042)]).user("cassandra", "cassandra").host_filter(host_filter)
+    )
+
+    session = await builder.connect()
+
+    result = await session.execute("SELECT now() FROM system.local")
+    row = await result.first_row()
+
+    assert row is not None
+    assert host_filter.called is True
+    assert host_filter.last_peer_host_id is not None
+    assert host_filter.last_peer_address is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_custom_host_filter_fallback_on_failure(
+    caplog: LogCaptureFixture,
+) -> None:
+    host_filter = FailingHostFilter()
+
+    builder = (
+        SessionBuilder().contact_points([("127.0.0.2", 9042)]).user("cassandra", "cassandra").host_filter(host_filter)
+    )
+
+    session = await builder.connect()
+
+    result = await session.execute("SELECT now() FROM system.local")
+    row = await result.first_row()
+
+    assert row is not None
+    assert "Failed to evaluate custom host filter from Python" in caplog.text
+    assert "Host Filter Exploded!" in caplog.text

@@ -4,8 +4,10 @@ use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
 use pyo3::types::{PyDict, PyString, PyTuple};
 use pyo3::{Bound, Py, PyResult, Python, pyclass, pymethods, pymodule};
 use scylla::authentication::{AuthError, AuthenticatorProvider, AuthenticatorSession};
+use scylla::cluster::metadata::Peer;
 use scylla::errors::{CustomTranslationError, TranslationError};
 use scylla::policies::address_translator::{AddressTranslator, UntranslatedPeer};
+use scylla::policies::host_filter::HostFilter;
 use scylla::policies::timestamp_generator::TimestampGenerator;
 use std::net::{IpAddr, SocketAddr};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -221,11 +223,89 @@ impl TimestampGenerator for InternalTimestampGenerator {
     }
 }
 
+#[pyclass(subclass, skip_from_py_object, name = "HostFilter")]
+pub(crate) struct PyHostFilter {}
+
+#[pymethods]
+impl PyHostFilter {
+    #[expect(unused_variables)]
+    #[new]
+    #[pyo3(signature = (*args, **kwargs))]
+    pub fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Self {
+        PyHostFilter {}
+    }
+
+    fn accept(&self, _peer: Py<PyPeer>) -> PyResult<bool> {
+        Err(PyRuntimeError::new_err("Method unimplemented"))
+    }
+}
+
+pub(crate) struct InternalHostFilter {
+    pub(crate) py_host_filter: Py<PyHostFilter>,
+}
+impl HostFilter for InternalHostFilter {
+    fn accept(&self, peer: &Peer) -> bool {
+        Python::attach(|py| {
+            let py_filter = self.py_host_filter.bind(py);
+            let py_peer = PyPeer::from(peer);
+
+            py_filter
+                .call_method1("accept", (py_peer,))
+                .and_then(|res| res.extract::<bool>())
+                .unwrap_or_else(|err| {
+                    log::error!("Failed to evaluate custom host filter from Python: {}", err);
+                    true
+                })
+        })
+    }
+}
+
+#[pyclass(get_all, frozen, name = "Peer")]
+pub struct PyPeer {
+    pub host_id: uuid::Uuid,
+    pub address: (IpAddr, u16),
+    //TODO when LBC is merged switch to using Token instead of i64
+    pub tokens: Vec<i64>,
+    pub datacenter: Option<String>,
+    pub rack: Option<String>,
+}
+
+#[pymethods]
+impl PyPeer {
+    fn __repr__(&self, py: Python<'_>) -> PyResult<Py<PyString>> {
+        let (ip, port) = self.address;
+
+        let repr_str = PyString::from_fmt(
+            py,
+            format_args!(
+                "Peer(host_id='{}', address=('{}', {}), tokens={:?}, datacenter={:?}, rack={:?})",
+                self.host_id, ip, port, self.tokens, self.datacenter, self.rack
+            ),
+        )?;
+
+        Ok(repr_str.into())
+    }
+}
+
+impl From<&Peer> for PyPeer {
+    fn from(peer: &Peer) -> Self {
+        Self {
+            host_id: peer.host_id,
+            address: (peer.address.ip(), peer.address.port()),
+            tokens: peer.tokens.iter().map(|t| t.value()).collect(),
+            datacenter: peer.datacenter.clone(),
+            rack: peer.rack.clone(),
+        }
+    }
+}
+
 #[pymodule]
 pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyAuthenticator>()?;
     module.add_class::<PyPeerInfo>()?;
     module.add_class::<PyAddressTranslator>()?;
     module.add_class::<PyTimestampGenerator>()?;
+    module.add_class::<PyHostFilter>()?;
+    module.add_class::<PyPeer>()?;
     Ok(())
 }

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from ipaddress import IPv4Address, IPv6Address
 
-from .policies import Authenticator, AddressTranslator, TimestampGenerator
+from .policies import Authenticator, AddressTranslator, TimestampGenerator, HostFilter
 from .execution_profile import ExecutionProfile
 from .session import Session
 
@@ -138,6 +138,24 @@ class SessionBuilder:
         ----------
         generator : TimestampGenerator
             An instance of a class inheriting from :class:`TimestampGenerator`.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
+
+    def host_filter(self, host_filter: HostFilter) -> SessionBuilder:
+        """
+        Registers a custom Python-defined host filter.
+
+        The filter is consulted to decide whether a discovered node should be
+        accepted by the driver.
+
+        Parameters
+        ----------
+        host_filter : HostFilter
+            An instance of a class inheriting from :class:`HostFilter`.
 
         Returns
         -------

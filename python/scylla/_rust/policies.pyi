@@ -1,6 +1,7 @@
 import ipaddress
 import uuid
 from typing import Optional, Tuple, Any
+from ipaddress import IPv4Address, IPv6Address
 
 class Authenticator:
     """
@@ -67,5 +68,51 @@ class TimestampGenerator:
         If this method is not overridden or raises an exception, the
         driver will log the error and fallback to the current system timestamp.
 
+        """
+        ...
+
+class Peer:
+    """
+    Information about a ScyllaDB node discovered by the driver.
+    """
+
+    @property
+    def host_id(self) -> uuid.UUID: ...
+    @property
+    def address(self) -> tuple[IPv4Address | IPv6Address, int]: ...
+    @property
+    def tokens(self) -> list[int]: ...
+    @property
+    def datacenter(self) -> Optional[str]: ...
+    @property
+    def rack(self) -> Optional[str]: ...
+    def __repr__(self) -> str: ...
+
+class HostFilter:
+    """
+    Base class for implementing custom host filtering.
+
+    Subclass this and override :meth:`accept` to decide whether a given
+    node should be considered by the driver.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+    def accept(self, peer: Peer) -> bool:
+        """
+        Decide whether the given peer should be accepted.
+
+        Parameters
+        ----------
+        peer : Peer
+            Information about the node being evaluated.
+
+        Returns
+        -------
+        bool
+            ``True`` if the node should be accepted, ``False`` otherwise.
+
+        If this method is not overridden, raises an exception, or returns
+        an invalid value, the driver logs the error and falls back to
+        accepting the host.
         """
         ...

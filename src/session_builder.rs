@@ -1,9 +1,10 @@
 use crate::RUNTIME;
-use crate::policies::{
-    PyAddressTranslator, PyTimestampGenerator, InternalAuthenticator, InternalAddressTranslator,
-    PyAuthenticator, InternalTimestampGenerator,
-};
 use crate::execution_profile::ExecutionProfile;
+use crate::policies::{
+    InternalAddressTranslator, InternalAuthenticator, InternalHostFilter,
+    InternalTimestampGenerator, PyAddressTranslator, PyAuthenticator, PyHostFilter,
+    PyTimestampGenerator,
+};
 use crate::session::Session;
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
@@ -82,6 +83,17 @@ impl SessionBuilder {
     ) -> PyRefMut<'py, Self> {
         slf.config.timestamp_generator = Some(Arc::new(InternalTimestampGenerator {
             py_timestamp_generator: generator,
+        }));
+
+        slf
+    }
+
+    fn host_filter<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        host_filter: Py<PyHostFilter>,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.host_filter = Some(Arc::new(InternalHostFilter {
+            py_host_filter: host_filter,
         }));
 
         slf
