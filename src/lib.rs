@@ -26,6 +26,7 @@ pub static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| Runtime::new().unwrap()
 #[pymodule]
 #[pyo3(name = "_rust")]
 fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+    let _ = pyo3_log::try_init();
     add_submodule(
         py,
         module,

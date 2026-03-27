@@ -2,8 +2,8 @@ use crate::RUNTIME;
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
-    InternalAddressTranslator, InternalAuthenticatorProvider, PyAddressTranslator,
-    PyAuthenticatorProvider,
+    InternalAddressTranslator, InternalAuthenticatorProvider, InternalTimestampGenerator,
+    PyAddressTranslator, PyAuthenticatorProvider, PyTimestampGenerator,
 };
 use crate::session::Session;
 use pyo3::prelude::*;
@@ -74,6 +74,16 @@ impl SessionBuilder {
         slf
     }
 
+    fn timestamp_generator<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        generator: Py<PyTimestampGenerator>,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.timestamp_generator = Some(Arc::new(InternalTimestampGenerator {
+            py_timestamp_generator: generator,
+        }));
+
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME

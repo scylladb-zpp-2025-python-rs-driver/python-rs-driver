@@ -1,7 +1,6 @@
-from typing import Any
 import ipaddress
 import uuid
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any
 
 class Authenticator:
     """
@@ -59,5 +58,25 @@ class AddressTranslator:
         """
         Translates a node's address.
         Must return a tuple of (ip_address, port_integer).
+        """
+        ...
+
+class TimestampGenerator:
+    """
+    Base class for implementing custom client-side timestamp generation.
+
+    Subclass this and override :meth:`next_timestamp` to provide custom logic for generating timestamps for requests.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
+    def next_timestamp(self) -> int:
+        """
+        Generate the next timestamp for a request.
+
+        This method should return an integer representing the timestamp.
+
+        If this method is not overridden or raises an exception, the
+        driver will log the error and fallback to the current system timestamp.
+
         """
         ...

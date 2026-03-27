@@ -6,7 +6,9 @@ use pyo3::{Bound, Py, PyResult, Python, pyclass, pymethods, pymodule};
 use scylla::authentication::{AuthError, AuthenticatorProvider, AuthenticatorSession};
 use scylla::errors::{CustomTranslationError, TranslationError};
 use scylla::policies::address_translator::{AddressTranslator, UntranslatedPeer};
+use scylla::policies::timestamp_generator::TimestampGenerator;
 use std::net::{IpAddr, SocketAddr};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
 #[pyclass(subclass, skip_from_py_object, name = "AuthenticatorProvider")]
@@ -205,11 +207,53 @@ impl From<&UntranslatedPeer<'_>> for PyUntranslatedPeer {
     }
 }
 
+#[pyclass(subclass, skip_from_py_object, name = "TimestampGenerator")]
+pub(crate) struct PyTimestampGenerator {}
+
+#[pymethods]
+impl PyTimestampGenerator {
+    #[expect(unused_variables)]
+    #[new]
+    #[pyo3(signature = (*args, **kwargs))]
+    pub fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Self {
+        PyTimestampGenerator {}
+    }
+
+    fn next_timestamp(&self) -> PyResult<i64> {
+        Err(PyNotImplementedError::new_err("Method is not implemented"))
+    }
+}
+
+pub(crate) struct InternalTimestampGenerator {
+    pub(crate) py_timestamp_generator: Py<PyTimestampGenerator>,
+}
+impl TimestampGenerator for InternalTimestampGenerator {
+    fn next_timestamp(&self) -> i64 {
+        Python::attach(|py| {
+            let py_generator = self.py_timestamp_generator.bind(py);
+
+            py_generator
+                .call_method0("next_timestamp")
+                .and_then(|res| res.extract::<i64>())
+                .unwrap_or_else(|err| {
+                    log::error!("Failed to generate custom timestamp from Python: {}", err);
+
+                    // Returns current system time in microseconds as a fallback
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_micros() as i64)
+                        .unwrap_or(0)
+                })
+        })
+    }
+}
+
 #[pymodule]
 pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyAuthenticatorProvider>()?;
     module.add_class::<PyAuthenticator>()?;
     module.add_class::<PyUntranslatedPeer>()?;
     module.add_class::<PyAddressTranslator>()?;
+    module.add_class::<PyTimestampGenerator>()?;
     Ok(())
 }
