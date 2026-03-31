@@ -3,6 +3,7 @@ use scylla::client;
 use std::time::Duration;
 
 use crate::enums::{Consistency, SerialConsistency};
+use crate::errors::StatementConfigError;
 
 #[pyclass(frozen, from_py_object)]
 #[derive(Clone)]
@@ -22,18 +23,21 @@ impl ExecutionProfile {
         timeout: Option<f64>,
         consistency: Consistency,
         serial_consistency: Option<SerialConsistency>,
-    ) -> PyResult<Self> {
+    ) -> Result<Self, StatementConfigError> {
         let mut profile_builder = client::execution_profile::ExecutionProfile::builder();
 
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "timeout must be a positive, finite number (in seconds)",
-            ));
+            return Err(StatementConfigError::InvalidRequestTimeout { value: secs });
         }
 
-        profile_builder = profile_builder.request_timeout(timeout.map(Duration::from_secs_f64));
+        if let Some(secs) = timeout {
+            let duration = Duration::try_from_secs_f64(secs)
+                .map_err(|_| StatementConfigError::request_timeout_conversion_failed(secs))?;
+
+            profile_builder = profile_builder.request_timeout(Some(duration));
+        }
 
         profile_builder = profile_builder.consistency(consistency.to_rust());
 
