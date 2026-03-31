@@ -1,4 +1,5 @@
 from typing import Any
+import uuid
 
 from .batch import Batch
 from .results import PagingState, RequestResult, RowFactory
@@ -85,5 +86,43 @@ class Session:
             In each returned row, columns other than `[applied]` contain either the current
             values of that row (if the condition was not met) or `None` values (if it was met).
 
+        """
+        ...
+
+    async def await_schema_agreement(self) -> uuid.UUID:
+        """
+        Wait until all nodes in the cluster agree on the current schema version.
+
+        This is useful after performing schema-altering operations to ensure that all nodes
+        have updated their schema before proceeding with operations that depend on the new schema.
+
+        Returns
+        -------
+        uuid.UUID
+            The agreed schema version as a UUID object.
+
+        Raises
+        ------
+        RuntimeError
+            If the schema agreement could not be reached.
+        """
+        ...
+
+    async def check_schema_agreement(self) -> uuid.UUID | None:
+        """
+        Check if all nodes in the cluster agree on the current schema version.
+
+        Unlike `await_schema_agreement`, this method does not wait for agreement to be reached,
+        but instead returns the current state immediately.
+
+        Returns
+        -------
+        uuid.UUID | None
+            The agreed schema version as a UUID object if all nodes agree, None otherwise.
+
+        Raises
+        ------
+        RuntimeError
+            If the schema agreement check failed.
         """
         ...
