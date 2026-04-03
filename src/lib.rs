@@ -9,6 +9,7 @@ mod batch;
 mod deserialize;
 mod enums;
 mod execution_profile;
+mod policies;
 mod serialize;
 mod session;
 mod session_builder;
@@ -24,6 +25,7 @@ pub static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| Runtime::new().unwrap()
 #[pymodule]
 #[pyo3(name = "_rust")]
 fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+    let _ = pyo3_log::try_init();
     add_submodule(
         py,
         module,
@@ -43,5 +45,6 @@ fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(py, module, "types", types::types)?;
     add_submodule(py, module, "value", value::value)?;
     add_submodule(py, module, "batch", batch::batch)?;
+    add_submodule(py, module, "policies", policies::policies)?;
     Ok(())
 }

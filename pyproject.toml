@@ -25,6 +25,7 @@ dev = [
     "ruff",
     "basedpyright",
     "python-dateutil",
+    "ccm",
 ]
 
 [tool.uv]
@@ -36,6 +37,9 @@ cache-keys = [
     { file = "python/scylla/**/*.pyi"},
 ]
 config-settings = { build-args = '--profile=dev' }
+
+[tool.uv.sources]
+ccm = { git = "https://github.com/scylladb/scylla-ccm.git", branch = "master" }
 
 [tool.ruff]
 target-version = "py310"
@@ -50,4 +54,5 @@ typeCheckingMode = "strict"
 [tool.pytest.ini_options]
 markers = [
     "requires_db: tests that require database",
+    "requires_ccm: tests that require CCM cluster",
 ]
