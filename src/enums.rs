@@ -17,36 +17,38 @@ pub(crate) enum Consistency {
     LocalSerial,
 }
 
-impl Consistency {
-    pub(crate) fn to_rust(self) -> statement::Consistency {
-        match self {
-            Consistency::Any => statement::Consistency::Any,
-            Consistency::One => statement::Consistency::One,
-            Consistency::Two => statement::Consistency::Two,
-            Consistency::Three => statement::Consistency::Three,
-            Consistency::Quorum => statement::Consistency::Quorum,
-            Consistency::All => statement::Consistency::All,
-            Consistency::LocalQuorum => statement::Consistency::LocalQuorum,
-            Consistency::EachQuorum => statement::Consistency::EachQuorum,
-            Consistency::LocalOne => statement::Consistency::LocalOne,
-            Consistency::Serial => statement::Consistency::Serial,
-            Consistency::LocalSerial => statement::Consistency::LocalSerial,
+impl From<Consistency> for statement::Consistency {
+    fn from(value: Consistency) -> Self {
+        match value {
+            Consistency::Any => Self::Any,
+            Consistency::One => Self::One,
+            Consistency::Two => Self::Two,
+            Consistency::Three => Self::Three,
+            Consistency::Quorum => Self::Quorum,
+            Consistency::All => Self::All,
+            Consistency::LocalQuorum => Self::LocalQuorum,
+            Consistency::EachQuorum => Self::EachQuorum,
+            Consistency::LocalOne => Self::LocalOne,
+            Consistency::Serial => Self::Serial,
+            Consistency::LocalSerial => Self::LocalSerial,
         }
     }
+}
 
-    pub(crate) fn to_python(consistency: statement::Consistency) -> Self {
-        match consistency {
-            statement::Consistency::Any => Consistency::Any,
-            statement::Consistency::One => Consistency::One,
-            statement::Consistency::Two => Consistency::Two,
-            statement::Consistency::Three => Consistency::Three,
-            statement::Consistency::Quorum => Consistency::Quorum,
-            statement::Consistency::All => Consistency::All,
-            statement::Consistency::LocalQuorum => Consistency::LocalQuorum,
-            statement::Consistency::EachQuorum => Consistency::EachQuorum,
-            statement::Consistency::LocalOne => Consistency::LocalOne,
-            statement::Consistency::Serial => Consistency::Serial,
-            statement::Consistency::LocalSerial => Consistency::LocalSerial,
+impl From<statement::Consistency> for Consistency {
+    fn from(value: statement::Consistency) -> Self {
+        match value {
+            statement::Consistency::Any => Self::Any,
+            statement::Consistency::One => Self::One,
+            statement::Consistency::Two => Self::Two,
+            statement::Consistency::Three => Self::Three,
+            statement::Consistency::Quorum => Self::Quorum,
+            statement::Consistency::All => Self::All,
+            statement::Consistency::LocalQuorum => Self::LocalQuorum,
+            statement::Consistency::EachQuorum => Self::EachQuorum,
+            statement::Consistency::LocalOne => Self::LocalOne,
+            statement::Consistency::Serial => Self::Serial,
+            statement::Consistency::LocalSerial => Self::LocalSerial,
         }
     }
 }
@@ -58,18 +60,20 @@ pub(crate) enum SerialConsistency {
     LocalSerial,
 }
 
-impl SerialConsistency {
-    pub(crate) fn to_rust(self) -> statement::SerialConsistency {
-        match self {
-            SerialConsistency::Serial => statement::SerialConsistency::Serial,
-            SerialConsistency::LocalSerial => statement::SerialConsistency::LocalSerial,
+impl From<SerialConsistency> for statement::SerialConsistency {
+    fn from(value: SerialConsistency) -> Self {
+        match value {
+            SerialConsistency::Serial => Self::Serial,
+            SerialConsistency::LocalSerial => Self::LocalSerial,
         }
     }
+}
 
-    pub(crate) fn to_python(consistency: statement::SerialConsistency) -> Self {
-        match consistency {
-            statement::SerialConsistency::Serial => SerialConsistency::Serial,
-            statement::SerialConsistency::LocalSerial => SerialConsistency::LocalSerial,
+impl From<statement::SerialConsistency> for SerialConsistency {
+    fn from(value: statement::SerialConsistency) -> Self {
+        match value {
+            statement::SerialConsistency::Serial => Self::Serial,
+            statement::SerialConsistency::LocalSerial => Self::LocalSerial,
         }
     }
 }

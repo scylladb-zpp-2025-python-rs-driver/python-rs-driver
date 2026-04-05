@@ -169,7 +169,7 @@ impl Session {
         statement: impl Into<statement::Statement>,
     ) -> PyResult<PreparedStatement> {
         match self._inner.prepare(statement).await {
-            Ok(prepared) => Ok(PreparedStatement { _inner: prepared }),
+            Ok(prepared) => Ok(PreparedStatement::new(prepared, false)),
             Err(e) => Err(PyErr::new::<PyRuntimeError, _>(format!(
                 "Failed to prepare statement: {}",
                 e

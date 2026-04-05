@@ -46,7 +46,7 @@ async def test_prepared_with_and_get_page_size():
     expected_page_size = 500
     prepared = prepared.with_page_size(expected_page_size)
 
-    actual_page_size = prepared.get_page_size()
+    actual_page_size = prepared.page_size
 
     assert isinstance(actual_page_size, int)
     assert actual_page_size == expected_page_size

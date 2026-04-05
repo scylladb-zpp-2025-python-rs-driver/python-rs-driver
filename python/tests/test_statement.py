@@ -1,6 +1,8 @@
 import pytest
+from scylla.enums import SerialConsistency
 from scylla.session_builder import SessionBuilder
 from scylla.statement import PreparedStatement, Statement
+from scylla.types import Unset
 
 
 @pytest.mark.asyncio
@@ -68,16 +70,72 @@ async def test_prepare_and_str():
     assert cluster_name_str == row_statement["cluster_name"]
 
 
-@pytest.mark.asyncio
-@pytest.mark.requires_db
-async def test_statement_with_page_size():
+def test_statement_with_page_size():
     query_str = "SELECT cluster_name FROM system.local;"
     statement = Statement(query_str)
 
     expected_page_size = 500
     statement = statement.with_page_size(expected_page_size)
 
-    actual_page_size = statement.get_page_size()
+    actual_page_size = statement.page_size
 
     assert isinstance(actual_page_size, int)
     assert actual_page_size == expected_page_size
+
+
+def test_statement_with_request_timeout_too_large():
+    query_str = "SELECT cluster_name FROM system.local;"
+    statement = Statement(query_str)
+
+    with pytest.raises(ValueError):
+        statement.with_request_timeout(99999999999999999999.9)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_with_request_timeout_too_large():
+    builder = SessionBuilder(["127.0.0.2"], 9042)
+    session = await builder.connect()
+
+    query_str = "SELECT cluster_name FROM system.local"
+    prepared = await session.prepare(query_str)
+
+    with pytest.raises(ValueError):
+        prepared.with_request_timeout(99999999999999999999.9)
+
+
+def test_statement_serial_consistency():
+    query_str = "SELECT cluster_name FROM system.local;"
+    statement = Statement(query_str)
+
+    assert statement.serial_consistency is Unset
+
+    statement = statement.with_serial_consistency(None)
+    assert statement.serial_consistency is None
+
+    statement = statement.with_serial_consistency(SerialConsistency.LocalSerial)
+    assert isinstance(statement.serial_consistency, SerialConsistency)
+
+    statement = statement.without_serial_consistency()
+    assert statement.serial_consistency is Unset
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_serial_consistency():
+    builder = SessionBuilder(["127.0.0.2"], 9042)
+    session = await builder.connect()
+
+    query_str = "SELECT cluster_name FROM system.local"
+    prepared = await session.prepare(query_str)
+
+    assert prepared.serial_consistency is Unset
+
+    prepared = prepared.with_serial_consistency(None)
+    assert prepared.serial_consistency is None
+
+    prepared = prepared.with_serial_consistency(SerialConsistency.LocalSerial)
+    assert isinstance(prepared.serial_consistency, SerialConsistency)
+
+    prepared = prepared.without_serial_consistency()
+    assert prepared.serial_consistency is Unset
