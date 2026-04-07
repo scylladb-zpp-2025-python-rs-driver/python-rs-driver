@@ -21,6 +21,18 @@ pub(crate) struct PyColumnSpec {
     cql_type: String,
 }
 
+/// Specification of a partition key index in prepared statement metadata.
+#[pyclass(skip_from_py_object, frozen)]
+#[derive(Clone)]
+pub(crate) struct PyPartitionKeyIndex {
+    /// The index of the partition key.
+    #[pyo3(get)]
+    index: u16,
+    /// The sequence number of the partition key, used for multi-column partition keys.
+    #[pyo3(get)]
+    sequence_number: u16,
+}
+
 /* Conversion helpers */
 
 /// Converts a Scylla NativeType to its CQL string representation.
@@ -122,8 +134,20 @@ fn column_spec_to_py(spec: &scylla::frame::response::result::ColumnSpec<'_>) -> 
     }
 }
 
+/// Converts a Scylla PartitionKeyIndex to a PyPartitionKeyIndex.
+#[allow(dead_code)]
+fn partition_key_to_py(
+    pk: &scylla::frame::response::result::PartitionKeyIndex,
+) -> PyPartitionKeyIndex {
+    PyPartitionKeyIndex {
+        index: pk.index,
+        sequence_number: pk.sequence,
+    }
+}
+
 pub(crate) fn query_metadata(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyColumnSpec>()?;
+    module.add_class::<PyPartitionKeyIndex>()?;
 
     Ok(())
 }

@@ -13,3 +13,13 @@ class PyColumnSpec:
     def keyspace_name(self) -> str | None: ...
     @property
     def cql_type(self) -> str: ...
+
+class PyPartitionKeyIndex:
+    """
+    Specification of a partition key index in prepared statement metadata.
+    """
+
+    @property
+    def index(self) -> int: ...
+    @property
+    def sequence_number(self) -> int: ...
