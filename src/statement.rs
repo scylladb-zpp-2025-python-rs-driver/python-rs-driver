@@ -6,6 +6,10 @@ use std::time::Duration;
 
 use crate::enums::{Consistency, SerialConsistency};
 use crate::execution_profile::ExecutionProfile;
+use crate::query_metadata::{
+    PyPreparedMetadata, PyResultMetadata, prepared_metadata_from_prepared,
+    result_metadata_from_prepared,
+};
 use crate::types::UnsetType;
 
 #[pyclass(frozen)]
@@ -106,6 +110,16 @@ impl PreparedStatement {
 
     fn get_page_size(&self) -> i32 {
         self._inner.get_page_size()
+    }
+
+    #[getter]
+    fn get_prepared_metadata(&self) -> PyPreparedMetadata {
+        prepared_metadata_from_prepared(&self._inner)
+    }
+
+    #[getter]
+    fn get_result_metadata(&self) -> PyResultMetadata {
+        result_metadata_from_prepared(&self._inner)
     }
 }
 

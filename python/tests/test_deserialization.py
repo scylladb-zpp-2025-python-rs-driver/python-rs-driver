@@ -1177,3 +1177,40 @@ async def test_timestamp_overflow(
     )
 
     assert isinstance(row["value"], datetime.datetime)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_request_result_result_metadata_for_rows(session: Session):
+    result = await session.execute("SELECT cluster_name FROM system.local")
+
+    metadata = result.result_metadata
+
+    assert metadata is not None
+    assert metadata.column_count == 1
+    assert len(metadata.columns) == 1
+
+    column = metadata.columns[0]
+
+    assert column.name == "cluster_name"
+    assert column.table_name == "local"
+    assert column.keyspace_name == "system"
+    assert isinstance(column.cql_type, str)
+    assert column.cql_type != ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_request_result_result_metadata_for_non_rows(session: Session, table_factory: TableFactory):
+    table = await table_factory(
+        "id int PRIMARY KEY, value text",
+        "result_metadata_non_rows_table",
+    )
+
+    result = await session.execute(f"INSERT INTO {table} (id, value) VALUES (1, 'hello')")
+
+    metadata = result.result_metadata
+
+    assert metadata is not None
+    assert metadata.column_count == 0
+    assert metadata.columns == []

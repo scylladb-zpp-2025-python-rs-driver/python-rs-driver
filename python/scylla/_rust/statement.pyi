@@ -1,6 +1,7 @@
 from .enums import Consistency, SerialConsistency
 from .execution_profile import ExecutionProfile
 from .types import UnsetType
+from .query_metadata import PyResultMetadata, PyPreparedMetadata
 
 class PreparedStatement:
     """
@@ -24,6 +25,10 @@ class PreparedStatement:
     def get_request_timeout(self) -> float | None | UnsetType: ...
     def with_page_size(self, page_size: int) -> PreparedStatement: ...
     def get_page_size(self) -> int: ...
+    @property
+    def prepared_metadata(self) -> PyPreparedMetadata: ...
+    @property
+    def result_metadata(self) -> PyResultMetadata: ...
 
 class Statement:
     """
