@@ -211,7 +211,6 @@ pub(crate) fn result_metadata_from_prepared(
 }
 
 /// Creates a PyResultMetadata from a Scylla QueryResult, if it contains rows metadata.
-#[allow(dead_code)]
 pub(crate) fn result_metadata_from_query_result(
     query_result: &QueryResult,
 ) -> PyResult<PyResultMetadata> {

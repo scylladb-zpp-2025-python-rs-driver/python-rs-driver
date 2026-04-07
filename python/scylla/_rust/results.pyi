@@ -6,6 +6,8 @@ from uuid import UUID
 
 from dateutil.relativedelta import relativedelta
 
+from .query_metadata import PyResultMetadata
+
 CqlNative = Union[
     # CQL:
     # - Counter
@@ -242,6 +244,13 @@ class RequestResult:
         This method eagerly fetches all remaining pages and materializes
         the entire result set in memory. It should be used with care
         for large queries.
+        """
+        ...
+
+    @property
+    def result_metadata(self) -> PyResultMetadata:
+        """
+        Metadata about the query result, including column specifications and column count.
         """
         ...
 

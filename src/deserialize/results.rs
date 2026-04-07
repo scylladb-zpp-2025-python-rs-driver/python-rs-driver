@@ -1,5 +1,6 @@
 use crate::deserialize::value::{PyDeserializeValue, PyDeserializedValue};
 use crate::deserialize::{IntoPyDeserError, PyDeserializationError};
+use crate::query_metadata::{PyResultMetadata, result_metadata_from_query_result};
 use crate::serialize::value_list::PyValueList;
 use crate::session::{ExecutableStatement, Session};
 use pyo3::exceptions::{PyRuntimeError, PyStopAsyncIteration, PyStopIteration};
@@ -197,6 +198,12 @@ impl RequestResult {
         }
 
         Ok(list)
+    }
+
+    /// Returns metadata about the query result.
+    #[getter]
+    fn get_result_metadata(&self) -> PyResult<PyResultMetadata> {
+        result_metadata_from_query_result(self.query_result.as_ref())
     }
 }
 
