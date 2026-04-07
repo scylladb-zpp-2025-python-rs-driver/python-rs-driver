@@ -57,9 +57,7 @@ impl SessionBuilder {
             .await
             .expect("Driver should not panic");
         match session_result {
-            Ok(session) => Ok(Session {
-                _inner: Arc::new(session),
-            }),
+            Ok(session) => Python::attach(|py| Session::new(Arc::new(session), py)),
             Err(e) => Err(PyRuntimeError::new_err(format!(
                 "Session creation err, e: {:?}, cp: {:?}",
                 e, self.config.known_nodes

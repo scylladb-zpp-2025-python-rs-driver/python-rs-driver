@@ -2,6 +2,7 @@ from typing import Any
 import uuid
 
 from .batch import Batch
+from .cluster import ClusterState
 from .results import PagingState, RequestResult, RowFactory
 from .statement import PreparedStatement, Statement
 
@@ -10,6 +11,12 @@ class Session:
     Represents a CQL session, which can be used to communicate with the database.
     """
 
+    @property
+    def cluster_state(self) -> ClusterState:
+        """
+        Access information about the cluster topology or schema through ClusterState object.
+        """
+        ...
     async def prepare(self, statement: Statement | str) -> PreparedStatement:
         """
         Prepare a statement for repeated execution.
