@@ -171,7 +171,6 @@ fn partition_key_to_py(
 }
 
 /// Creates a PyPreparedMetadata from a Scylla PreparedStatement.
-#[allow(dead_code)]
 pub(crate) fn prepared_metadata_from_prepared(
     prepared: &prepared::PreparedStatement,
 ) -> PyPreparedMetadata {
@@ -194,7 +193,6 @@ pub(crate) fn prepared_metadata_from_prepared(
 }
 
 /// Creates a PyResultMetadata from a Scylla PreparedStatement by extracting the current result set column specifications.
-#[allow(dead_code)]
 pub(crate) fn result_metadata_from_prepared(
     prepared: &prepared::PreparedStatement,
 ) -> PyResultMetadata {
