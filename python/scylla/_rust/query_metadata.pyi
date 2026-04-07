@@ -23,3 +23,13 @@ class PyPartitionKeyIndex:
     def index(self) -> int: ...
     @property
     def sequence_number(self) -> int: ...
+
+class PyPreparedMetadata:
+    """
+    Metadata for a prepared statement, including column specifications and partition key indexes.
+    """
+
+    @property
+    def columns(self) -> list[PyColumnSpec]: ...
+    @property
+    def partition_key_indexes(self) -> list[PyPartitionKeyIndex]: ...

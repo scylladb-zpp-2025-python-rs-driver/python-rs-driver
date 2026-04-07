@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 use scylla::frame::response::result::{CollectionType, ColumnType, NativeType};
+use scylla::statement::prepared;
 
 /// Specification of a column in a result set, used for both prepared statement metadata and query result metadata.
 #[pyclass(skip_from_py_object, frozen)]
@@ -31,6 +32,18 @@ pub(crate) struct PyPartitionKeyIndex {
     /// The sequence number of the partition key, used for multi-column partition keys.
     #[pyo3(get)]
     sequence_number: u16,
+}
+
+/// Metadata for a prepared statement, including column specifications and partition key indexes.
+#[pyclass(skip_from_py_object, frozen)]
+#[derive(Clone)]
+pub(crate) struct PyPreparedMetadata {
+    /// The specifications of the columns in the prepared statement.
+    #[pyo3(get)]
+    columns: Vec<PyColumnSpec>,
+    /// The indexes of the partition keys in the prepared statement.
+    #[pyo3(get)]
+    partition_key_indexes: Vec<PyPartitionKeyIndex>,
 }
 
 /* Conversion helpers */
@@ -120,7 +133,6 @@ fn column_type_to_cql(typ: &ColumnType<'_>) -> String {
 }
 
 /// Converts a Scylla ColumnSpec to a PyColumnSpec.
-#[allow(dead_code)]
 fn column_spec_to_py(spec: &scylla::frame::response::result::ColumnSpec<'_>) -> PyColumnSpec {
     let table_spec = spec.table_spec();
     let table_name = table_spec.table_name();
@@ -135,7 +147,6 @@ fn column_spec_to_py(spec: &scylla::frame::response::result::ColumnSpec<'_>) -> 
 }
 
 /// Converts a Scylla PartitionKeyIndex to a PyPartitionKeyIndex.
-#[allow(dead_code)]
 fn partition_key_to_py(
     pk: &scylla::frame::response::result::PartitionKeyIndex,
 ) -> PyPartitionKeyIndex {
@@ -145,9 +156,33 @@ fn partition_key_to_py(
     }
 }
 
+/// Creates a PyPreparedMetadata from a Scylla PreparedStatement.
+#[allow(dead_code)]
+pub(crate) fn prepared_metadata_from_prepared(
+    prepared: &prepared::PreparedStatement,
+) -> PyPreparedMetadata {
+    let columns = prepared
+        .get_variable_col_specs()
+        .iter()
+        .map(column_spec_to_py)
+        .collect();
+
+    let partition_key_indexes = prepared
+        .get_variable_pk_indexes()
+        .iter()
+        .map(partition_key_to_py)
+        .collect();
+
+    PyPreparedMetadata {
+        columns,
+        partition_key_indexes,
+    }
+}
+
 pub(crate) fn query_metadata(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyColumnSpec>()?;
     module.add_class::<PyPartitionKeyIndex>()?;
+    module.add_class::<PyPreparedMetadata>()?;
 
     Ok(())
 }
