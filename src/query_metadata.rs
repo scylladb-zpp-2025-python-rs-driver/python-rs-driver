@@ -1,5 +1,7 @@
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use scylla::frame::response::result::{CollectionType, ColumnType, NativeType};
+use scylla::response::query_result::QueryResult;
 use scylla::statement::prepared;
 
 /// Specification of a column in a result set, used for both prepared statement metadata and query result metadata.
@@ -44,6 +46,18 @@ pub(crate) struct PyPreparedMetadata {
     /// The indexes of the partition keys in the prepared statement.
     #[pyo3(get)]
     partition_key_indexes: Vec<PyPartitionKeyIndex>,
+}
+
+/// Metadata for a query result, including column specifications and column count.
+#[pyclass(skip_from_py_object, frozen)]
+#[derive(Clone)]
+pub(crate) struct PyResultMetadata {
+    /// The number of columns in the query result.
+    #[pyo3(get)]
+    column_count: usize,
+    /// The specifications of the columns in the query result.
+    #[pyo3(get)]
+    columns: Vec<PyColumnSpec>,
 }
 
 /* Conversion helpers */
@@ -179,10 +193,59 @@ pub(crate) fn prepared_metadata_from_prepared(
     }
 }
 
+/// Creates a PyResultMetadata from a Scylla PreparedStatement by extracting the current result set column specifications.
+#[allow(dead_code)]
+pub(crate) fn result_metadata_from_prepared(
+    prepared: &prepared::PreparedStatement,
+) -> PyResultMetadata {
+    let guard = prepared.get_current_result_set_col_specs();
+
+    let columns: Vec<PyColumnSpec> = guard
+        .get()
+        .iter()
+        .map(|spec| column_spec_to_py(spec))
+        .collect();
+
+    PyResultMetadata {
+        column_count: columns.len(),
+        columns,
+    }
+}
+
+/// Creates a PyResultMetadata from a Scylla QueryResult, if it contains rows metadata.
+#[allow(dead_code)]
+pub(crate) fn result_metadata_from_query_result(
+    query_result: &QueryResult,
+) -> PyResult<PyResultMetadata> {
+    if !query_result.is_rows() {
+        return Ok(PyResultMetadata {
+            column_count: 0,
+            columns: Vec::new(),
+        });
+    }
+
+    let raw_rows_with_metadata = query_result
+        .deserialized_metadata_and_rows()
+        .ok_or_else(|| PyErr::new::<PyRuntimeError, _>("Expected rows metadata, but got none"))?;
+
+    let columns: Vec<PyColumnSpec> = raw_rows_with_metadata
+        .metadata()
+        .col_specs()
+        .iter()
+        .map(|spec| column_spec_to_py(spec))
+        .collect();
+
+    Ok(PyResultMetadata {
+        column_count: columns.len(),
+        columns,
+    })
+}
+
 pub(crate) fn query_metadata(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyColumnSpec>()?;
     module.add_class::<PyPartitionKeyIndex>()?;
     module.add_class::<PyPreparedMetadata>()?;
+    module.add_class::<PyResultMetadata>()?;
 
     Ok(())
 }

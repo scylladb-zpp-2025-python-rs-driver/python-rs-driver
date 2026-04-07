@@ -1,7 +1,8 @@
-from ._rust.query_metadata import PyColumnSpec, PyPartitionKeyIndex, PyPreparedMetadata  # pyright: ignore[reportMissingModuleSource]
+from ._rust.query_metadata import (  # pyright: ignore[reportMissingModuleSource]
+    PyColumnSpec,
+    PyPartitionKeyIndex,
+    PyPreparedMetadata,
+    PyResultMetadata,
+)
 
-__all__ = [
-    "PyColumnSpec",
-    "PyPartitionKeyIndex",
-    "PyPreparedMetadata",
-]
+__all__ = ["PyColumnSpec", "PyPartitionKeyIndex", "PyPreparedMetadata", "PyResultMetadata"]
