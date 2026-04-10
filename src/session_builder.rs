@@ -5,7 +5,7 @@ use pyo3::types::{PyInt, PySequence, PyString};
 use scylla::client::session::SessionConfig;
 
 use crate::RUNTIME;
-use crate::errors::{ConnectionError, SessionConfigError};
+use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::session::Session;
 
@@ -22,34 +22,38 @@ impl SessionBuilder {
         contact_points: Bound<'_, PySequence>,
         port: Bound<'_, PyInt>,
         execution_profile: Option<ExecutionProfile>,
-    ) -> Result<Self, SessionConfigError> {
+    ) -> Result<Self, DriverSessionConfigError> {
         let mut cfg = SessionConfig::new();
 
         let port = port
             .extract::<u16>()
-            .map_err(SessionConfigError::invalid_port)?;
+            .map_err(DriverSessionConfigError::invalid_port)?;
 
         if contact_points.is_instance_of::<PyString>() {
-            return Err(SessionConfigError::contact_points_type_error());
+            return Err(DriverSessionConfigError::contact_points_type_error());
         }
 
         let contact_points_iter = contact_points
             .try_iter()
-            .map_err(SessionConfigError::contact_points_not_iterable)?;
+            .map_err(DriverSessionConfigError::contact_points_not_iterable)?;
 
         for (i, item_result) in contact_points_iter.enumerate() {
             let item = match item_result {
                 Ok(item) => item,
-                Err(err) => return Err(SessionConfigError::contact_point_access_failed(i, err)),
+                Err(err) => {
+                    return Err(DriverSessionConfigError::contact_point_access_failed(
+                        i, err,
+                    ));
+                }
             };
 
             let s = item
                 .cast_into::<PyString>()
-                .map_err(|err| SessionConfigError::contact_point_type_error(i, err.into()))?;
+                .map_err(|err| DriverSessionConfigError::contact_point_type_error(i, err.into()))?;
 
             let s = s
                 .to_str()
-                .map_err(|err| SessionConfigError::contact_point_conversion_failed(i, err))?;
+                .map_err(|err| DriverSessionConfigError::contact_point_conversion_failed(i, err))?;
             if s.contains(":") {
                 cfg.add_known_node(s);
             } else {
@@ -64,7 +68,7 @@ impl SessionBuilder {
         Ok(Self { config: cfg })
     }
 
-    async fn connect(&self) -> Result<Session, ConnectionError> {
+    async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
             .spawn(async move { scylla::client::session::Session::connect(config).await })
@@ -73,7 +77,7 @@ impl SessionBuilder {
             Ok(session) => Ok(Session {
                 _inner: Arc::new(session),
             }),
-            Err(err) => Err(ConnectionError::new_session_error(err)),
+            Err(err) => Err(DriverSessionConnectionError::new_session_error(err)),
         }
     }
 }

@@ -5,7 +5,7 @@ use scylla::statement::unprepared;
 use std::time::Duration;
 
 use crate::enums::{Consistency, SerialConsistency};
-use crate::errors::StatementConfigError;
+use crate::errors::DriverStatementConfigError;
 use crate::execution_profile::ExecutionProfile;
 use crate::types::UnsetType;
 
@@ -74,17 +74,17 @@ impl PreparedStatement {
     fn with_request_timeout(
         &self,
         timeout: Option<f64>,
-    ) -> Result<PreparedStatement, StatementConfigError> {
+    ) -> Result<PreparedStatement, DriverStatementConfigError> {
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
-            return Err(StatementConfigError::InvalidRequestTimeout { value: secs });
+            return Err(DriverStatementConfigError::InvalidRequestTimeout { value: secs });
         }
 
         let timeout = match timeout {
             None => Duration::MAX,
             Some(secs) => Duration::try_from_secs_f64(secs)
-                .map_err(|_| StatementConfigError::request_timeout_conversion_failed(secs))?,
+                .map_err(|_| DriverStatementConfigError::request_timeout_conversion_failed(secs))?,
         };
 
         let mut p = self._inner.clone();
@@ -195,11 +195,11 @@ impl Statement {
     fn with_request_timeout(
         &self,
         timeout: Option<f64>,
-    ) -> Result<Statement, StatementConfigError> {
+    ) -> Result<Statement, DriverStatementConfigError> {
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
-            return Err(StatementConfigError::InvalidRequestTimeout { value: secs });
+            return Err(DriverStatementConfigError::InvalidRequestTimeout { value: secs });
         }
 
         let mut s = self._inner.clone();

@@ -1,7 +1,7 @@
 import pytest
 
 from scylla.session_builder import SessionBuilder
-from scylla.errors import SessionConfigError, ConnectionError as DriverConnectionError
+from scylla.errors import SessionConfigError, SessionConnectionError as DriverConnectionError
 
 
 def test_session_builder_invalid_port_negative():

@@ -10,52 +10,44 @@ use pyo3::types::{PyModule, PyNone};
 
 /* Python exception classes */
 
-create_exception!(errors, ScyllaErrorPy, PyException);
+create_exception!(errors, ScyllaError, PyException);
 
-create_exception!(errors, RowIterationErrorPy, ScyllaErrorPy);
+create_exception!(errors, RowIterationError, ScyllaError);
 
-create_exception!(errors, DeserializationErrorPy, ScyllaErrorPy);
+create_exception!(errors, DeserializationError, ScyllaError);
 create_exception!(
     errors,
-    UnsupportedTypeDeserializationErrorPy,
-    DeserializationErrorPy
+    UnsupportedTypeDeserializationError,
+    DeserializationError
 );
-create_exception!(errors, DecodeFailedErrorPy, DeserializationErrorPy);
-create_exception!(errors, PyConversionFailedErrorPy, DeserializationErrorPy);
+create_exception!(errors, DecodeFailedError, DeserializationError);
+create_exception!(errors, PyConversionFailedError, DeserializationError);
 
-create_exception!(errors, ConnectionErrorPy, ScyllaErrorPy);
+create_exception!(errors, SessionConnectionError, ScyllaError);
 
-create_exception!(errors, SessionConfigErrorPy, ScyllaErrorPy);
+create_exception!(errors, SessionConfigError, ScyllaError);
 
-create_exception!(errors, StatementConversionErrorPy, ScyllaErrorPy);
+create_exception!(errors, StatementConversionError, ScyllaError);
 
-create_exception!(errors, ExecuteErrorPy, ScyllaErrorPy);
+create_exception!(errors, ExecuteError, ScyllaError);
 
-create_exception!(errors, PrepareErrorPy, ScyllaErrorPy);
+create_exception!(errors, PrepareError, ScyllaError);
 
-create_exception!(errors, SchemaAgreementErrorPy, ScyllaErrorPy);
-create_exception!(errors, StatementConfigErrorPy, ScyllaErrorPy);
+create_exception!(errors, SchemaAgreementError, ScyllaError);
+create_exception!(errors, StatementConfigError, ScyllaError);
 
-create_exception!(errors, BatchErrorPy, ScyllaErrorPy);
+create_exception!(errors, BatchError, ScyllaError);
 
-create_exception!(errors, SerializationErrorPy, ScyllaErrorPy);
+create_exception!(errors, SerializationError, ScyllaError);
 create_exception!(
     errors,
-    UnsupportedTypeSerializationErrorPy,
-    SerializationErrorPy
+    UnsupportedTypeSerializationError,
+    SerializationError
 );
-create_exception!(
-    errors,
-    TypeMismatchSerializationErrorPy,
-    SerializationErrorPy
-);
-create_exception!(
-    errors,
-    ValueOverflowSerializationErrorPy,
-    SerializationErrorPy
-);
-create_exception!(errors, SerializeFailedErrorPy, SerializationErrorPy);
-create_exception!(errors, PySerializationFailedErrorPy, SerializationErrorPy);
+create_exception!(errors, TypeMismatchSerializationError, SerializationError);
+create_exception!(errors, ValueOverflowSerializationError, SerializationError);
+create_exception!(errors, SerializeFailedError, SerializationError);
+create_exception!(errors, PySerializationFailedError, SerializationError);
 
 // Policy: DriverError types are pure Rust and contain PyErr only as source
 // in cases where the error originated from Python code (e.g. during extraction or user callbacks).
@@ -75,23 +67,23 @@ create_exception!(errors, PySerializationFailedErrorPy, SerializationErrorPy);
 /* Row iteration errors */
 
 #[derive(Debug)]
-pub enum RowIterationError {
+pub enum DriverRowIterationError {
     /// An error occurred during deserialization of a CQL value into a Python object.
     Deserialization(DriverDeserializationError),
     /// An error occurred while fetching the next page of results from the Rust driver during iteration.
-    FailedToFetchNextPage(ExecuteError),
+    FailedToFetchNextPage(DriverExecuteError),
     /// An error occurred in Python code during processing of a row.
     PythonError(PyErr),
 }
 
-impl From<RowIterationError> for PyErr {
-    fn from(e: RowIterationError) -> PyErr {
+impl From<DriverRowIterationError> for PyErr {
+    fn from(e: DriverRowIterationError) -> PyErr {
         match e {
-            RowIterationError::Deserialization(e) => e.into(),
-            RowIterationError::FailedToFetchNextPage(e) => {
+            DriverRowIterationError::Deserialization(e) => e.into(),
+            DriverRowIterationError::FailedToFetchNextPage(e) => {
                 // Add extra context while preserving the original ExecuteErrorPy as cause
                 Python::attach(|py| {
-                    let err = RowIterationErrorPy::new_err(
+                    let err = RowIterationError::new_err(
                         "Row iteration error: failed to fetch next page of results",
                     );
 
@@ -101,9 +93,9 @@ impl From<RowIterationError> for PyErr {
                     err
                 })
             }
-            RowIterationError::PythonError(e) => {
+            DriverRowIterationError::PythonError(e) => {
                 Python::attach(|py| {
-                    let err = RowIterationErrorPy::new_err(
+                    let err = RowIterationError::new_err(
                         "Row iteration error: a Python error occurred during processing of a row",
                     );
 
@@ -359,7 +351,7 @@ impl From<DriverDeserializationError> for PyErr {
 
                     build_deserialization_pyerr(
                         py,
-                        UnsupportedTypeDeserializationErrorPy::new_err(message),
+                        UnsupportedTypeDeserializationError::new_err(message),
                         &e.location,
                         None,
                     )
@@ -375,7 +367,7 @@ impl From<DriverDeserializationError> for PyErr {
 
                     build_deserialization_pyerr(
                         py,
-                        DecodeFailedErrorPy::new_err(message),
+                        DecodeFailedError::new_err(message),
                         &e.location,
                         None,
                     )
@@ -390,7 +382,7 @@ impl From<DriverDeserializationError> for PyErr {
 
                     build_deserialization_pyerr(
                         py,
-                        PyConversionFailedErrorPy::new_err(message),
+                        PyConversionFailedError::new_err(message),
                         &e.location,
                         Some(*source),
                     )
@@ -405,7 +397,7 @@ impl From<DriverDeserializationError> for PyErr {
 
                     build_deserialization_pyerr(
                         py,
-                        PyConversionFailedErrorPy::new_err(message),
+                        PyConversionFailedError::new_err(message),
                         &e.location,
                         None,
                     )
@@ -420,7 +412,7 @@ impl From<DriverDeserializationError> for PyErr {
 /// Errors that can occur during session creation and connection establishment.
 #[derive(Debug)]
 #[must_use]
-pub enum ConnectionError {
+pub enum DriverSessionConnectionError {
     /// The Tokio task running session creation failed to join.
     RuntimeTaskJoinFailed { message: String },
     /// The Rust driver failed to establish a new session.
@@ -429,7 +421,7 @@ pub enum ConnectionError {
     },
 }
 
-impl ConnectionError {
+impl DriverSessionConnectionError {
     /* Constructors */
 
     pub fn runtime_task_join_failed(message: String) -> Self {
@@ -443,25 +435,27 @@ impl ConnectionError {
     }
 }
 
-impl From<ConnectionError> for PyErr {
-    fn from(e: ConnectionError) -> PyErr {
+impl From<DriverSessionConnectionError> for PyErr {
+    fn from(e: DriverSessionConnectionError) -> PyErr {
         match e {
-            ConnectionError::RuntimeTaskJoinFailed { message } => ConnectionErrorPy::new_err(
-                format!("Internal driver error: runtime error while creating session: {message}"),
-            ),
+            DriverSessionConnectionError::RuntimeTaskJoinFailed { message } => {
+                SessionConnectionError::new_err(format!(
+                    "Internal driver error: runtime error while creating session: {message}"
+                ))
+            }
 
-            ConnectionError::NewSessionError { source } => {
-                ConnectionErrorPy::new_err(format!("failed to establish session: {source}"))
+            DriverSessionConnectionError::NewSessionError { source } => {
+                SessionConnectionError::new_err(format!("failed to establish session: {source}"))
             }
         }
     }
 }
 
-// Allow converting a tokio::task::JoinError into ConnectionError
-// so that callers that spawn tasks can map JoinError -> ConnectionError via the `From` trait.
-impl From<tokio::task::JoinError> for ConnectionError {
+// Allow converting a tokio::task::JoinError into SessionConnectionError
+// so that callers that spawn tasks can map JoinError -> SessionConnectionError via the `From` trait.
+impl From<tokio::task::JoinError> for DriverSessionConnectionError {
     fn from(err: tokio::task::JoinError) -> Self {
-        ConnectionError::runtime_task_join_failed(err.to_string())
+        DriverSessionConnectionError::runtime_task_join_failed(err.to_string())
     }
 }
 
@@ -470,7 +464,7 @@ impl From<tokio::task::JoinError> for ConnectionError {
 /// Errors related to invalid session configuration.
 #[derive(Debug)]
 #[must_use]
-pub enum SessionConfigError {
+pub enum DriverSessionConfigError {
     /// The provided port value is invalid (e.g. not an integer, or out of the valid range).
     InvalidPort { source: Box<PyErr> },
     /// The contact_points argument is of the wrong type (e.g. a string instead of a list).
@@ -485,7 +479,7 @@ pub enum SessionConfigError {
     ContactPointConversionFailed { index: usize, source: Box<PyErr> },
 }
 
-impl SessionConfigError {
+impl DriverSessionConfigError {
     /* Constructors */
 
     pub fn invalid_port(source: PyErr) -> Self {
@@ -533,7 +527,7 @@ fn build_session_config_pyerr(
     cause: Option<PyErr>,
     index: Option<usize>,
 ) -> PyErr {
-    let err = SessionConfigErrorPy::new_err(message.into());
+    let err = SessionConfigError::new_err(message.into());
 
     if let Some(cause) = cause {
         err.set_cause(py, Some(cause));
@@ -547,41 +541,41 @@ fn build_session_config_pyerr(
     err
 }
 
-impl From<SessionConfigError> for PyErr {
-    fn from(e: SessionConfigError) -> PyErr {
+impl From<DriverSessionConfigError> for PyErr {
+    fn from(e: DriverSessionConfigError) -> PyErr {
         Python::attach(|py| match e {
-            SessionConfigError::InvalidPort { source } => {
+            DriverSessionConfigError::InvalidPort { source } => {
                 let message = "Invalid port value: expected an integer between 0 and 65535.";
 
                 build_session_config_pyerr(py, message, Some(*source), None)
             }
 
-            SessionConfigError::ContactPointsTypeError => {
+            DriverSessionConfigError::ContactPointsTypeError => {
                 let message = "contact_points should be a sequence of strings, not a string!";
 
                 build_session_config_pyerr(py, message, None, None)
             }
 
-            SessionConfigError::ContactPointsNotIterable { source } => {
+            DriverSessionConfigError::ContactPointsNotIterable { source } => {
                 let message = "contact_points is not iterable: expected a sequence of strings (e.g. list or tuple) for contact_points";
 
                 build_session_config_pyerr(py, message, Some(*source), None)
             }
 
-            SessionConfigError::ContactPointAccessFailed { index, source } => {
+            DriverSessionConfigError::ContactPointAccessFailed { index, source } => {
                 let message = format!("Failed to access contact point at index {index}");
 
                 build_session_config_pyerr(py, message, Some(*source), Some(index))
             }
 
-            SessionConfigError::ContactPointTypeError { index, source } => {
+            DriverSessionConfigError::ContactPointTypeError { index, source } => {
                 let message =
                     format!("Invalid contact point type at index {index}: expected a string");
 
                 build_session_config_pyerr(py, message, Some(*source), Some(index))
             }
 
-            SessionConfigError::ContactPointConversionFailed { index, source } => {
+            DriverSessionConfigError::ContactPointConversionFailed { index, source } => {
                 let message = format!(
                     "Failed to convert contact point at index {index} to string (e.g. invalid UTF-8)"
                 );
@@ -595,14 +589,14 @@ impl From<SessionConfigError> for PyErr {
 /// Errors that can occur during conversion of Python objects into statements for execution.
 #[derive(Debug)]
 #[must_use]
-pub enum StatementConversionError {
+pub enum DriverStatementConversionError {
     /// The provided statement argument is of an unsupported type.
     InvalidStatementType { got: String },
     /// Failed to convert a Python string object into a Rust string when extracting a statement.
     StatementStringConversionFailed { source: Box<PyErr> },
 }
 
-impl StatementConversionError {
+impl DriverStatementConversionError {
     /* Constructors */
 
     pub fn invalid_statement_type(got: String) -> Self {
@@ -616,17 +610,17 @@ impl StatementConversionError {
     }
 }
 
-impl From<StatementConversionError> for PyErr {
-    fn from(e: StatementConversionError) -> PyErr {
+impl From<DriverStatementConversionError> for PyErr {
+    fn from(e: DriverStatementConversionError) -> PyErr {
         Python::attach(|py| match e {
-            StatementConversionError::InvalidStatementType { got } => {
-                StatementConversionErrorPy::new_err(format!(
+            DriverStatementConversionError::InvalidStatementType { got } => {
+                StatementConversionError::new_err(format!(
                     "Invalid statement type: expected a str, Statement, or PreparedStatement, got {got}"
                 ))
             }
 
-            StatementConversionError::StatementStringConversionFailed { source } => {
-                let err = StatementConversionErrorPy::new_err(
+            DriverStatementConversionError::StatementStringConversionFailed { source } => {
+                let err = StatementConversionError::new_err(
                     "Failed to convert statement string to Rust string",
                 );
 
@@ -641,7 +635,7 @@ impl From<StatementConversionError> for PyErr {
 /// excluding deserialization errors which are represented separately in RowIterationError.
 #[derive(Debug)]
 #[must_use]
-pub enum ExecuteError {
+pub enum DriverExecuteError {
     /// paging_state parameter in session.execute must be None.
     PagingStateMustBeNoneForUnpagedExecution,
     /// The Rust driver failed while executing a query.
@@ -652,7 +646,7 @@ pub enum ExecuteError {
     RuntimeTaskJoinFailed { message: Box<str> },
 }
 
-impl ExecuteError {
+impl DriverExecuteError {
     /* Constructors */
 
     pub fn paging_state_must_be_none_for_unpaged_execution() -> Self {
@@ -672,39 +666,39 @@ impl ExecuteError {
     }
 }
 
-impl From<ExecuteError> for PyErr {
-    fn from(e: ExecuteError) -> PyErr {
+impl From<DriverExecuteError> for PyErr {
+    fn from(e: DriverExecuteError) -> PyErr {
         match e {
-            ExecuteError::PagingStateMustBeNoneForUnpagedExecution => {
-                ExecuteErrorPy::new_err("Paging state must be None for unpaged execution")
+            DriverExecuteError::PagingStateMustBeNoneForUnpagedExecution => {
+                ExecuteError::new_err("Paging state must be None for unpaged execution")
             }
 
-            ExecuteError::RustDriverExecutionError { source } => {
+            DriverExecuteError::RustDriverExecutionError { source } => {
                 let message = format!("Failed to execute statement: {source}");
 
-                ExecuteErrorPy::new_err(message)
+                ExecuteError::new_err(message)
             }
 
-            ExecuteError::RuntimeTaskJoinFailed { message } => ExecuteErrorPy::new_err(format!(
-                "Internal driver error: runtime error while executing query: {message}"
-            )),
+            DriverExecuteError::RuntimeTaskJoinFailed { message } => ExecuteError::new_err(
+                format!("Internal driver error: runtime error while executing query: {message}"),
+            ),
         }
     }
 }
 
 // Allow converting a tokio::task::JoinError into ExecuteError
 // so that callers that spawn tasks can map JoinError -> ExecuteError via the `From` trait.
-impl From<tokio::task::JoinError> for ExecuteError {
+impl From<tokio::task::JoinError> for DriverExecuteError {
     fn from(err: tokio::task::JoinError) -> Self {
         // Use the existing constructor which accepts JoinError
-        ExecuteError::runtime_task_join_failed(err)
+        DriverExecuteError::runtime_task_join_failed(err)
     }
 }
 
 /// Errors that can occur during preparation of a statement.
 #[derive(Debug)]
 #[must_use]
-pub enum PrepareError {
+pub enum DriverPrepareError {
     /// The Rust driver failed while preparing a statement.
     #[allow(clippy::enum_variant_names)]
     RustDriverPrepareError {
@@ -714,7 +708,7 @@ pub enum PrepareError {
     CannotPreparePreparedStatement,
 }
 
-impl PrepareError {
+impl DriverPrepareError {
     /* Constructors */
 
     pub fn rust_driver_prepare_error(source: scylla::errors::PrepareError) -> Self {
@@ -728,16 +722,16 @@ impl PrepareError {
     }
 }
 
-impl From<PrepareError> for PyErr {
-    fn from(e: PrepareError) -> PyErr {
+impl From<DriverPrepareError> for PyErr {
+    fn from(e: DriverPrepareError) -> PyErr {
         match e {
-            PrepareError::RustDriverPrepareError { source } => {
+            DriverPrepareError::RustDriverPrepareError { source } => {
                 let message = format!("Failed to prepare statement: {source}");
 
-                PrepareErrorPy::new_err(message)
+                PrepareError::new_err(message)
             }
 
-            PrepareError::CannotPreparePreparedStatement => PrepareErrorPy::new_err(
+            DriverPrepareError::CannotPreparePreparedStatement => PrepareError::new_err(
                 "Cannot prepare a PreparedStatement; expected a str or Statement",
             ),
         }
@@ -747,7 +741,7 @@ impl From<PrepareError> for PyErr {
 /// Errors that can occur during schema agreement checks.
 #[derive(Debug)]
 #[must_use]
-pub enum SchemaAgreementError {
+pub enum DriverSchemaAgreementError {
     /// The Rust driver failed to check for schema agreement.
     RustDriverSchemaAgreementError {
         source: Box<scylla::errors::SchemaAgreementError>,
@@ -756,7 +750,7 @@ pub enum SchemaAgreementError {
     RuntimeTaskJoinFailed { message: Box<str> },
 }
 
-impl SchemaAgreementError {
+impl DriverSchemaAgreementError {
     /* Constructors */
 
     pub fn rust_driver_schema_agreement_error(
@@ -774,17 +768,17 @@ impl SchemaAgreementError {
     }
 }
 
-impl From<SchemaAgreementError> for PyErr {
-    fn from(e: SchemaAgreementError) -> PyErr {
+impl From<DriverSchemaAgreementError> for PyErr {
+    fn from(e: DriverSchemaAgreementError) -> PyErr {
         match e {
-            SchemaAgreementError::RustDriverSchemaAgreementError { source } => {
+            DriverSchemaAgreementError::RustDriverSchemaAgreementError { source } => {
                 let message = format!("Failed to check schema agreement: {source}");
 
-                SchemaAgreementErrorPy::new_err(message)
+                SchemaAgreementError::new_err(message)
             }
 
-            SchemaAgreementError::RuntimeTaskJoinFailed { message } => {
-                SchemaAgreementErrorPy::new_err(format!(
+            DriverSchemaAgreementError::RuntimeTaskJoinFailed { message } => {
+                SchemaAgreementError::new_err(format!(
                     "Internal driver error: runtime error while checking schema agreement: {message}"
                 ))
             }
@@ -794,23 +788,23 @@ impl From<SchemaAgreementError> for PyErr {
 
 // Allow converting a tokio::task::JoinError into SchemaAgreementError
 // so that callers that spawn tasks can map JoinError -> SchemaAgreementError via the `From` trait.
-impl From<tokio::task::JoinError> for SchemaAgreementError {
+impl From<tokio::task::JoinError> for DriverSchemaAgreementError {
     fn from(err: tokio::task::JoinError) -> Self {
-        SchemaAgreementError::runtime_task_join_failed(err)
+        DriverSchemaAgreementError::runtime_task_join_failed(err)
     }
 }
 
 /// Errors related to invalid statement configuration.
 #[derive(Debug)]
 #[must_use]
-pub enum StatementConfigError {
+pub enum DriverStatementConfigError {
     /// The provided request timeout is not a positive finite number of seconds.
     InvalidRequestTimeout { value: f64 },
     /// Failed to convert the provided request timeout value into a valid duration.
     RequestTimeoutConversionFailed { value: f64 },
 }
 
-impl StatementConfigError {
+impl DriverStatementConfigError {
     /* Constructors */
 
     pub fn invalid_request_timeout(value: f64) -> Self {
@@ -822,16 +816,16 @@ impl StatementConfigError {
     }
 }
 
-impl From<StatementConfigError> for PyErr {
-    fn from(e: StatementConfigError) -> PyErr {
+impl From<DriverStatementConfigError> for PyErr {
+    fn from(e: DriverStatementConfigError) -> PyErr {
         match e {
-            StatementConfigError::InvalidRequestTimeout { value } => {
-                StatementConfigErrorPy::new_err(format!(
+            DriverStatementConfigError::InvalidRequestTimeout { value } => {
+                StatementConfigError::new_err(format!(
                     "timeout must be a positive, finite number (in seconds), got {value}"
                 ))
             }
-            StatementConfigError::RequestTimeoutConversionFailed { value } => {
-                StatementConfigErrorPy::new_err(format!(
+            DriverStatementConfigError::RequestTimeoutConversionFailed { value } => {
+                StatementConfigError::new_err(format!(
                     "Failed to convert timeout value {value} to a valid duration"
                 ))
             }
@@ -842,7 +836,7 @@ impl From<StatementConfigError> for PyErr {
 /// Errors related to batch execution and batch statement configuration.
 #[derive(Debug)]
 #[must_use]
-pub enum BatchError {
+pub enum DriverBatchError {
     /// The provided request timeout is not a positive finite number of seconds.
     InvalidRequestTimeout { value: f64 },
     /// Failed to convert the provided request timeout value into a valid duration.
@@ -851,7 +845,7 @@ pub enum BatchError {
     PythonConversionFailed { source: Box<PyErr> },
 }
 
-impl BatchError {
+impl DriverBatchError {
     /* Constructors */
 
     pub fn invalid_request_timeout(value: f64) -> Self {
@@ -869,18 +863,18 @@ impl BatchError {
     }
 }
 
-impl From<BatchError> for PyErr {
-    fn from(e: BatchError) -> PyErr {
+impl From<DriverBatchError> for PyErr {
+    fn from(e: DriverBatchError) -> PyErr {
         match e {
-            BatchError::InvalidRequestTimeout { value } => BatchErrorPy::new_err(format!(
+            DriverBatchError::InvalidRequestTimeout { value } => BatchError::new_err(format!(
                 "timeout must be a positive, finite number (in seconds), got {value}"
             )),
-            BatchError::RequestTimeoutConversionFailed { value } => BatchErrorPy::new_err(format!(
-                "Failed to convert timeout value {value} to a valid duration"
-            )),
-            BatchError::PythonConversionFailed { source } => Python::attach(|py| {
+            DriverBatchError::RequestTimeoutConversionFailed { value } => BatchError::new_err(
+                format!("Failed to convert timeout value {value} to a valid duration"),
+            ),
+            DriverBatchError::PythonConversionFailed { source } => Python::attach(|py| {
                 let err =
-                    BatchErrorPy::new_err("Python conversion failed while handling batch value");
+                    BatchError::new_err("Python conversion failed while handling batch value");
 
                 err.set_cause(py, Some(*source));
                 err
@@ -1124,7 +1118,7 @@ impl From<DriverSerializationError> for PyErr {
 
                     build_serialization_pyerr(
                         py,
-                        UnsupportedTypeSerializationErrorPy::new_err(message),
+                        UnsupportedTypeSerializationError::new_err(message),
                         &e.location,
                         None,
                     )
@@ -1139,7 +1133,7 @@ impl From<DriverSerializationError> for PyErr {
 
                     build_serialization_pyerr(
                         py,
-                        TypeMismatchSerializationErrorPy::new_err(message),
+                        TypeMismatchSerializationError::new_err(message),
                         &e.location,
                         None,
                     )
@@ -1154,7 +1148,7 @@ impl From<DriverSerializationError> for PyErr {
 
                     build_serialization_pyerr(
                         py,
-                        ValueOverflowSerializationErrorPy::new_err(message),
+                        ValueOverflowSerializationError::new_err(message),
                         &e.location,
                         None,
                     )
@@ -1169,7 +1163,7 @@ impl From<DriverSerializationError> for PyErr {
 
                     build_serialization_pyerr(
                         py,
-                        PySerializationFailedErrorPy::new_err(message),
+                        PySerializationFailedError::new_err(message),
                         &e.location,
                         Some(*source),
                     )
@@ -1185,7 +1179,7 @@ impl From<DriverSerializationError> for PyErr {
 
                     build_serialization_pyerr(
                         py,
-                        SerializeFailedErrorPy::new_err(message),
+                        SerializeFailedError::new_err(message),
                         &e.location,
                         None,
                     )
@@ -1203,58 +1197,61 @@ impl From<DriverSerializationError> for scylla::serialize::SerializationError {
 
 #[pymodule]
 pub(crate) fn errors(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add("ScyllaError", py.get_type::<ScyllaErrorPy>())?;
-    module.add("RowIterationError", py.get_type::<RowIterationErrorPy>())?;
+    module.add("ScyllaError", py.get_type::<ScyllaError>())?;
+    module.add("RowIterationError", py.get_type::<RowIterationError>())?;
     module.add(
         "DeserializationError",
-        py.get_type::<DeserializationErrorPy>(),
+        py.get_type::<DeserializationError>(),
     )?;
     module.add(
         "UnsupportedTypeDeserializationError",
-        py.get_type::<UnsupportedTypeDeserializationErrorPy>(),
+        py.get_type::<UnsupportedTypeDeserializationError>(),
     )?;
-    module.add("DecodeFailedError", py.get_type::<DecodeFailedErrorPy>())?;
+    module.add("DecodeFailedError", py.get_type::<DecodeFailedError>())?;
     module.add(
         "PyConversionFailedError",
-        py.get_type::<PyConversionFailedErrorPy>(),
+        py.get_type::<PyConversionFailedError>(),
     )?;
-    module.add("ConnectionError", py.get_type::<ConnectionErrorPy>())?;
-    module.add("SessionConfigError", py.get_type::<SessionConfigErrorPy>())?;
+    module.add(
+        "SessionConnectionError",
+        py.get_type::<SessionConnectionError>(),
+    )?;
+    module.add("SessionConfigError", py.get_type::<SessionConfigError>())?;
     module.add(
         "StatementConversionError",
-        py.get_type::<StatementConversionErrorPy>(),
+        py.get_type::<StatementConversionError>(),
     )?;
-    module.add("PrepareError", py.get_type::<PrepareErrorPy>())?;
+    module.add("PrepareError", py.get_type::<PrepareError>())?;
     module.add(
         "SchemaAgreementError",
-        py.get_type::<SchemaAgreementErrorPy>(),
+        py.get_type::<SchemaAgreementError>(),
     )?;
-    module.add("ExecuteError", py.get_type::<ExecuteErrorPy>())?;
+    module.add("ExecuteError", py.get_type::<ExecuteError>())?;
     module.add(
         "StatementConfigError",
-        py.get_type::<StatementConfigErrorPy>(),
+        py.get_type::<StatementConfigError>(),
     )?;
-    module.add("BatchError", py.get_type::<BatchErrorPy>())?;
-    module.add("SerializationError", py.get_type::<SerializationErrorPy>())?;
+    module.add("BatchError", py.get_type::<BatchError>())?;
+    module.add("SerializationError", py.get_type::<SerializationError>())?;
     module.add(
         "UnsupportedTypeSerializationError",
-        py.get_type::<UnsupportedTypeSerializationErrorPy>(),
+        py.get_type::<UnsupportedTypeSerializationError>(),
     )?;
     module.add(
         "TypeMismatchSerializationError",
-        py.get_type::<TypeMismatchSerializationErrorPy>(),
+        py.get_type::<TypeMismatchSerializationError>(),
     )?;
     module.add(
         "ValueOverflowSerializationError",
-        py.get_type::<ValueOverflowSerializationErrorPy>(),
+        py.get_type::<ValueOverflowSerializationError>(),
     )?;
     module.add(
         "SerializeFailedError",
-        py.get_type::<SerializeFailedErrorPy>(),
+        py.get_type::<SerializeFailedError>(),
     )?;
     module.add(
         "PySerializationFailedError",
-        py.get_type::<PySerializationFailedErrorPy>(),
+        py.get_type::<PySerializationFailedError>(),
     )?;
     Ok(())
 }

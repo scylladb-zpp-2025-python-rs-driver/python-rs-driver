@@ -1,5 +1,5 @@
 use crate::enums::{Consistency, SerialConsistency};
-use crate::errors::BatchError;
+use crate::errors::DriverBatchError;
 use crate::execution_profile::ExecutionProfile;
 use crate::serialize::value_list::PyValueList;
 use crate::session::ExecutableStatement;
@@ -154,31 +154,31 @@ impl PyBatch {
     }
 
     #[getter]
-    fn get_serial_consistency(&self, py: Python) -> Result<Py<PyAny>, BatchError> {
+    fn get_serial_consistency(&self, py: Python) -> Result<Py<PyAny>, DriverBatchError> {
         if !self.is_serial_consistency_set {
             return UnsetType::get_instance(py)
                 .into_py_any(py)
-                .map_err(BatchError::python_conversion_failed);
+                .map_err(DriverBatchError::python_conversion_failed);
         }
         match self._inner.get_serial_consistency() {
             Some(sc) => SerialConsistency::to_python(sc)
                 .into_py_any(py)
-                .map_err(BatchError::python_conversion_failed),
+                .map_err(DriverBatchError::python_conversion_failed),
             None => Ok(py.None()),
         }
     }
 
-    fn with_request_timeout(&self, timeout: Option<f64>) -> Result<PyBatch, BatchError> {
+    fn with_request_timeout(&self, timeout: Option<f64>) -> Result<PyBatch, DriverBatchError> {
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
-            return Err(BatchError::invalid_request_timeout(secs));
+            return Err(DriverBatchError::invalid_request_timeout(secs));
         }
 
         let timeout = match timeout {
             None => Duration::MAX,
             Some(secs) => Duration::try_from_secs_f64(secs)
-                .map_err(|_| BatchError::request_timeout_conversion_failed(secs))?,
+                .map_err(|_| DriverBatchError::request_timeout_conversion_failed(secs))?,
         };
 
         let mut batch = self._inner.clone();
@@ -201,15 +201,15 @@ impl PyBatch {
     }
 
     #[getter]
-    fn get_request_timeout(&self, py: Python) -> Result<Py<PyAny>, BatchError> {
+    fn get_request_timeout(&self, py: Python) -> Result<Py<PyAny>, DriverBatchError> {
         match self._inner.get_request_timeout() {
             Some(t) if t == Duration::MAX => Ok(py.None()),
             Some(t) => PyFloat::new(py, t.as_secs_f64())
                 .into_py_any(py)
-                .map_err(BatchError::python_conversion_failed),
+                .map_err(DriverBatchError::python_conversion_failed),
             None => UnsetType::get_instance(py)
                 .into_py_any(py)
-                .map_err(BatchError::python_conversion_failed),
+                .map_err(DriverBatchError::python_conversion_failed),
         }
     }
 }

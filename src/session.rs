@@ -3,7 +3,10 @@ use std::sync::Arc;
 use crate::RUNTIME;
 use crate::batch::PyBatch;
 use crate::deserialize::results::{Pager, PyPagingState, RequestResult, RowFactory};
-use crate::errors::{ExecuteError, PrepareError, SchemaAgreementError, StatementConversionError};
+use crate::errors::{
+    DriverExecuteError, DriverPrepareError, DriverSchemaAgreementError,
+    DriverStatementConversionError,
+};
 use crate::serialize::value_list::PyValueList;
 use crate::statement::PreparedStatement;
 use crate::statement::Statement;
@@ -33,7 +36,7 @@ impl Session {
         factory: Option<Py<RowFactory>>,
         paging_state: Option<Py<PyPagingState>>,
         paged: bool,
-    ) -> Result<RequestResult, ExecuteError> {
+    ) -> Result<RequestResult, DriverExecuteError> {
         // Why not accept PyValueList instead of Option<PyValueList>?
         // It would require us to use `Default::default` as default value in
         // `pyo3(signature = ...)`, and thus use `text_signature` as well
@@ -46,7 +49,7 @@ impl Session {
                 .await
         } else {
             if paging_state.is_some() {
-                return Err(ExecuteError::paging_state_must_be_none_for_unpaged_execution());
+                return Err(DriverExecuteError::paging_state_must_be_none_for_unpaged_execution());
             }
 
             self.execute_unpaged(statement, values, factory).await
@@ -56,11 +59,11 @@ impl Session {
     async fn prepare(
         &self,
         statement: ExecutableStatement,
-    ) -> Result<PreparedStatement, PrepareError> {
+    ) -> Result<PreparedStatement, DriverPrepareError> {
         match statement {
             ExecutableStatement::Unprepared(s) => self.scylla_prepare(s).await,
             ExecutableStatement::Prepared(_) => {
-                Err(PrepareError::cannot_prepare_prepared_statement())
+                Err(DriverPrepareError::cannot_prepare_prepared_statement())
             }
         }
     }
@@ -70,36 +73,38 @@ impl Session {
         &self,
         batch: PyBatch,
         factory: Option<Py<RowFactory>>,
-    ) -> Result<RequestResult, ExecuteError> {
+    ) -> Result<RequestResult, DriverExecuteError> {
         let result = self
             .session_spawn_on_runtime(async move |s| {
                 s.batch(&batch._inner, batch.values)
                     .await
-                    .map_err(ExecuteError::rust_driver_execution_error)
+                    .map_err(DriverExecuteError::rust_driver_execution_error)
             })
             .await?;
 
         Ok(RequestResult::new(result, Pager::unpaged(), factory))
     }
 
-    async fn await_schema_agreement(&self) -> Result<uuid::Uuid, SchemaAgreementError> {
+    async fn await_schema_agreement(&self) -> Result<uuid::Uuid, DriverSchemaAgreementError> {
         let schema_version = self
             .session_spawn_on_runtime(async move |s| {
                 s.await_schema_agreement()
                     .await
-                    .map_err(SchemaAgreementError::rust_driver_schema_agreement_error)
+                    .map_err(DriverSchemaAgreementError::rust_driver_schema_agreement_error)
             })
             .await?;
 
         Ok(schema_version)
     }
 
-    async fn check_schema_agreement(&self) -> Result<Option<uuid::Uuid>, SchemaAgreementError> {
+    async fn check_schema_agreement(
+        &self,
+    ) -> Result<Option<uuid::Uuid>, DriverSchemaAgreementError> {
         let schema_version = self
             .session_spawn_on_runtime(async move |s| {
                 s.check_schema_agreement()
                     .await
-                    .map_err(SchemaAgreementError::rust_driver_schema_agreement_error)
+                    .map_err(DriverSchemaAgreementError::rust_driver_schema_agreement_error)
             })
             .await?;
 
@@ -113,14 +118,14 @@ impl Session {
         statement: ExecutableStatement,
         values: PyValueList,
         factory: Option<Py<RowFactory>>,
-    ) -> Result<RequestResult, ExecuteError> {
+    ) -> Result<RequestResult, DriverExecuteError> {
         let result = self
             .session_spawn_on_runtime(async move |s| {
                 match statement {
                     ExecutableStatement::Prepared(p) => s.execute_unpaged(&p, values).await,
                     ExecutableStatement::Unprepared(q) => s.query_unpaged(q, values).await,
                 }
-                .map_err(ExecuteError::rust_driver_execution_error)
+                .map_err(DriverExecuteError::rust_driver_execution_error)
             })
             .await?;
 
@@ -133,7 +138,7 @@ impl Session {
         paging_state: Option<Py<PyPagingState>>,
         values: PyValueList,
         factory: Option<Py<RowFactory>>,
-    ) -> Result<RequestResult, ExecuteError> {
+    ) -> Result<RequestResult, DriverExecuteError> {
         let paging_state = if let Some(state) = paging_state {
             Python::attach(|py| state.borrow(py).inner.clone())
         } else {
@@ -169,10 +174,10 @@ impl Session {
     async fn scylla_prepare(
         &self,
         statement: impl Into<statement::Statement>,
-    ) -> Result<PreparedStatement, PrepareError> {
+    ) -> Result<PreparedStatement, DriverPrepareError> {
         match self._inner.prepare(statement).await {
             Ok(prepared) => Ok(PreparedStatement { _inner: prepared }),
-            Err(err) => Err(PrepareError::rust_driver_prepare_error(err)),
+            Err(err) => Err(DriverPrepareError::rust_driver_prepare_error(err)),
         }
     }
 
@@ -181,7 +186,7 @@ impl Session {
         paging_state: PagingState,
         query_request: ExecutableStatement,
         values: PyValueList,
-    ) -> Result<(QueryResult, PagingStateResponse), ExecuteError> {
+    ) -> Result<(QueryResult, PagingStateResponse), DriverExecuteError> {
         self.session_spawn_on_runtime(async move |s| {
             match query_request {
                 ExecutableStatement::Prepared(p) => {
@@ -191,7 +196,7 @@ impl Session {
                     s.query_single_page(q, values, paging_state).await
                 }
             }
-            .map_err(ExecuteError::rust_driver_execution_error)
+            .map_err(DriverExecuteError::rust_driver_execution_error)
         })
         .await
     }
@@ -204,7 +209,7 @@ pub(crate) enum ExecutableStatement {
 }
 
 impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
-    type Error = StatementConversionError;
+    type Error = DriverStatementConversionError;
 
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         if let Ok(prepared) = obj.cast::<PreparedStatement>() {
@@ -214,7 +219,7 @@ impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
         if let Ok(text) = obj.cast::<PyString>() {
             let text = text
                 .to_str()
-                .map_err(StatementConversionError::statement_string_conversion_failed)?;
+                .map_err(DriverStatementConversionError::statement_string_conversion_failed)?;
             return Ok(ExecutableStatement::Unprepared(text.into()));
         }
 
@@ -230,7 +235,7 @@ impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
             .map(|name| name.to_string())
             .unwrap_or_else(|_| "<unknown type>".to_string());
 
-        Err(StatementConversionError::invalid_statement_type(got))
+        Err(DriverStatementConversionError::invalid_statement_type(got))
     }
 }
 

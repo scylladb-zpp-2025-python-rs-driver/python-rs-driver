@@ -3,7 +3,7 @@ use scylla::client;
 use std::time::Duration;
 
 use crate::enums::{Consistency, SerialConsistency};
-use crate::errors::StatementConfigError;
+use crate::errors::DriverStatementConfigError;
 
 #[pyclass(frozen, from_py_object)]
 #[derive(Clone)]
@@ -23,18 +23,18 @@ impl ExecutionProfile {
         timeout: Option<f64>,
         consistency: Consistency,
         serial_consistency: Option<SerialConsistency>,
-    ) -> Result<Self, StatementConfigError> {
+    ) -> Result<Self, DriverStatementConfigError> {
         let mut profile_builder = client::execution_profile::ExecutionProfile::builder();
 
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
-            return Err(StatementConfigError::InvalidRequestTimeout { value: secs });
+            return Err(DriverStatementConfigError::InvalidRequestTimeout { value: secs });
         }
 
         if let Some(secs) = timeout {
             let duration = Duration::try_from_secs_f64(secs)
-                .map_err(|_| StatementConfigError::request_timeout_conversion_failed(secs))?;
+                .map_err(|_| DriverStatementConfigError::request_timeout_conversion_failed(secs))?;
 
             profile_builder = profile_builder.request_timeout(Some(duration));
         }
