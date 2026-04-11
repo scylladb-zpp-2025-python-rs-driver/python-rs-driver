@@ -4,6 +4,7 @@ from scylla.execution_profile import ExecutionProfile
 from scylla.session_builder import SessionBuilder
 from scylla.statement import PreparedStatement, Statement
 from scylla.types import Unset
+from scylla.errors import ExecuteError, StatementConfigError
 
 
 def test_execution_profile_builder():
@@ -12,26 +13,30 @@ def test_execution_profile_builder():
 
 
 def test_execution_profile_negative_timeout():
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(StatementConfigError) as exc_info:
         ExecutionProfile(timeout=-1.0)
+
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
 def test_execution_profile_zero_timeout():
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(StatementConfigError) as exc_info:
         ExecutionProfile(timeout=0.0)
+
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
 def test_execution_profile_nan_timeout():
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(StatementConfigError) as exc_info:
         ExecutionProfile(timeout=float("nan"))
+
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
 def test_execution_profile_infinity_timeout():
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(StatementConfigError) as exc_info:
         ExecutionProfile(timeout=float("inf"))
+
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
@@ -79,9 +84,9 @@ async def test_invalid_consistency_for_query():
     profile = ExecutionProfile(consistency=Consistency.Three)
     builder = SessionBuilder(["127.0.0.2"], 9042, execution_profile=profile)
     session = await builder.connect()
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(ExecuteError) as exc_info:
         _ = await session.execute("SELECT * FROM system.local")
-        assert "Not enough nodes are alive to satisfy required consistency level" in str(exc_info.value)
+    assert "failed to execute statement" in str(exc_info.value).lower()
 
 
 @pytest.mark.asyncio
@@ -91,9 +96,9 @@ async def test_invalid_consistency_for_prepared_statement():
     builder = SessionBuilder(["127.0.0.2"], 9042, execution_profile=profile)
     session = await builder.connect()
     prepared = await session.prepare("SELECT * FROM system.local")
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(ExecuteError) as exc_info:
         _ = await session.execute(prepared)
-        assert "Not enough nodes are alive to satisfy required consistency level" in str(exc_info.value)
+    assert "failed to execute statement" in str(exc_info.value).lower()
 
 
 def test_statement_creation():
@@ -170,28 +175,28 @@ def test_statement_without_request_timeout():
 
 def test_statement_with_negative_timeout():
     stmt = Statement("SELECT * FROM system.local")
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(StatementConfigError) as exc_info:
         stmt.with_request_timeout(-1.0)
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
 def test_statement_with_zero_timeout():
     stmt = Statement("SELECT * FROM system.local")
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(StatementConfigError) as exc_info:
         stmt.with_request_timeout(0.0)
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
 def test_statement_with_nan_timeout():
     stmt = Statement("SELECT * FROM system.local")
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(StatementConfigError) as exc_info:
         stmt.with_request_timeout(float("nan"))
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
 def test_statement_with_infinity_timeout():
     stmt = Statement("SELECT * FROM system.local")
-    with pytest.raises(ValueError) as exc_info:
+    with pytest.raises(StatementConfigError) as exc_info:
         stmt.with_request_timeout(float("inf"))
     assert "timeout must be a positive, finite number" in str(exc_info.value)
 
@@ -236,9 +241,9 @@ async def test_invalid_consistency_for_statement():
     builder = SessionBuilder(["127.0.0.2"], 9042)
     session = await builder.connect()
     stmt = Statement("SELECT * FROM system.local").with_consistency(Consistency.Three)
-    with pytest.raises(RuntimeError) as exc_info:
+    with pytest.raises(ExecuteError) as exc_info:
         _ = await session.execute(stmt)
-        assert "Not enough nodes are alive to satisfy required consistency level" in str(exc_info.value)
+    assert "failed to execute statement" in str(exc_info.value).lower()
 
 
 @pytest.mark.asyncio
@@ -372,6 +377,20 @@ async def test_prepared_with_and_without_request_timeout():
     assert type(actual_timeout) is type(Unset)
     assert actual_timeout is Unset
     assert str(actual_timeout) == "Unset"
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_with_negative_timeout():
+    builder = SessionBuilder(["127.0.0.2"], 9042)
+    session = await builder.connect()
+
+    prepared = await session.prepare("SELECT * FROM system.local")
+
+    with pytest.raises(StatementConfigError) as exc_info:
+        prepared.with_request_timeout(-1.0)
+
+    assert "timeout must be a positive, finite number" in str(exc_info.value)
 
 
 @pytest.mark.asyncio

@@ -1,13 +1,14 @@
 use crate::deserialize::value::{PyDeserializeValue, PyDeserializedValue};
-use crate::deserialize::{IntoPyDeserError, PyDeserializationError};
+use crate::errors::{DriverDeserializationError, DriverExecuteError, DriverRowIterationError};
 use crate::serialize::value_list::PyValueList;
 use crate::session::{ExecutableStatement, Session};
 use pyo3::exceptions::{PyRuntimeError, PyStopAsyncIteration, PyStopIteration};
 use pyo3::prelude::{PyDictMethods, PyListMethods, PyModule, PyModuleMethods};
-use pyo3::types::{PyDict, PyList, PyNone, PyString, PyTuple};
+use pyo3::types::{PyDict, PyList, PyString, PyTuple};
 use pyo3::{
     Bound, Py, PyAny, PyErr, PyRef, PyRefMut, PyResult, Python, pyclass, pymethods, pymodule,
 };
+use scylla::deserialize::DeserializationError as ScyllaDeserializationError;
 use scylla::response::query_result::QueryResult;
 use scylla_cql::deserialize::FrameSlice;
 use scylla_cql::deserialize::result::RawRowIterator;
@@ -144,9 +145,10 @@ impl RequestResult {
             RowsIteratorKind::new(py, self.query_result.clone(), self.row_factory.clone())
         })?;
 
-        next_row_with_paging(&mut rows_iterator, &mut query_pager_clone)
-            .await
-            .unwrap_or(Ok(Python::attach(|py| PyNone::get(py).to_owned().into())))
+        match next_row_with_paging(&mut rows_iterator, &mut query_pager_clone).await {
+            Some(res) => res.map_err(Into::into),
+            None => Ok(Python::attach(|py| py.None())),
+        }
     }
 
     /// Returns all rows from all pages with automatic paging.
@@ -228,9 +230,10 @@ impl SinglePageIterator {
             PyErr::new::<PyRuntimeError, _>("SinglePageIterator mutex was poisoned")
         })?;
 
-        guard
-            .next(py)
-            .unwrap_or(Err(PyErr::new::<PyStopIteration, _>("")))
+        match guard.next(py) {
+            Some(res) => res.map_err(Into::into),
+            None => Err(PyErr::new::<PyStopIteration, _>("")),
+        }
     }
 
     pub fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
@@ -334,9 +337,10 @@ impl AsyncRowsIterator {
                 query_pager,
             } = &mut *state;
 
-            next_row_with_paging(rows_iterator, query_pager)
-                .await
-                .unwrap_or(Err(PyErr::new::<PyStopAsyncIteration, _>("")))
+            match next_row_with_paging(rows_iterator, query_pager).await {
+                Some(res) => res.map_err(Into::into),
+                None => Err(PyErr::new::<PyStopAsyncIteration, _>("")),
+            }
         })
     }
 
@@ -359,7 +363,7 @@ struct AsyncIteratorState {
 async fn next_row_with_paging(
     rows_iterator: &mut RowsIteratorKind,
     query_pager: &mut Pager,
-) -> Option<PyResult<Py<PyAny>>> {
+) -> Option<Result<Py<PyAny>, DriverRowIterationError>> {
     loop {
         if let Some(row) = Python::attach(|py| rows_iterator.next(py)) {
             return Some(row);
@@ -367,11 +371,11 @@ async fn next_row_with_paging(
 
         let query_result = match query_pager.fetch_next_page().await? {
             Ok(p) => p,
-            Err(e) => return Some(Err(e)),
+            Err(e) => return Some(Err(DriverRowIterationError::FailedToFetchNextPage(e))),
         };
 
         if let Err(err) = Python::attach(|py| rows_iterator.update(py, Arc::new(query_result))) {
-            return Some(Err(err));
+            return Some(Err(DriverRowIterationError::PythonError(err)));
         }
     }
 }
@@ -444,26 +448,46 @@ impl RowColumnCursor {
         }
     }
 
-    fn next_column(&mut self, py: Python<'_>) -> PyResult<Column> {
-        self.yoked.with_mut_return(|view| view.next_column())?;
+    fn next_column(
+        &mut self,
+        py: Python<'_>,
+    ) -> Option<Result<Column, DriverDeserializationError>> {
+        if let Err(err) = self
+            .yoked
+            .with_mut_return(|view: &mut Cursor<'_>| view.next_column())
+            .map_err(DriverDeserializationError::scylla_decode_failed)
+        {
+            return Some(Err(err));
+        }
 
         let cursor = self.yoked.get();
-        let (column_index, raw_col) = cursor
-            .current_raw_column
-            .as_ref()
-            .ok_or_else(|| PyErr::new::<PyStopIteration, _>(""))?;
 
-        let value = PyDeserializedValue::deserialize_py(raw_col.spec.typ(), raw_col.slice, py)?;
+        // If `current_raw_column` is None, it means all columns of the current row have been exhausted.
+        let (column_index, raw_col) = cursor.current_raw_column.as_ref()?;
+
+        let value = match PyDeserializedValue::deserialize_py(raw_col.spec.typ(), raw_col.slice, py)
+        {
+            Ok(value) => value,
+            Err(err) => {
+                return Some(Err(err
+                    .at_column_name(raw_col.spec.name())
+                    .at_column_index(*column_index)));
+            }
+        };
+
         let column_name = Py::clone_ref(&self.column_names[*column_index], py);
 
-        Ok(Column { column_name, value })
+        Some(Ok(Column { column_name, value }))
     }
 }
 
 #[pymethods]
 impl RowColumnCursor {
     pub fn __next__(&mut self, py: Python<'_>) -> PyResult<Column> {
-        self.next_column(py)
+        match self.next_column(py) {
+            Some(res) => res.map_err(Into::into),
+            None => Err(PyErr::new::<PyStopIteration, _>("")),
+        }
     }
     pub fn __iter__(slf: PyRefMut<'_, Self>) -> PyRefMut<'_, Self> {
         slf
@@ -527,22 +551,22 @@ impl RowFactory {
     ///
     /// Raises
     /// ------
-    /// RuntimeError
-    ///     If deserialization of any column fails.
+    /// DeserializationError
+    ///     If any column cannot be deserialized into a Python object.
+    /// RowIterationError
+    ///     If building the Python row object fails (with original error attached).
     pub fn build<'py>(
         &self,
         py: Python<'py>,
         column_iterator: &Bound<'py, RowColumnCursor>,
-    ) -> PyResult<Py<PyDict>> {
+    ) -> Result<Py<PyDict>, DriverRowIterationError> {
         let mut columns = column_iterator.borrow_mut();
 
         let dict = PyDict::new(py);
-        loop {
-            match columns.next_column(py) {
-                Ok(column) => dict.set_item(column.column_name, column.value)?,
-                Err(err) if err.is_instance_of::<PyStopIteration>(py) => break,
-                Err(err) => return Err(err),
-            }
+        while let Some(next) = columns.next_column(py) {
+            let column = next.map_err(DriverRowIterationError::Deserialization)?;
+            dict.set_item(column.column_name, column.value)
+                .map_err(DriverRowIterationError::PythonError)?;
         }
 
         Ok(dict.into())
@@ -593,7 +617,7 @@ impl RowsIteratorKind {
         Ok(())
     }
 
-    fn next(&self, py: Python) -> Option<PyResult<Py<PyAny>>> {
+    fn next(&self, py: Python) -> Option<Result<Py<PyAny>, DriverRowIterationError>> {
         match self {
             RowsIteratorKind::Rows {
                 row_col_cursor,
@@ -608,16 +632,20 @@ impl RowsIteratorKind {
 
                 match res {
                     Ok(()) => {
-                        let out: PyResult<Py<PyAny>> = match factory {
+                        let out: Result<Py<PyAny>, DriverRowIterationError> = match factory {
                             None => RowFactory::default_instance()
                                 .build(py, cursor_bound)
                                 .map(|d| d.into_any()),
-                            Some(f) => f.call_method1(py, "build", (&cursor_bound,)),
+                            Some(f) => f
+                                .call_method1(py, "build", (&cursor_bound,))
+                                .map_err(DriverRowIterationError::PythonError),
                         };
 
                         Some(out)
                     }
-                    Err(e) => Some(Err(PyErr::from(e))),
+                    Err(err) => Some(Err(DriverRowIterationError::Deserialization(
+                        DriverDeserializationError::scylla_decode_failed(err),
+                    ))),
                 }
             }
             RowsIteratorKind::NonRows => None,
@@ -685,7 +713,7 @@ impl Pager {
         }
     }
 
-    async fn fetch_next_page(&mut self) -> Option<PyResult<QueryResult>> {
+    async fn fetch_next_page(&mut self) -> Option<Result<QueryResult, DriverExecuteError>> {
         let Pager::Paged {
             paging_response,
             session,
@@ -748,20 +776,19 @@ struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
-    fn next_column(&mut self) -> Result<(), PyDeserializationError> {
+    fn next_column(&mut self) -> Result<(), ScyllaDeserializationError> {
         self.current_raw_column = self
             .column_iterator
             .next()
             .map(|(column_index, raw_column_result)| {
                 raw_column_result.map(|raw_col| (column_index, raw_col))
             })
-            .transpose()
-            .map_err(PyDeserializationError::from)?;
+            .transpose()?;
 
         Ok(())
     }
 
-    fn next_row(&mut self) -> Option<Result<(), PyDeserializationError>> {
+    fn next_row(&mut self) -> Option<Result<(), ScyllaDeserializationError>> {
         let column_iterator = self.row_iterator.next()?;
 
         match column_iterator {
@@ -769,7 +796,7 @@ impl<'a> Cursor<'a> {
                 self.column_iterator = column_iterator.enumerate();
                 Some(Ok(()))
             }
-            Err(err) => Some(Err(err.into_py_deser())),
+            Err(err) => Some(Err(err)),
         }
     }
 }

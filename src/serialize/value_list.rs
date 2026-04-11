@@ -1,3 +1,5 @@
+use crate::errors::DriverSerializationError;
+
 use std::any::Any;
 
 use pyo3::exceptions::{PyKeyError, PyTypeError};
@@ -5,15 +7,15 @@ use pyo3::prelude::*;
 use pyo3::types::{PyList, PyMapping, PySequence, PyTuple};
 use pyo3::{Bound, BoundObject, Py, PyAny};
 
-use scylla::errors::SerializationError;
 use scylla::frame::response::result::ColumnSpec;
+use scylla::serialize::SerializationError;
 use scylla::serialize::row::{
     BuiltinTypeCheckError, BuiltinTypeCheckErrorKind, RowSerializationContext, SerializeRow,
 };
 use scylla::serialize::value::SerializeValue;
 use scylla::serialize::writers::{RowWriter, WrittenCellProof};
 
-use crate::serialize::value::{PyAnyWrapper, PythonDriverSerializationError};
+use crate::serialize::value::PyAnyWrapper;
 
 #[derive(Default, Clone)]
 pub(crate) enum PyValueList {
@@ -101,12 +103,12 @@ fn length_equality_check<T: Any>(
     cols_len: usize,
 ) -> Result<(), SerializationError> {
     if val_list_len != cols_len {
-        return Err(SerializationError::new(mk_typck_err_val_list::<T>(
+        return Err(mk_typck_err_val_list::<T>(
             BuiltinTypeCheckErrorKind::WrongColumnCount {
                 rust_cols: val_list_len,
                 cql_cols: cols_len,
             },
-        )));
+        ));
     }
 
     Ok(())
@@ -129,18 +131,19 @@ fn serialize_sequence<'py>(
 ) -> Result<(), SerializationError> {
     let len = value_list
         .len()
-        .map_err(|e| SerializationError::new(PythonDriverSerializationError::PythonError(e)))?;
+        .map_err(DriverSerializationError::python_interop_failed)?;
 
     length_equality_check::<PySequence>(len, ctx.columns().len())?;
 
     let iter = value_list
         .try_iter()
-        .map_err(|e| SerializationError::new(PythonDriverSerializationError::PythonError(e)))?;
+        .map_err(DriverSerializationError::python_interop_failed)?;
 
-    for (col, val) in ctx.columns().iter().zip(iter) {
-        let val = val
-            .map_err(|e| SerializationError::new(PythonDriverSerializationError::PythonError(e)))?;
-        serialize_element(col, &val, row_writer)?;
+    for (index, (col, val)) in ctx.columns().iter().zip(iter).enumerate() {
+        let val = val.map_err(DriverSerializationError::python_interop_failed)?;
+        serialize_element(col, &val, row_writer).map_err(|err| {
+            DriverSerializationError::scylla_serialize_failed(err).at_parameter_index(index)
+        })?;
     }
 
     Ok(())
@@ -154,22 +157,24 @@ fn serialize_mapping<'py>(
     let py = value_list.py();
     let dict_len = value_list
         .len()
-        .map_err(|e| SerializationError::new(PythonDriverSerializationError::PythonError(e)))?;
+        .map_err(DriverSerializationError::python_interop_failed)?;
     length_equality_check::<PyMapping>(dict_len, ctx.columns().len())?;
 
     for col in ctx.columns().iter() {
         let item: Bound<PyAny> = value_list.get_item(col.name()).map_err(|e| {
             if e.is_instance_of::<PyKeyError>(py) {
-                SerializationError::new(mk_typck_err_val_list::<PyMapping>(
+                mk_typck_err_val_list::<PyMapping>(
                     BuiltinTypeCheckErrorKind::ValueMissingForColumn {
                         name: col.name().into(),
                     },
-                ))
+                )
             } else {
-                SerializationError::new(PythonDriverSerializationError::PythonError(e))
+                SerializationError::new(DriverSerializationError::python_interop_failed(e))
             }
         })?;
-        serialize_element(col, &item, row_writer)?;
+        serialize_element(col, &item, row_writer).map_err(|err| {
+            DriverSerializationError::scylla_serialize_failed(err).at_parameter_name(col.name())
+        })?;
     }
 
     Ok(())
