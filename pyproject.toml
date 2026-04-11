@@ -25,6 +25,7 @@ dev = [
     "ruff",
     "basedpyright",
     "python-dateutil",
+    "ccm @ git+https://git@github.com/scylladb/scylla-ccm.git@master",
 ]
 
 [tool.uv]
@@ -50,4 +51,5 @@ typeCheckingMode = "strict"
 [tool.pytest.ini_options]
 markers = [
     "requires_db: tests that require database",
+    "requires_ccm: tests that require CCM cluster",
 ]
