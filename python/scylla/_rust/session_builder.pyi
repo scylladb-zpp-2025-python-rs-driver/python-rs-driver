@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from ipaddress import IPv4Address, IPv6Address
 
+from .policies import AuthenticatorProvider
 from .execution_profile import ExecutionProfile
 from .session import Session
 
@@ -77,5 +78,35 @@ class SessionBuilder:
         -------
         Session
             A connected session ready to execute queries.
+        """
+        ...
+
+    def user(self, username: str, password: str) -> SessionBuilder:
+        """
+        Set plain-text credentials for authentication.
+
+        Parameters
+        ----------
+        username : str
+        password : str
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
+
+    def authenticator_provider(self, authenticator: AuthenticatorProvider) -> SessionBuilder:
+        """
+        Set a custom authenticator provider.
+
+        Parameters
+        ----------
+        authenticator : AuthenticatorProvider
+            An instance of a class inheriting from :class:`AuthenticatorProvider`.
+
+        Returns
+        -------
+        SessionBuilder
         """
         ...

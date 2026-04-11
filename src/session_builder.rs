@@ -1,9 +1,11 @@
 use crate::RUNTIME;
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
+use crate::policies::{InternalAuthenticatorProvider, PyAuthenticatorProvider};
 use crate::session::Session;
 use pyo3::prelude::*;
 use pyo3::types::PySequence;
+use scylla::authentication::PlainTextAuthenticator;
 use scylla::client::session::SessionConfig;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -38,6 +40,25 @@ impl SessionBuilder {
         slf
     }
 
+    fn user<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        username: String,
+        password: String,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.authenticator = Some(Arc::new(PlainTextAuthenticator::new(username, password)));
+        slf
+    }
+
+    fn authenticator_provider<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        authenticator: Py<PyAuthenticatorProvider>,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.authenticator = Some(Arc::new(InternalAuthenticatorProvider {
+            python_authenticator: authenticator,
+        }));
+
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
