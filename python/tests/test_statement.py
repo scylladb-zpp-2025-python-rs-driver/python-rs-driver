@@ -74,7 +74,7 @@ def test_statement_with_page_size():
     expected_page_size = 500
     statement = statement.with_page_size(expected_page_size)
 
-    actual_page_size = statement.get_page_size()
+    actual_page_size = statement.page_size
 
     assert isinstance(actual_page_size, int)
     assert actual_page_size == expected_page_size

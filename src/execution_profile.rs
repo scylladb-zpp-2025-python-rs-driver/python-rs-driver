@@ -43,14 +43,17 @@ impl ExecutionProfile {
         })
     }
 
+    #[getter]
     pub(crate) fn get_request_timeout(&self) -> Option<f64> {
         self._inner.get_request_timeout().map(|d| d.as_secs_f64())
     }
 
+    #[getter]
     pub(crate) fn get_consistency(&self) -> PyConsistency {
         PyConsistency::from(self._inner.get_consistency())
     }
 
+    #[getter]
     pub(crate) fn get_serial_consistency(&self) -> Option<PySerialConsistency> {
         self._inner
             .get_serial_consistency()
