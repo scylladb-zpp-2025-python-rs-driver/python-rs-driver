@@ -8,15 +8,15 @@ use crate::errors::{
     DriverStatementConversionError,
 };
 use crate::serialize::value_list::PyValueList;
-use crate::statement::PreparedStatement;
-use crate::statement::Statement;
+use crate::statement::PyPreparedStatement;
+use crate::statement::PyStatement;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
 use scylla::client::session::Session as ScyllaSession;
 use scylla::response::query_result::QueryResult;
-use scylla::statement;
 use scylla::statement::batch::BatchStatement;
-use scylla::statement::unprepared;
+use scylla::statement::prepared::PreparedStatement;
+use scylla::statement::unprepared::Statement;
 use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 use std::future::Future;
 
@@ -59,7 +59,7 @@ impl Session {
     async fn prepare(
         &self,
         statement: ExecutableStatement,
-    ) -> Result<PreparedStatement, DriverPrepareError> {
+    ) -> Result<PyPreparedStatement, DriverPrepareError> {
         match statement {
             ExecutableStatement::Unprepared(s) => self.scylla_prepare(s).await,
             ExecutableStatement::Prepared(_) => {
@@ -173,10 +173,10 @@ impl Session {
 
     async fn scylla_prepare(
         &self,
-        statement: impl Into<statement::Statement>,
-    ) -> Result<PreparedStatement, DriverPrepareError> {
+        statement: impl Into<Statement>,
+    ) -> Result<PyPreparedStatement, DriverPrepareError> {
         match self._inner.prepare(statement).await {
-            Ok(prepared) => Ok(PreparedStatement { _inner: prepared }),
+            Ok(prepared) => Ok(PyPreparedStatement { _inner: prepared }),
             Err(err) => Err(DriverPrepareError::rust_driver_prepare_error(err)),
         }
     }
@@ -204,15 +204,15 @@ impl Session {
 
 #[derive(Clone)]
 pub(crate) enum ExecutableStatement {
-    Prepared(statement::prepared::PreparedStatement),
-    Unprepared(unprepared::Statement),
+    Prepared(PreparedStatement),
+    Unprepared(Statement),
 }
 
 impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
     type Error = DriverStatementConversionError;
 
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
-        if let Ok(prepared) = obj.cast::<PreparedStatement>() {
+        if let Ok(prepared) = obj.cast::<PyPreparedStatement>() {
             return Ok(ExecutableStatement::Prepared(prepared.get()._inner.clone()));
         }
 
@@ -223,7 +223,7 @@ impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
             return Ok(ExecutableStatement::Unprepared(text.into()));
         }
 
-        if let Ok(statement) = obj.cast::<Statement>() {
+        if let Ok(statement) = obj.cast::<PyStatement>() {
             return Ok(ExecutableStatement::Unprepared(
                 statement.get()._inner.clone(),
             ));

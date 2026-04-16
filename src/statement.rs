@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyFloat, PyString};
-use scylla::statement::prepared;
-use scylla::statement::unprepared;
+use scylla::statement::prepared::PreparedStatement;
+use scylla::statement::unprepared::Statement;
 use std::time::Duration;
 
 use crate::enums::{Consistency, SerialConsistency};
@@ -9,23 +9,23 @@ use crate::errors::DriverStatementConfigError;
 use crate::execution_profile::ExecutionProfile;
 use crate::types::UnsetType;
 
-#[pyclass(frozen)]
-pub(crate) struct PreparedStatement {
-    pub(crate) _inner: prepared::PreparedStatement,
+#[pyclass(name = "PreparedStatement", frozen)]
+pub(crate) struct PyPreparedStatement {
+    pub(crate) _inner: PreparedStatement,
 }
 
 #[pymethods]
-impl PreparedStatement {
-    fn with_execution_profile(&self, profile: ExecutionProfile) -> PreparedStatement {
+impl PyPreparedStatement {
+    fn with_execution_profile(&self, profile: ExecutionProfile) -> PyPreparedStatement {
         let mut p = self._inner.clone();
         p.set_execution_profile_handle(Some(profile._inner.into_handle()));
-        PreparedStatement { _inner: p }
+        PyPreparedStatement { _inner: p }
     }
 
-    fn without_execution_profile(&self) -> PreparedStatement {
+    fn without_execution_profile(&self) -> PyPreparedStatement {
         let mut p = self._inner.clone();
         p.set_execution_profile_handle(None);
-        PreparedStatement { _inner: p }
+        PyPreparedStatement { _inner: p }
     }
 
     fn get_execution_profile(&self) -> Option<ExecutionProfile> {
@@ -36,32 +36,32 @@ impl PreparedStatement {
             })
     }
 
-    fn with_consistency(&self, c: Consistency) -> PreparedStatement {
+    fn with_consistency(&self, c: Consistency) -> PyPreparedStatement {
         let mut p = self._inner.clone();
         p.set_consistency(c.to_rust());
-        PreparedStatement { _inner: p }
+        PyPreparedStatement { _inner: p }
     }
 
-    fn without_consistency(&self) -> PreparedStatement {
+    fn without_consistency(&self) -> PyPreparedStatement {
         let mut p = self._inner.clone();
         p.unset_consistency();
-        PreparedStatement { _inner: p }
+        PyPreparedStatement { _inner: p }
     }
 
     fn get_consistency(&self) -> Option<Consistency> {
         self._inner.get_consistency().map(Consistency::to_python)
     }
 
-    fn with_serial_consistency(&self, sc: Option<SerialConsistency>) -> PreparedStatement {
+    fn with_serial_consistency(&self, sc: Option<SerialConsistency>) -> PyPreparedStatement {
         let mut p = self._inner.clone();
         p.set_serial_consistency(sc.map(|sc| sc.to_rust()));
-        PreparedStatement { _inner: p }
+        PyPreparedStatement { _inner: p }
     }
 
-    fn without_serial_consistency(&self) -> PreparedStatement {
+    fn without_serial_consistency(&self) -> PyPreparedStatement {
         let mut p = self._inner.clone();
         p.unset_serial_consistency();
-        PreparedStatement { _inner: p }
+        PyPreparedStatement { _inner: p }
     }
 
     fn get_serial_consistency(&self) -> Option<SerialConsistency> {
@@ -74,7 +74,7 @@ impl PreparedStatement {
     fn with_request_timeout(
         &self,
         timeout: Option<f64>,
-    ) -> Result<PreparedStatement, DriverStatementConfigError> {
+    ) -> Result<PyPreparedStatement, DriverStatementConfigError> {
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
@@ -91,13 +91,13 @@ impl PreparedStatement {
 
         p.set_request_timeout(Some(timeout));
 
-        Ok(PreparedStatement { _inner: p })
+        Ok(PyPreparedStatement { _inner: p })
     }
 
-    fn without_request_timeout(&self) -> PreparedStatement {
+    fn without_request_timeout(&self) -> PyPreparedStatement {
         let mut p = self._inner.clone();
         p.set_request_timeout(None);
-        PreparedStatement { _inner: p }
+        PyPreparedStatement { _inner: p }
     }
 
     fn get_request_timeout(&self, py: Python<'_>) -> Py<PyAny> {
@@ -108,10 +108,10 @@ impl PreparedStatement {
         }
     }
 
-    fn with_page_size(&self, page_size: i32) -> PreparedStatement {
+    fn with_page_size(&self, page_size: i32) -> PyPreparedStatement {
         let mut p = self._inner.clone();
         p.set_page_size(page_size);
-        PreparedStatement { _inner: p }
+        PyPreparedStatement { _inner: p }
     }
 
     fn get_page_size(&self) -> i32 {
@@ -119,17 +119,17 @@ impl PreparedStatement {
     }
 }
 
-#[pyclass(frozen)]
-pub(crate) struct Statement {
-    pub(crate) _inner: unprepared::Statement,
+#[pyclass(name = "Statement", frozen)]
+pub(crate) struct PyStatement {
+    pub(crate) _inner: Statement,
 }
 
 #[pymethods]
-impl Statement {
+impl PyStatement {
     #[new]
-    fn new(query_str: String) -> Statement {
-        let s = unprepared::Statement::from(query_str);
-        Statement { _inner: s }
+    fn new(query_str: String) -> PyStatement {
+        let s = Statement::from(query_str);
+        PyStatement { _inner: s }
     }
 
     #[getter]
@@ -137,16 +137,16 @@ impl Statement {
         PyString::new(py, &self._inner.contents)
     }
 
-    fn with_execution_profile(&self, profile: ExecutionProfile) -> Statement {
+    fn with_execution_profile(&self, profile: ExecutionProfile) -> PyStatement {
         let mut s = self._inner.clone();
         s.set_execution_profile_handle(Some(profile._inner.into_handle()));
-        Statement { _inner: s }
+        PyStatement { _inner: s }
     }
 
-    fn without_execution_profile(&self) -> Statement {
+    fn without_execution_profile(&self) -> PyStatement {
         let mut s = self._inner.clone();
         s.set_execution_profile_handle(None);
-        Statement { _inner: s }
+        PyStatement { _inner: s }
     }
 
     fn get_execution_profile(&self) -> Option<ExecutionProfile> {
@@ -157,32 +157,32 @@ impl Statement {
             })
     }
 
-    fn with_consistency(&self, c: Consistency) -> Statement {
+    fn with_consistency(&self, c: Consistency) -> PyStatement {
         let mut s = self._inner.clone();
         s.set_consistency(c.to_rust());
-        Statement { _inner: s }
+        PyStatement { _inner: s }
     }
 
-    fn without_consistency(&self) -> Statement {
+    fn without_consistency(&self) -> PyStatement {
         let mut s = self._inner.clone();
         s.unset_consistency();
-        Statement { _inner: s }
+        PyStatement { _inner: s }
     }
 
     fn get_consistency(&self) -> Option<Consistency> {
         self._inner.get_consistency().map(Consistency::to_python)
     }
 
-    fn with_serial_consistency(&self, sc: Option<SerialConsistency>) -> Statement {
+    fn with_serial_consistency(&self, sc: Option<SerialConsistency>) -> PyStatement {
         let mut s = self._inner.clone();
         s.set_serial_consistency(sc.map(|sc| sc.to_rust()));
-        Statement { _inner: s }
+        PyStatement { _inner: s }
     }
 
-    fn without_serial_consistency(&self) -> Statement {
+    fn without_serial_consistency(&self) -> PyStatement {
         let mut s = self._inner.clone();
         s.unset_serial_consistency();
-        Statement { _inner: s }
+        PyStatement { _inner: s }
     }
 
     fn get_serial_consistency(&self) -> Option<SerialConsistency> {
@@ -195,7 +195,7 @@ impl Statement {
     fn with_request_timeout(
         &self,
         timeout: Option<f64>,
-    ) -> Result<Statement, DriverStatementConfigError> {
+    ) -> Result<PyStatement, DriverStatementConfigError> {
         if let Some(secs) = timeout
             && (!secs.is_finite() || secs <= 0.0)
         {
@@ -204,13 +204,13 @@ impl Statement {
 
         let mut s = self._inner.clone();
         s.set_request_timeout(Some(timeout.map_or(Duration::MAX, Duration::from_secs_f64)));
-        Ok(Statement { _inner: s })
+        Ok(PyStatement { _inner: s })
     }
 
-    fn without_request_timeout(&self) -> Statement {
+    fn without_request_timeout(&self) -> PyStatement {
         let mut s = self._inner.clone();
         s.set_request_timeout(None);
-        Statement { _inner: s }
+        PyStatement { _inner: s }
     }
 
     fn get_request_timeout(&self, py: Python<'_>) -> Py<PyAny> {
@@ -221,10 +221,10 @@ impl Statement {
         }
     }
 
-    fn with_page_size(&self, page_size: i32) -> Statement {
+    fn with_page_size(&self, page_size: i32) -> PyStatement {
         let mut s = self._inner.clone();
         s.set_page_size(page_size);
-        Statement { _inner: s }
+        PyStatement { _inner: s }
     }
 
     fn get_page_size(&self) -> i32 {
@@ -234,7 +234,7 @@ impl Statement {
 
 #[pymodule]
 pub(crate) fn statement(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<PreparedStatement>()?;
-    module.add_class::<Statement>()?;
+    module.add_class::<PyPreparedStatement>()?;
+    module.add_class::<PyStatement>()?;
     Ok(())
 }
