@@ -1,3 +1,4 @@
+use pyo3::IntoPyObjectExt;
 use pyo3::prelude::*;
 use pyo3::types::{PyFloat, PyString};
 use scylla::statement::SerialConsistency;
@@ -13,20 +14,34 @@ use crate::types::UnsetType;
 #[pyclass(name = "PreparedStatement", frozen)]
 pub(crate) struct PyPreparedStatement {
     pub(crate) _inner: PreparedStatement,
+    // Because `get_serial_consistency` in the Rust driver returns `Option<SerialConsistency>`,
+    // it cannot represent the `Unset` state. Therefore, the Python-rs driver must distinguish
+    // between `Unset` and `None` in a different way. To preserve this distinction, an additional
+    // flag `is_serial_consistency_set` is required.
+    is_serial_consistency_set: bool,
+}
+
+impl PyPreparedStatement {
+    pub(crate) fn new(_inner: PreparedStatement, is_serial_consistency_set: bool) -> Self {
+        Self {
+            _inner,
+            is_serial_consistency_set,
+        }
+    }
 }
 
 #[pymethods]
 impl PyPreparedStatement {
-    fn with_execution_profile(&self, profile: ExecutionProfile) -> PyPreparedStatement {
+    fn with_execution_profile(&self, profile: ExecutionProfile) -> Self {
         let mut p = self._inner.clone();
         p.set_execution_profile_handle(Some(profile._inner.into_handle()));
-        PyPreparedStatement { _inner: p }
+        Self::new(p, self.is_serial_consistency_set)
     }
 
-    fn without_execution_profile(&self) -> PyPreparedStatement {
+    fn without_execution_profile(&self) -> Self {
         let mut p = self._inner.clone();
         p.set_execution_profile_handle(None);
-        PyPreparedStatement { _inner: p }
+        Self::new(p, self.is_serial_consistency_set)
     }
 
     #[getter]
@@ -38,16 +53,16 @@ impl PyPreparedStatement {
             })
     }
 
-    fn with_consistency(&self, c: PyConsistency) -> PyPreparedStatement {
+    fn with_consistency(&self, c: PyConsistency) -> Self {
         let mut p = self._inner.clone();
         p.set_consistency(c.into());
-        PyPreparedStatement { _inner: p }
+        Self::new(p, self.is_serial_consistency_set)
     }
 
-    fn without_consistency(&self) -> PyPreparedStatement {
+    fn without_consistency(&self) -> Self {
         let mut p = self._inner.clone();
         p.unset_consistency();
-        PyPreparedStatement { _inner: p }
+        Self::new(p, self.is_serial_consistency_set)
     }
 
     #[getter]
@@ -55,30 +70,37 @@ impl PyPreparedStatement {
         self._inner.get_consistency().map(PyConsistency::from)
     }
 
-    fn with_serial_consistency(&self, sc: Option<PySerialConsistency>) -> PyPreparedStatement {
+    fn with_serial_consistency(&self, sc: Option<PySerialConsistency>) -> Self {
         let mut p = self._inner.clone();
         p.set_serial_consistency(sc.map(SerialConsistency::from));
-        PyPreparedStatement { _inner: p }
+        Self::new(p, true)
     }
 
-    fn without_serial_consistency(&self) -> PyPreparedStatement {
+    fn without_serial_consistency(&self) -> Self {
         let mut p = self._inner.clone();
         p.unset_serial_consistency();
-        PyPreparedStatement { _inner: p }
+        Self::new(p, false)
     }
 
     #[getter]
-    fn get_serial_consistency(&self) -> Option<PySerialConsistency> {
-        // TODO: implement returning Unset like in get_request_timeout
-        self._inner
-            .get_serial_consistency()
-            .map(PySerialConsistency::from)
+    fn get_serial_consistency(&self, py: Python) -> Result<Py<PyAny>, DriverStatementConfigError> {
+        if !self.is_serial_consistency_set {
+            return UnsetType::get_instance(py)
+                .into_py_any(py)
+                .map_err(DriverStatementConfigError::python_conversion_failed);
+        }
+        match self._inner.get_serial_consistency() {
+            Some(sc) => PySerialConsistency::from(sc)
+                .into_py_any(py)
+                .map_err(DriverStatementConfigError::python_conversion_failed),
+            None => Ok(py.None()),
+        }
     }
 
     fn with_request_timeout(
         &self,
         timeout: Option<f64>,
-    ) -> Result<PyPreparedStatement, DriverStatementConfigError> {
+    ) -> Result<Self, DriverStatementConfigError> {
         let timeout = match timeout {
             None => Duration::MAX,
             Some(secs) => Duration::try_from_secs_f64(secs)
@@ -89,13 +111,13 @@ impl PyPreparedStatement {
 
         p.set_request_timeout(Some(timeout));
 
-        Ok(PyPreparedStatement { _inner: p })
+        Ok(Self::new(p, self.is_serial_consistency_set))
     }
 
-    fn without_request_timeout(&self) -> PyPreparedStatement {
+    fn without_request_timeout(&self) -> Self {
         let mut p = self._inner.clone();
         p.set_request_timeout(None);
-        PyPreparedStatement { _inner: p }
+        Self::new(p, self.is_serial_consistency_set)
     }
 
     #[getter]
@@ -107,10 +129,10 @@ impl PyPreparedStatement {
         }
     }
 
-    fn with_page_size(&self, page_size: i32) -> PyPreparedStatement {
+    fn with_page_size(&self, page_size: i32) -> Self {
         let mut p = self._inner.clone();
         p.set_page_size(page_size);
-        PyPreparedStatement { _inner: p }
+        Self::new(p, self.is_serial_consistency_set)
     }
 
     #[getter]
@@ -122,14 +144,28 @@ impl PyPreparedStatement {
 #[pyclass(name = "Statement", frozen)]
 pub(crate) struct PyStatement {
     pub(crate) _inner: Statement,
+    // Because `get_serial_consistency` in the Rust driver returns `Option<SerialConsistency>`,
+    // it cannot represent the `Unset` state. Therefore, the Python-rs driver must distinguish
+    // between `Unset` and `None` in a different way. To preserve this distinction, an additional
+    // flag `is_serial_consistency_set` is required.
+    is_serial_consistency_set: bool,
+}
+
+impl PyStatement {
+    pub(crate) fn new(_inner: Statement, is_serial_consistency_set: bool) -> Self {
+        Self {
+            _inner,
+            is_serial_consistency_set,
+        }
+    }
 }
 
 #[pymethods]
 impl PyStatement {
     #[new]
-    fn new(query_str: String) -> PyStatement {
+    fn py_new(query_str: String) -> Self {
         let s = Statement::from(query_str);
-        PyStatement { _inner: s }
+        Self::new(s, false)
     }
 
     #[getter]
@@ -137,16 +173,16 @@ impl PyStatement {
         PyString::new(py, &self._inner.contents)
     }
 
-    fn with_execution_profile(&self, profile: ExecutionProfile) -> PyStatement {
+    fn with_execution_profile(&self, profile: ExecutionProfile) -> Self {
         let mut s = self._inner.clone();
         s.set_execution_profile_handle(Some(profile._inner.into_handle()));
-        PyStatement { _inner: s }
+        Self::new(s, self.is_serial_consistency_set)
     }
 
-    fn without_execution_profile(&self) -> PyStatement {
+    fn without_execution_profile(&self) -> Self {
         let mut s = self._inner.clone();
         s.set_execution_profile_handle(None);
-        PyStatement { _inner: s }
+        Self::new(s, self.is_serial_consistency_set)
     }
 
     #[getter]
@@ -158,16 +194,16 @@ impl PyStatement {
             })
     }
 
-    fn with_consistency(&self, c: PyConsistency) -> PyStatement {
+    fn with_consistency(&self, c: PyConsistency) -> Self {
         let mut s = self._inner.clone();
         s.set_consistency(c.into());
-        PyStatement { _inner: s }
+        Self::new(s, self.is_serial_consistency_set)
     }
 
-    fn without_consistency(&self) -> PyStatement {
+    fn without_consistency(&self) -> Self {
         let mut s = self._inner.clone();
         s.unset_consistency();
-        PyStatement { _inner: s }
+        Self::new(s, self.is_serial_consistency_set)
     }
 
     #[getter]
@@ -175,30 +211,37 @@ impl PyStatement {
         self._inner.get_consistency().map(PyConsistency::from)
     }
 
-    fn with_serial_consistency(&self, sc: Option<PySerialConsistency>) -> PyStatement {
+    fn with_serial_consistency(&self, sc: Option<PySerialConsistency>) -> Self {
         let mut s = self._inner.clone();
         s.set_serial_consistency(sc.map(SerialConsistency::from));
-        PyStatement { _inner: s }
+        Self::new(s, true)
     }
 
-    fn without_serial_consistency(&self) -> PyStatement {
+    fn without_serial_consistency(&self) -> Self {
         let mut s = self._inner.clone();
         s.unset_serial_consistency();
-        PyStatement { _inner: s }
+        Self::new(s, false)
     }
 
     #[getter]
-    fn get_serial_consistency(&self) -> Option<PySerialConsistency> {
-        // TODO: implement returning Unset like in get_request_timeout
-        self._inner
-            .get_serial_consistency()
-            .map(PySerialConsistency::from)
+    fn get_serial_consistency(&self, py: Python) -> Result<Py<PyAny>, DriverStatementConfigError> {
+        if !self.is_serial_consistency_set {
+            return UnsetType::get_instance(py)
+                .into_py_any(py)
+                .map_err(DriverStatementConfigError::python_conversion_failed);
+        }
+        match self._inner.get_serial_consistency() {
+            Some(sc) => PySerialConsistency::from(sc)
+                .into_py_any(py)
+                .map_err(DriverStatementConfigError::python_conversion_failed),
+            None => Ok(py.None()),
+        }
     }
 
     fn with_request_timeout(
         &self,
         timeout: Option<f64>,
-    ) -> Result<PyStatement, DriverStatementConfigError> {
+    ) -> Result<Self, DriverStatementConfigError> {
         let timeout = match timeout {
             None => Duration::MAX,
             Some(secs) => Duration::try_from_secs_f64(secs)
@@ -207,13 +250,13 @@ impl PyStatement {
 
         let mut s = self._inner.clone();
         s.set_request_timeout(Some(timeout));
-        Ok(PyStatement { _inner: s })
+        Ok(Self::new(s, self.is_serial_consistency_set))
     }
 
-    fn without_request_timeout(&self) -> PyStatement {
+    fn without_request_timeout(&self) -> Self {
         let mut s = self._inner.clone();
         s.set_request_timeout(None);
-        PyStatement { _inner: s }
+        Self::new(s, self.is_serial_consistency_set)
     }
 
     #[getter]
@@ -225,10 +268,10 @@ impl PyStatement {
         }
     }
 
-    fn with_page_size(&self, page_size: i32) -> PyStatement {
+    fn with_page_size(&self, page_size: i32) -> Self {
         let mut s = self._inner.clone();
         s.set_page_size(page_size);
-        PyStatement { _inner: s }
+        Self::new(s, self.is_serial_consistency_set)
     }
 
     #[getter]

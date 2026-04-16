@@ -176,7 +176,7 @@ impl Session {
         statement: impl Into<Statement>,
     ) -> Result<PyPreparedStatement, DriverPrepareError> {
         match self._inner.prepare(statement).await {
-            Ok(prepared) => Ok(PyPreparedStatement { _inner: prepared }),
+            Ok(prepared) => Ok(PyPreparedStatement::new(prepared, false)),
             Err(err) => Err(DriverPrepareError::rust_driver_prepare_error(err)),
         }
     }
