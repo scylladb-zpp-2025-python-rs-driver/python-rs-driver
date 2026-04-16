@@ -17,36 +17,38 @@ pub(crate) enum PyConsistency {
     LocalSerial,
 }
 
-impl PyConsistency {
-    pub(crate) fn to_rust(self) -> Consistency {
-        match self {
-            PyConsistency::Any => Consistency::Any,
-            PyConsistency::One => Consistency::One,
-            PyConsistency::Two => Consistency::Two,
-            PyConsistency::Three => Consistency::Three,
-            PyConsistency::Quorum => Consistency::Quorum,
-            PyConsistency::All => Consistency::All,
-            PyConsistency::LocalQuorum => Consistency::LocalQuorum,
-            PyConsistency::EachQuorum => Consistency::EachQuorum,
-            PyConsistency::LocalOne => Consistency::LocalOne,
-            PyConsistency::Serial => Consistency::Serial,
-            PyConsistency::LocalSerial => Consistency::LocalSerial,
+impl From<PyConsistency> for Consistency {
+    fn from(value: PyConsistency) -> Self {
+        match value {
+            PyConsistency::Any => Self::Any,
+            PyConsistency::One => Self::One,
+            PyConsistency::Two => Self::Two,
+            PyConsistency::Three => Self::Three,
+            PyConsistency::Quorum => Self::Quorum,
+            PyConsistency::All => Self::All,
+            PyConsistency::LocalQuorum => Self::LocalQuorum,
+            PyConsistency::EachQuorum => Self::EachQuorum,
+            PyConsistency::LocalOne => Self::LocalOne,
+            PyConsistency::Serial => Self::Serial,
+            PyConsistency::LocalSerial => Self::LocalSerial,
         }
     }
+}
 
-    pub(crate) fn to_python(consistency: Consistency) -> Self {
-        match consistency {
-            Consistency::Any => PyConsistency::Any,
-            Consistency::One => PyConsistency::One,
-            Consistency::Two => PyConsistency::Two,
-            Consistency::Three => PyConsistency::Three,
-            Consistency::Quorum => PyConsistency::Quorum,
-            Consistency::All => PyConsistency::All,
-            Consistency::LocalQuorum => PyConsistency::LocalQuorum,
-            Consistency::EachQuorum => PyConsistency::EachQuorum,
-            Consistency::LocalOne => PyConsistency::LocalOne,
-            Consistency::Serial => PyConsistency::Serial,
-            Consistency::LocalSerial => PyConsistency::LocalSerial,
+impl From<Consistency> for PyConsistency {
+    fn from(value: Consistency) -> Self {
+        match value {
+            Consistency::Any => Self::Any,
+            Consistency::One => Self::One,
+            Consistency::Two => Self::Two,
+            Consistency::Three => Self::Three,
+            Consistency::Quorum => Self::Quorum,
+            Consistency::All => Self::All,
+            Consistency::LocalQuorum => Self::LocalQuorum,
+            Consistency::EachQuorum => Self::EachQuorum,
+            Consistency::LocalOne => Self::LocalOne,
+            Consistency::Serial => Self::Serial,
+            Consistency::LocalSerial => Self::LocalSerial,
         }
     }
 }
@@ -58,18 +60,20 @@ pub(crate) enum PySerialConsistency {
     LocalSerial,
 }
 
-impl PySerialConsistency {
-    pub(crate) fn to_rust(self) -> SerialConsistency {
-        match self {
-            PySerialConsistency::Serial => SerialConsistency::Serial,
-            PySerialConsistency::LocalSerial => SerialConsistency::LocalSerial,
+impl From<PySerialConsistency> for SerialConsistency {
+    fn from(value: PySerialConsistency) -> Self {
+        match value {
+            PySerialConsistency::Serial => Self::Serial,
+            PySerialConsistency::LocalSerial => Self::LocalSerial,
         }
     }
+}
 
-    pub(crate) fn to_python(consistency: SerialConsistency) -> Self {
-        match consistency {
-            SerialConsistency::Serial => PySerialConsistency::Serial,
-            SerialConsistency::LocalSerial => PySerialConsistency::LocalSerial,
+impl From<SerialConsistency> for PySerialConsistency {
+    fn from(value: SerialConsistency) -> Self {
+        match value {
+            SerialConsistency::Serial => Self::Serial,
+            SerialConsistency::LocalSerial => Self::LocalSerial,
         }
     }
 }

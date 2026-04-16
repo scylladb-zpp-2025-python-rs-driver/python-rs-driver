@@ -39,10 +39,10 @@ impl ExecutionProfile {
             profile_builder = profile_builder.request_timeout(Some(duration));
         }
 
-        profile_builder = profile_builder.consistency(consistency.to_rust());
+        profile_builder = profile_builder.consistency(consistency.into());
 
         profile_builder =
-            profile_builder.serial_consistency(serial_consistency.map(|sc| sc.to_rust()));
+            profile_builder.serial_consistency(serial_consistency.map(|sc| sc.into()));
 
         Ok(ExecutionProfile {
             _inner: profile_builder.build(),
@@ -54,13 +54,13 @@ impl ExecutionProfile {
     }
 
     pub(crate) fn get_consistency(&self) -> PyConsistency {
-        PyConsistency::to_python(self._inner.get_consistency())
+        PyConsistency::from(self._inner.get_consistency())
     }
 
     pub(crate) fn get_serial_consistency(&self) -> Option<PySerialConsistency> {
         self._inner
             .get_serial_consistency()
-            .map(PySerialConsistency::to_python)
+            .map(PySerialConsistency::from)
     }
 }
 

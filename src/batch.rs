@@ -6,6 +6,7 @@ use crate::session::ExecutableStatement;
 use crate::types::UnsetType;
 use pyo3::types::PyFloat;
 use pyo3::{IntoPyObjectExt, prelude::*};
+use scylla::statement::SerialConsistency;
 use scylla::statement::batch::{Batch, BatchType};
 use std::time::Duration;
 
@@ -110,7 +111,7 @@ impl PyBatch {
 
     fn with_consistency(&self, c: PyConsistency) -> PyBatch {
         let mut batch = self._inner.clone();
-        batch.set_consistency(c.to_rust());
+        batch.set_consistency(c.into());
         PyBatch {
             _inner: batch,
             values: self.values.clone(),
@@ -130,12 +131,12 @@ impl PyBatch {
 
     #[getter]
     fn get_consistency(&self) -> Option<PyConsistency> {
-        self._inner.get_consistency().map(PyConsistency::to_python)
+        self._inner.get_consistency().map(PyConsistency::from)
     }
 
     fn with_serial_consistency(&self, sc: Option<PySerialConsistency>) -> PyBatch {
         let mut batch = self._inner.clone();
-        batch.set_serial_consistency(sc.map(|sc| sc.to_rust()));
+        batch.set_serial_consistency(sc.map(SerialConsistency::from));
         PyBatch {
             _inner: batch,
             values: self.values.clone(),
@@ -161,7 +162,7 @@ impl PyBatch {
                 .map_err(DriverBatchError::python_conversion_failed);
         }
         match self._inner.get_serial_consistency() {
-            Some(sc) => PySerialConsistency::to_python(sc)
+            Some(sc) => PySerialConsistency::from(sc)
                 .into_py_any(py)
                 .map_err(DriverBatchError::python_conversion_failed),
             None => Ok(py.None()),
