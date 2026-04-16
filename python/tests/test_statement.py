@@ -1,8 +1,9 @@
+from typing import Any, cast
+
 import pytest
+from scylla.errors import PrepareError, StatementConversionError
 from scylla.session_builder import SessionBuilder
 from scylla.statement import PreparedStatement, Statement
-from scylla.errors import PrepareError, StatementConversionError
-from typing import Any, cast
 
 
 @pytest.mark.asyncio
@@ -66,9 +67,7 @@ async def test_prepare_and_str():
     assert cluster_name_str == row_statement["cluster_name"]
 
 
-@pytest.mark.asyncio
-@pytest.mark.requires_db
-async def test_statement_with_page_size():
+def test_statement_with_page_size():
     query_str = "SELECT cluster_name FROM system.local;"
     statement = Statement(query_str)
 
