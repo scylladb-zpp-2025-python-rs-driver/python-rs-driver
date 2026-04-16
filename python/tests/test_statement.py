@@ -1,7 +1,7 @@
 from typing import Any, cast
 
 import pytest
-from scylla.errors import PrepareError, StatementConversionError
+from scylla.errors import PrepareError, StatementConfigError, StatementConversionError
 from scylla.session_builder import SessionBuilder
 from scylla.statement import PreparedStatement, Statement
 
@@ -125,3 +125,48 @@ async def test_execute_invalid_statement_type_raises_statement_conversion_error(
         await session.execute(cast(Any, 123))
 
     assert "invalid statement type" in str(exc_info.value).lower()
+
+
+def test_statement_timeout_too_large():
+    query_str = "SELECT cluster_name FROM system.local;"
+    statement = Statement(query_str)
+
+    with pytest.raises(StatementConfigError) as exc_info:
+        statement.with_request_timeout(1e30)
+
+    assert "timeout must be a non-negative, finite number" in str(exc_info.value).lower()
+
+
+def test_statement__negative_timeout():
+    query_str = "SELECT cluster_name FROM system.local;"
+    statement = Statement(query_str)
+
+    with pytest.raises(StatementConfigError) as exc_info:
+        statement.with_request_timeout(-1)
+
+    assert "timeout must be a non-negative, finite number" in str(exc_info.value).lower()
+
+
+def test_statement_with_request_timeout_not_finite():
+    query_str = "SELECT cluster_name FROM system.local;"
+    statement = Statement(query_str)
+
+    with pytest.raises(StatementConfigError) as exc_info:
+        statement.with_request_timeout(float("inf"))
+
+    assert "timeout must be a non-negative, finite number" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_timeout_too_large():
+    builder = SessionBuilder(["127.0.0.2"], 9042)
+    session = await builder.connect()
+
+    query_str = "SELECT cluster_name FROM system.local"
+    prepared = await session.prepare(query_str)
+
+    with pytest.raises(StatementConfigError) as exc_info:
+        prepared.with_request_timeout(1e30)
+
+    assert "timeout must be a non-negative, finite number" in str(exc_info.value).lower()

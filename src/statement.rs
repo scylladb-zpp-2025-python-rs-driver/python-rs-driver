@@ -76,16 +76,10 @@ impl PyPreparedStatement {
         &self,
         timeout: Option<f64>,
     ) -> Result<PyPreparedStatement, DriverStatementConfigError> {
-        if let Some(secs) = timeout
-            && (!secs.is_finite() || secs <= 0.0)
-        {
-            return Err(DriverStatementConfigError::InvalidRequestTimeout { value: secs });
-        }
-
         let timeout = match timeout {
             None => Duration::MAX,
             Some(secs) => Duration::try_from_secs_f64(secs)
-                .map_err(|_| DriverStatementConfigError::request_timeout_conversion_failed(secs))?,
+                .map_err(|_| DriverStatementConfigError::invalid_request_timeout(secs))?,
         };
 
         let mut p = self._inner.clone();
@@ -197,14 +191,14 @@ impl PyStatement {
         &self,
         timeout: Option<f64>,
     ) -> Result<PyStatement, DriverStatementConfigError> {
-        if let Some(secs) = timeout
-            && (!secs.is_finite() || secs <= 0.0)
-        {
-            return Err(DriverStatementConfigError::InvalidRequestTimeout { value: secs });
-        }
+        let timeout = match timeout {
+            None => Duration::MAX,
+            Some(secs) => Duration::try_from_secs_f64(secs)
+                .map_err(|_| DriverStatementConfigError::invalid_request_timeout(secs))?,
+        };
 
         let mut s = self._inner.clone();
-        s.set_request_timeout(Some(timeout.map_or(Duration::MAX, Duration::from_secs_f64)));
+        s.set_request_timeout(Some(timeout));
         Ok(PyStatement { _inner: s })
     }
 

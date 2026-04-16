@@ -424,7 +424,7 @@ def test_batch_timeout_too_large():
     with pytest.raises(BatchError) as exc_info:
         batch = batch.with_request_timeout(1e30)
 
-    assert "failed to convert timeout value" in str(exc_info.value).lower()
+    assert "timeout must be a non-negative, finite number" in str(exc_info.value).lower()
 
 
 def test_batch_negative_timeout():
@@ -433,13 +433,13 @@ def test_batch_negative_timeout():
     with pytest.raises(BatchError) as exc_info:
         batch.with_request_timeout(-1.0)
 
-    assert "timeout must be a positive, finite number" in str(exc_info.value).lower()
+    assert "timeout must be a non-negative, finite number" in str(exc_info.value).lower()
 
 
-def test_batch_zero_timeout():
+def test_batch_timeout_not_finite():
     batch = Batch()
 
     with pytest.raises(BatchError) as exc_info:
-        batch.with_request_timeout(0.0)
+        batch.with_request_timeout(float("inf"))
 
-    assert "timeout must be a positive, finite number" in str(exc_info.value).lower()
+    assert "timeout must be a non-negative, finite number" in str(exc_info.value).lower()

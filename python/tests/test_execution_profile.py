@@ -1,10 +1,10 @@
 import pytest
 from scylla.enums import Consistency, SerialConsistency
+from scylla.errors import ExecuteError, StatementConfigError
 from scylla.execution_profile import ExecutionProfile
 from scylla.session_builder import SessionBuilder
 from scylla.statement import PreparedStatement, Statement
 from scylla.types import Unset
-from scylla.errors import ExecuteError, StatementConfigError
 
 
 def test_execution_profile_builder():
@@ -16,28 +16,21 @@ def test_execution_profile_negative_timeout():
     with pytest.raises(StatementConfigError) as exc_info:
         ExecutionProfile(timeout=-1.0)
 
-    assert "timeout must be a positive, finite number" in str(exc_info.value)
-
-
-def test_execution_profile_zero_timeout():
-    with pytest.raises(StatementConfigError) as exc_info:
-        ExecutionProfile(timeout=0.0)
-
-    assert "timeout must be a positive, finite number" in str(exc_info.value)
+    assert "timeout must be a non-negative, finite number" in str(exc_info.value)
 
 
 def test_execution_profile_nan_timeout():
     with pytest.raises(StatementConfigError) as exc_info:
         ExecutionProfile(timeout=float("nan"))
 
-    assert "timeout must be a positive, finite number" in str(exc_info.value)
+    assert "timeout must be a non-negative, finite number" in str(exc_info.value)
 
 
 def test_execution_profile_infinity_timeout():
     with pytest.raises(StatementConfigError) as exc_info:
         ExecutionProfile(timeout=float("inf"))
 
-    assert "timeout must be a positive, finite number" in str(exc_info.value)
+    assert "timeout must be a non-negative, finite number" in str(exc_info.value)
 
 
 def test_execution_profile_builder_consistency():
@@ -174,28 +167,21 @@ def test_statement_with_negative_timeout():
     stmt = Statement("SELECT * FROM system.local")
     with pytest.raises(StatementConfigError) as exc_info:
         stmt.with_request_timeout(-1.0)
-    assert "timeout must be a positive, finite number" in str(exc_info.value)
-
-
-def test_statement_with_zero_timeout():
-    stmt = Statement("SELECT * FROM system.local")
-    with pytest.raises(StatementConfigError) as exc_info:
-        stmt.with_request_timeout(0.0)
-    assert "timeout must be a positive, finite number" in str(exc_info.value)
+    assert "timeout must be a non-negative, finite number" in str(exc_info.value)
 
 
 def test_statement_with_nan_timeout():
     stmt = Statement("SELECT * FROM system.local")
     with pytest.raises(StatementConfigError) as exc_info:
         stmt.with_request_timeout(float("nan"))
-    assert "timeout must be a positive, finite number" in str(exc_info.value)
+    assert "timeout must be a non-negative, finite number" in str(exc_info.value)
 
 
 def test_statement_with_infinity_timeout():
     stmt = Statement("SELECT * FROM system.local")
     with pytest.raises(StatementConfigError) as exc_info:
         stmt.with_request_timeout(float("inf"))
-    assert "timeout must be a positive, finite number" in str(exc_info.value)
+    assert "timeout must be a non-negative, finite number" in str(exc_info.value)
 
 
 def test_statement_with_and_get_execution_profile():
@@ -376,7 +362,7 @@ async def test_prepared_with_negative_timeout():
     with pytest.raises(StatementConfigError) as exc_info:
         prepared.with_request_timeout(-1.0)
 
-    assert "timeout must be a positive, finite number" in str(exc_info.value)
+    assert "timeout must be a non-negative, finite number" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
