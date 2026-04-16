@@ -4,7 +4,7 @@ use scylla::statement::prepared::PreparedStatement;
 use scylla::statement::unprepared::Statement;
 use std::time::Duration;
 
-use crate::enums::{Consistency, SerialConsistency};
+use crate::enums::{PyConsistency, PySerialConsistency};
 use crate::errors::DriverStatementConfigError;
 use crate::execution_profile::ExecutionProfile;
 use crate::types::UnsetType;
@@ -36,7 +36,7 @@ impl PyPreparedStatement {
             })
     }
 
-    fn with_consistency(&self, c: Consistency) -> PyPreparedStatement {
+    fn with_consistency(&self, c: PyConsistency) -> PyPreparedStatement {
         let mut p = self._inner.clone();
         p.set_consistency(c.to_rust());
         PyPreparedStatement { _inner: p }
@@ -48,11 +48,11 @@ impl PyPreparedStatement {
         PyPreparedStatement { _inner: p }
     }
 
-    fn get_consistency(&self) -> Option<Consistency> {
-        self._inner.get_consistency().map(Consistency::to_python)
+    fn get_consistency(&self) -> Option<PyConsistency> {
+        self._inner.get_consistency().map(PyConsistency::to_python)
     }
 
-    fn with_serial_consistency(&self, sc: Option<SerialConsistency>) -> PyPreparedStatement {
+    fn with_serial_consistency(&self, sc: Option<PySerialConsistency>) -> PyPreparedStatement {
         let mut p = self._inner.clone();
         p.set_serial_consistency(sc.map(|sc| sc.to_rust()));
         PyPreparedStatement { _inner: p }
@@ -64,11 +64,11 @@ impl PyPreparedStatement {
         PyPreparedStatement { _inner: p }
     }
 
-    fn get_serial_consistency(&self) -> Option<SerialConsistency> {
+    fn get_serial_consistency(&self) -> Option<PySerialConsistency> {
         // TODO: implement returning Unset like in get_request_timeout
         self._inner
             .get_serial_consistency()
-            .map(SerialConsistency::to_python)
+            .map(PySerialConsistency::to_python)
     }
 
     fn with_request_timeout(
@@ -157,7 +157,7 @@ impl PyStatement {
             })
     }
 
-    fn with_consistency(&self, c: Consistency) -> PyStatement {
+    fn with_consistency(&self, c: PyConsistency) -> PyStatement {
         let mut s = self._inner.clone();
         s.set_consistency(c.to_rust());
         PyStatement { _inner: s }
@@ -169,11 +169,11 @@ impl PyStatement {
         PyStatement { _inner: s }
     }
 
-    fn get_consistency(&self) -> Option<Consistency> {
-        self._inner.get_consistency().map(Consistency::to_python)
+    fn get_consistency(&self) -> Option<PyConsistency> {
+        self._inner.get_consistency().map(PyConsistency::to_python)
     }
 
-    fn with_serial_consistency(&self, sc: Option<SerialConsistency>) -> PyStatement {
+    fn with_serial_consistency(&self, sc: Option<PySerialConsistency>) -> PyStatement {
         let mut s = self._inner.clone();
         s.set_serial_consistency(sc.map(|sc| sc.to_rust()));
         PyStatement { _inner: s }
@@ -185,11 +185,11 @@ impl PyStatement {
         PyStatement { _inner: s }
     }
 
-    fn get_serial_consistency(&self) -> Option<SerialConsistency> {
+    fn get_serial_consistency(&self) -> Option<PySerialConsistency> {
         // TODO: implement returning Unset like in get_request_timeout
         self._inner
             .get_serial_consistency()
-            .map(SerialConsistency::to_python)
+            .map(PySerialConsistency::to_python)
     }
 
     fn with_request_timeout(

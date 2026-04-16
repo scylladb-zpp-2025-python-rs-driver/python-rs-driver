@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use scylla::client;
 use std::time::Duration;
 
-use crate::enums::{Consistency, SerialConsistency};
+use crate::enums::{PyConsistency, PySerialConsistency};
 use crate::errors::DriverStatementConfigError;
 
 #[pyclass(frozen, from_py_object)]
@@ -16,13 +16,13 @@ impl ExecutionProfile {
     #[new]
     #[pyo3(signature = (
         timeout=30.0,
-        consistency=Consistency::LocalQuorum,
-        serial_consistency=SerialConsistency::LocalSerial,
+        consistency=PyConsistency::LocalQuorum,
+        serial_consistency=PySerialConsistency::LocalSerial,
     ))]
     pub(crate) fn new(
         timeout: Option<f64>,
-        consistency: Consistency,
-        serial_consistency: Option<SerialConsistency>,
+        consistency: PyConsistency,
+        serial_consistency: Option<PySerialConsistency>,
     ) -> Result<Self, DriverStatementConfigError> {
         let mut profile_builder = client::execution_profile::ExecutionProfile::builder();
 
@@ -53,14 +53,14 @@ impl ExecutionProfile {
         self._inner.get_request_timeout().map(|d| d.as_secs_f64())
     }
 
-    pub(crate) fn get_consistency(&self) -> Consistency {
-        Consistency::to_python(self._inner.get_consistency())
+    pub(crate) fn get_consistency(&self) -> PyConsistency {
+        PyConsistency::to_python(self._inner.get_consistency())
     }
 
-    pub(crate) fn get_serial_consistency(&self) -> Option<SerialConsistency> {
+    pub(crate) fn get_serial_consistency(&self) -> Option<PySerialConsistency> {
         self._inner
             .get_serial_consistency()
-            .map(SerialConsistency::to_python)
+            .map(PySerialConsistency::to_python)
     }
 }
 

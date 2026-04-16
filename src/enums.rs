@@ -1,9 +1,9 @@
 use pyo3::prelude::*;
-use scylla::statement;
+use scylla::statement::{Consistency, SerialConsistency};
 
-#[pyclass(eq, eq_int, frozen, from_py_object)]
+#[pyclass(name = "Consistency", eq, eq_int, frozen, from_py_object)]
 #[derive(Clone, Copy, PartialEq)]
-pub(crate) enum Consistency {
+pub(crate) enum PyConsistency {
     Any,
     One,
     Two,
@@ -17,66 +17,66 @@ pub(crate) enum Consistency {
     LocalSerial,
 }
 
-impl Consistency {
-    pub(crate) fn to_rust(self) -> statement::Consistency {
+impl PyConsistency {
+    pub(crate) fn to_rust(self) -> Consistency {
         match self {
-            Consistency::Any => statement::Consistency::Any,
-            Consistency::One => statement::Consistency::One,
-            Consistency::Two => statement::Consistency::Two,
-            Consistency::Three => statement::Consistency::Three,
-            Consistency::Quorum => statement::Consistency::Quorum,
-            Consistency::All => statement::Consistency::All,
-            Consistency::LocalQuorum => statement::Consistency::LocalQuorum,
-            Consistency::EachQuorum => statement::Consistency::EachQuorum,
-            Consistency::LocalOne => statement::Consistency::LocalOne,
-            Consistency::Serial => statement::Consistency::Serial,
-            Consistency::LocalSerial => statement::Consistency::LocalSerial,
+            PyConsistency::Any => Consistency::Any,
+            PyConsistency::One => Consistency::One,
+            PyConsistency::Two => Consistency::Two,
+            PyConsistency::Three => Consistency::Three,
+            PyConsistency::Quorum => Consistency::Quorum,
+            PyConsistency::All => Consistency::All,
+            PyConsistency::LocalQuorum => Consistency::LocalQuorum,
+            PyConsistency::EachQuorum => Consistency::EachQuorum,
+            PyConsistency::LocalOne => Consistency::LocalOne,
+            PyConsistency::Serial => Consistency::Serial,
+            PyConsistency::LocalSerial => Consistency::LocalSerial,
         }
     }
 
-    pub(crate) fn to_python(consistency: statement::Consistency) -> Self {
+    pub(crate) fn to_python(consistency: Consistency) -> Self {
         match consistency {
-            statement::Consistency::Any => Consistency::Any,
-            statement::Consistency::One => Consistency::One,
-            statement::Consistency::Two => Consistency::Two,
-            statement::Consistency::Three => Consistency::Three,
-            statement::Consistency::Quorum => Consistency::Quorum,
-            statement::Consistency::All => Consistency::All,
-            statement::Consistency::LocalQuorum => Consistency::LocalQuorum,
-            statement::Consistency::EachQuorum => Consistency::EachQuorum,
-            statement::Consistency::LocalOne => Consistency::LocalOne,
-            statement::Consistency::Serial => Consistency::Serial,
-            statement::Consistency::LocalSerial => Consistency::LocalSerial,
+            Consistency::Any => PyConsistency::Any,
+            Consistency::One => PyConsistency::One,
+            Consistency::Two => PyConsistency::Two,
+            Consistency::Three => PyConsistency::Three,
+            Consistency::Quorum => PyConsistency::Quorum,
+            Consistency::All => PyConsistency::All,
+            Consistency::LocalQuorum => PyConsistency::LocalQuorum,
+            Consistency::EachQuorum => PyConsistency::EachQuorum,
+            Consistency::LocalOne => PyConsistency::LocalOne,
+            Consistency::Serial => PyConsistency::Serial,
+            Consistency::LocalSerial => PyConsistency::LocalSerial,
         }
     }
 }
 
-#[pyclass(eq, eq_int, frozen, from_py_object)]
+#[pyclass(name = "SerialConsistency", eq, eq_int, frozen, from_py_object)]
 #[derive(Clone, Copy, PartialEq)]
-pub(crate) enum SerialConsistency {
+pub(crate) enum PySerialConsistency {
     Serial,
     LocalSerial,
 }
 
-impl SerialConsistency {
-    pub(crate) fn to_rust(self) -> statement::SerialConsistency {
+impl PySerialConsistency {
+    pub(crate) fn to_rust(self) -> SerialConsistency {
         match self {
-            SerialConsistency::Serial => statement::SerialConsistency::Serial,
-            SerialConsistency::LocalSerial => statement::SerialConsistency::LocalSerial,
+            PySerialConsistency::Serial => SerialConsistency::Serial,
+            PySerialConsistency::LocalSerial => SerialConsistency::LocalSerial,
         }
     }
 
-    pub(crate) fn to_python(consistency: statement::SerialConsistency) -> Self {
+    pub(crate) fn to_python(consistency: SerialConsistency) -> Self {
         match consistency {
-            statement::SerialConsistency::Serial => SerialConsistency::Serial,
-            statement::SerialConsistency::LocalSerial => SerialConsistency::LocalSerial,
+            SerialConsistency::Serial => PySerialConsistency::Serial,
+            SerialConsistency::LocalSerial => PySerialConsistency::LocalSerial,
         }
     }
 }
 
 #[pymodule]
 pub(crate) fn enums(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<Consistency>()?;
-    module.add_class::<SerialConsistency>()?;
+    module.add_class::<PyConsistency>()?;
+    module.add_class::<PySerialConsistency>()?;
     Ok(())
 }

@@ -1,4 +1,4 @@
-use crate::enums::{Consistency, SerialConsistency};
+use crate::enums::{PyConsistency, PySerialConsistency};
 use crate::errors::DriverBatchError;
 use crate::execution_profile::ExecutionProfile;
 use crate::serialize::value_list::PyValueList;
@@ -108,7 +108,7 @@ impl PyBatch {
             })
     }
 
-    fn with_consistency(&self, c: Consistency) -> PyBatch {
+    fn with_consistency(&self, c: PyConsistency) -> PyBatch {
         let mut batch = self._inner.clone();
         batch.set_consistency(c.to_rust());
         PyBatch {
@@ -129,11 +129,11 @@ impl PyBatch {
     }
 
     #[getter]
-    fn get_consistency(&self) -> Option<Consistency> {
-        self._inner.get_consistency().map(Consistency::to_python)
+    fn get_consistency(&self) -> Option<PyConsistency> {
+        self._inner.get_consistency().map(PyConsistency::to_python)
     }
 
-    fn with_serial_consistency(&self, sc: Option<SerialConsistency>) -> PyBatch {
+    fn with_serial_consistency(&self, sc: Option<PySerialConsistency>) -> PyBatch {
         let mut batch = self._inner.clone();
         batch.set_serial_consistency(sc.map(|sc| sc.to_rust()));
         PyBatch {
@@ -161,7 +161,7 @@ impl PyBatch {
                 .map_err(DriverBatchError::python_conversion_failed);
         }
         match self._inner.get_serial_consistency() {
-            Some(sc) => SerialConsistency::to_python(sc)
+            Some(sc) => PySerialConsistency::to_python(sc)
                 .into_py_any(py)
                 .map_err(DriverBatchError::python_conversion_failed),
             None => Ok(py.None()),
