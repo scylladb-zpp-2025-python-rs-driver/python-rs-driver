@@ -196,15 +196,11 @@ impl PyBatch {
     }
 
     #[getter]
-    fn get_request_timeout(&self, py: Python) -> Result<Py<PyAny>, DriverBatchError> {
+    fn get_request_timeout(&self, py: Python<'_>) -> Py<PyAny> {
         match self._inner.get_request_timeout() {
-            Some(t) if t == Duration::MAX => Ok(py.None()),
-            Some(t) => PyFloat::new(py, t.as_secs_f64())
-                .into_py_any(py)
-                .map_err(DriverBatchError::python_conversion_failed),
-            None => UnsetType::get_instance(py)
-                .into_py_any(py)
-                .map_err(DriverBatchError::python_conversion_failed),
+            Some(t) if t == Duration::MAX => py.None(),
+            Some(t) => PyFloat::new(py, t.as_secs_f64()).into(),
+            None => UnsetType::get_instance(py).into(),
         }
     }
 }
