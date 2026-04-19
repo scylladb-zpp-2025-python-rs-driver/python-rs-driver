@@ -22,6 +22,7 @@ from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
     start_cluster,
     stop_and_remove_cluster,
 )
+from datetime import timedelta
 
 
 @pytest.mark.asyncio
@@ -391,3 +392,34 @@ def test_port_range_validation_logic(bad_range: tuple[int, int]):
 async def test_port_range_boundary_valid(valid_range: tuple[int, int]):
     builder = SessionBuilder().shard_aware_local_port_range(valid_range)
     assert isinstance(builder, SessionBuilder)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "valid_duration",
+    [
+        0.5,
+        5,
+        timedelta(milliseconds=200),
+        timedelta(seconds=2, microseconds=500),
+        0.0,
+    ],
+)
+async def test_schema_agreement_interval_happy_path(valid_duration: Any):
+    builder = SessionBuilder().schema_agreement_interval(valid_duration)
+    assert isinstance(builder, SessionBuilder)
+
+
+@pytest.mark.parametrize(
+    "invalid_input",
+    [
+        -1.0,
+        float("inf"),
+    ],
+)
+def test_schema_agreement_interval_error_consistency(invalid_input: Any):
+    builder = SessionBuilder()
+    with pytest.raises(SessionConfigError) as excinfo:
+        builder.schema_agreement_interval(invalid_input)
+
+    assert "Expected a datetime.timedelta or a non-negative finite float (seconds)" in str(excinfo.value)

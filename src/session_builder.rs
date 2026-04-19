@@ -17,6 +17,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::ops::RangeInclusive;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[pyclass]
 struct SessionBuilder {
@@ -122,6 +123,16 @@ impl SessionBuilder {
         slf.config.compression = compression.map(|c| c.into());
         slf
     }
+    
+
+    fn schema_agreement_interval<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        timeout: PyDuration,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.schema_agreement_interval = timeout.0;
+
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
@@ -133,6 +144,26 @@ impl SessionBuilder {
             }),
             Err(err) => Err(DriverSessionConnectionError::new_session_error(err)),
         }
+    }
+}
+
+
+struct PyDuration(Duration);
+
+impl<'py> FromPyObject<'_, 'py> for PyDuration {
+    type Error = DriverSessionConfigError;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(duration) = obj.extract::<Duration>() {
+            return Ok(PyDuration(duration));
+        }
+
+        if let Ok(secs) = obj.extract::<f64>() {
+            let duration = Duration::try_from_secs_f64(secs)
+                .map_err(|_| DriverSessionConfigError::invalid_duration(obj))?;
+            return Ok(PyDuration(duration));
+        }
+
+        Err(DriverSessionConfigError::invalid_duration(obj))
     }
 }
 

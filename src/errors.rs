@@ -480,6 +480,10 @@ pub enum DriverSessionConfigError {
     },
 
     InvalidPortRange,
+
+    InvalidDuration {
+        type_name: String,
+    },
 }
 
 impl DriverSessionConfigError {
@@ -505,6 +509,16 @@ impl DriverSessionConfigError {
             index,
             source: Box::new(source),
         }
+    }
+
+    pub fn invalid_duration(obj: Borrowed<PyAny>) -> Self {
+        let type_name = obj
+            .get_type()
+            .name()
+            .map(|n| n.to_string())
+            .unwrap_or_else(|_| "UnknownType".to_string());
+
+        Self::InvalidDuration { type_name }
     }
 }
 
@@ -553,6 +567,13 @@ impl From<DriverSessionConfigError> for PyErr {
 
             DriverSessionConfigError::InvalidPortRange => {
                 let message = "Invalid port range: start port must be less than or equal to end port, and both ports must be greater than or equal to 1024";
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidDuration { type_name } => {
+                let message = format!(
+                    "Expected a datetime.timedelta or a non-negative finite float (seconds), got: {type_name}"
+                );
                 build_session_config_pyerr(py, message, None, None)
             }
         })

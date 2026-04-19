@@ -7,6 +7,7 @@ from .policies import AuthenticatorProvider, AddressTranslator, TimestampGenerat
 from .execution_profile import ExecutionProfile
 from .session import Session
 from .enums import Compression
+from datetime import timedelta
 
 ContactPoint = str | tuple[str | IPv4Address | IPv6Address, int]
 
@@ -226,6 +227,24 @@ class SessionBuilder:
         compression : Compression | None
             The compression algorithm to use (e.g., ``Compression.Lz4``),
             or ``None`` to disable compression.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
+
+    def schema_agreement_interval(self, interval: timedelta | float) -> SessionBuilder:
+        """
+        Sets how often the driver checks for schema agreement.
+
+        The default is 200 milliseconds.
+
+        Parameters
+        ----------
+        interval : timedelta | float
+            The interval duration. If a ``float`` is provided,
+            it is interpreted as **seconds**.
 
         Returns
         -------
