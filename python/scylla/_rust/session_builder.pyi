@@ -306,3 +306,19 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def connection_timeout(self, timeout: timedelta | float) -> SessionBuilder:
+        """
+        Sets the timeout for establishing a new connection to a node. The default is 5 seconds.
+
+        Parameters
+        ----------
+        timeout : timedelta | float
+            The connection timeout. If a ``float`` is provided, it is
+            interpreted as **seconds**. Must be non-negative and finite.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...

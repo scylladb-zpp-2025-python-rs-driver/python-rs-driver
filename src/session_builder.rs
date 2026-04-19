@@ -165,6 +165,14 @@ impl SessionBuilder {
         slf.config.keyspace_case_sensitive = case_sensitive;
         slf
     }
+
+    fn connection_timeout<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        timeout: PyDuration,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.connect_timeout = timeout.0;
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
@@ -178,7 +186,6 @@ impl SessionBuilder {
         }
     }
 }
-
 
 struct PyDuration(Duration);
 
