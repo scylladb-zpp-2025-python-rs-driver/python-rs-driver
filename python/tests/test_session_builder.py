@@ -23,6 +23,7 @@ from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
     stop_and_remove_cluster,
 )
 from datetime import timedelta
+from scylla.enums import PoolSize
 
 
 @pytest.mark.asyncio
@@ -430,3 +431,15 @@ def test_tcp_keepalive_warnings(
 ):
     _ = SessionBuilder().tcp_keepalive_interval(0.5)
     assert "Setting the TCP keepalive interval to low values" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "pool_size",
+    [
+        PoolSize.per_host(5),
+        PoolSize.per_shard(5),
+    ],
+)
+def test_pool_size_happy_path(pool_size: PoolSize):
+    builder = SessionBuilder().pool_size(pool_size)
+    assert isinstance(builder, SessionBuilder)

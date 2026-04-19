@@ -6,7 +6,7 @@ from ipaddress import IPv4Address, IPv6Address
 from .policies import AuthenticatorProvider, AddressTranslator, TimestampGenerator, HostFilter
 from .execution_profile import ExecutionProfile
 from .session import Session
-from .enums import Compression
+from .enums import Compression, PoolSize
 from datetime import timedelta
 
 ContactPoint = str | tuple[str | IPv4Address | IPv6Address, int]
@@ -316,6 +316,23 @@ class SessionBuilder:
         timeout : timedelta | float
             The connection timeout. If a ``float`` is provided, it is
             interpreted as **seconds**. Must be non-negative and finite.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
+
+    def pool_size(self, size: PoolSize) -> SessionBuilder:
+        """
+        Sets the per-node connection pool size.
+
+        The default is one connection per shard, which is the recommended
+        setting for Scylla.
+
+        Parameters
+        ----------
+        size : PoolSize
 
         Returns
         -------

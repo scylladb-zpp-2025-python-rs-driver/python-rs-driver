@@ -1,6 +1,8 @@
 use pyo3::prelude::*;
 use scylla::statement::{Consistency, SerialConsistency};
+use scylla::client::PoolSize;
 use scylla_cql::frame::Compression;
+use std::num::NonZeroUsize;
 
 #[pyclass(name = "Consistency", eq, eq_int, frozen, from_py_object)]
 #[derive(Clone, Copy, PartialEq)]
@@ -95,10 +97,34 @@ impl From<PyCompression> for Compression {
     }
 }
 
+#[pyclass(name = "PoolSize", from_py_object, frozen)]
+#[derive(Clone, Copy, Debug)]
+pub struct PyPoolSize {
+    pub(crate) inner: PoolSize,
+}
+
+#[pymethods]
+impl PyPoolSize {
+    #[staticmethod]
+    fn per_host(connections: NonZeroUsize) -> PyResult<Self> {
+        Ok(Self {
+            inner: PoolSize::PerHost(connections),
+        })
+    }
+
+    #[staticmethod]
+    fn per_shard(connections: NonZeroUsize) -> Self {
+        Self {
+            inner: PoolSize::PerShard(connections),
+        }
+    }
+}
+
 #[pymodule]
 pub(crate) fn enums(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyConsistency>()?;
     module.add_class::<PySerialConsistency>()?;
     module.add_class::<PyCompression>()?;
+    module.add_class::<PyPoolSize>()?;
     Ok(())
 }

@@ -1,5 +1,5 @@
 use crate::RUNTIME;
-use crate::enums::PyCompression;
+use crate::enums::{PyCompression, PyPoolSize};
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
@@ -173,6 +173,12 @@ impl SessionBuilder {
         slf.config.connect_timeout = timeout.0;
         slf
     }
+
+    fn pool_size<'py>(mut slf: PyRefMut<'py, Self>, size: PyPoolSize) -> PyRefMut<'py, Self> {
+        slf.config.connection_pool_size = size.inner;
+        slf
+    }
+
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
