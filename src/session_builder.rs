@@ -227,7 +227,22 @@ impl SessionBuilder {
 
         slf
     }
-    async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
+
+    fn use_keyspace<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        keyspace_name: String,
+        case_sensitive: bool,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.used_keyspace = Some(keyspace_name);
+            inner.config.keyspace_case_sensitive = case_sensitive;
+        }
+        slf
+    }
+
+    async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> { {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
             inner.config.clone()
