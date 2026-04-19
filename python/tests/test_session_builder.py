@@ -423,3 +423,10 @@ def test_schema_agreement_interval_error_consistency(invalid_input: Any):
         builder.schema_agreement_interval(invalid_input)
 
     assert "Expected a datetime.timedelta or a non-negative finite float (seconds)" in str(excinfo.value)
+
+
+def test_tcp_keepalive_warnings(
+    caplog: LogCaptureFixture,
+):
+    _ = SessionBuilder().tcp_keepalive_interval(0.5)
+    assert "Setting the TCP keepalive interval to low values" in caplog.text

@@ -205,6 +205,28 @@ impl SessionBuilder {
         }
         slf
     }
+
+    fn tcp_keepalive_interval<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        interval: Option<PyDuration>,
+    ) -> PyRef<'py, Self> {
+        if let Some(ref dur) = interval
+            && dur.0 <= Duration::from_secs(1)
+        {
+            log::warn!(
+                "Setting the TCP keepalive interval to low values ({:?}) is not recommended as it can have a negative impact on performance. Consider setting it above 1 second.",
+                dur.0
+            );
+        }
+
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.tcp_keepalive_interval = interval.map(|delta| delta.0);
+        }
+
+        slf
+    }
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
