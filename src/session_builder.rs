@@ -15,8 +15,8 @@ use scylla::client::session::SessionConfig;
 use scylla::routing::ShardAwarePortRange;
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
-use std::str::FromStr;
 use std::ops::RangeInclusive;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -140,6 +140,17 @@ impl SessionBuilder {
         slf
     }
 
+    fn local_ip_address<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        ip: Option<IpAddr>,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.local_ip_address = ip;
+        }
+        slf
+    }
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
@@ -156,7 +167,6 @@ impl SessionBuilder {
         }
     }
 }
-
 
 #[derive(Clone)]
 #[pyclass(name = "SessionBuilderConfig", frozen, skip_from_py_object)]
