@@ -1,6 +1,11 @@
+use crate::errors::DriverSessionConfigError;
+use crate::session_builder::PyDuration;
+use pyo3::intern;
 use pyo3::prelude::*;
 use scylla::statement::{Consistency, SerialConsistency};
+use scylla::client::PoolSize;
 use scylla_cql::frame::Compression;
+use std::num::NonZeroUsize;
 
 #[pyclass(name = "Consistency", eq, eq_int, frozen, from_py_object)]
 #[derive(Clone, Copy, PartialEq)]
@@ -95,10 +100,62 @@ impl From<PyCompression> for Compression {
     }
 }
 
+#[pyclass(name = "PoolSize", from_py_object, frozen)]
+#[derive(Clone, Copy, Debug)]
+pub struct PyPoolSize {
+    pub(crate) inner: PoolSize,
+}
+
+#[pymethods]
+impl PyPoolSize {
+    #[staticmethod]
+    fn per_host(connections: NonZeroUsize) -> PyResult<Self> {
+        Ok(Self {
+            inner: PoolSize::PerHost(connections),
+        })
+    }
+
+    #[staticmethod]
+    fn per_shard(connections: NonZeroUsize) -> Self {
+        Self {
+            inner: PoolSize::PerShard(connections),
+        }
+    }
+
+    #[getter]
+    fn kind<'py>(&self, py: Python<'py>) -> &Bound<'py, PyString> {
+        match self.inner {
+            PoolSize::PerHost(_) => intern!(py, "per_host"),
+            PoolSize::PerShard(_) => intern!(py, "per_shard"),
+        }
+    }
+
+    #[getter]
+    fn connections(&self) -> usize {
+        match self.inner {
+            PoolSize::PerHost(v) | PoolSize::PerShard(v) => v.get(),
+        }
+    }
+
+    fn __repr__(&self, py: Python) -> PyResult<Py<PyString>> {
+        let repr_str = PyString::from_fmt(
+            py,
+            format_args!(
+                "PoolSize(kind={}, connections={})",
+                self.kind(py),
+                self.connections()
+            ),
+        )?;
+
+        Ok(repr_str.into())
+    }
+}
+
 #[pymodule]
 pub(crate) fn enums(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyConsistency>()?;
     module.add_class::<PySerialConsistency>()?;
     module.add_class::<PyCompression>()?;
+    module.add_class::<PyPoolSize>()?;
     Ok(())
 }

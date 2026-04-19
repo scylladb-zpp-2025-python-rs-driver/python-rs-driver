@@ -1,5 +1,5 @@
 use crate::RUNTIME;
-use crate::enums::PyCompression;
+use crate::enums::{PyCompression, PyPoolSize};
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
@@ -253,6 +253,19 @@ impl SessionBuilder {
         }
         slf
     }
+
+    fn pool_size<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        size: PyPoolSize,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.connection_pool_size = size.inner;
+        }
+        slf
+    }
+
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
