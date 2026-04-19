@@ -162,3 +162,22 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def local_ip_address(self, ip: IPv4Address | IPv6Address | str | None) -> SessionBuilder:
+        """
+        Sets the local IP address all TCP sockets are bound to.
+
+        By default, this option is set to ``None``, which allows to
+        bind to any available address (equivalent to ``INADDR_ANY`` for IPv4
+        or ``in6addr_any`` for IPv6).
+
+        Parameters
+        ----------
+        ip : IPv4Address | IPv6Address | None
+            The local IP address to bind to, or ``None`` for the default behavior.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...

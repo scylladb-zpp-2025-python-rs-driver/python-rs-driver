@@ -97,6 +97,10 @@ impl SessionBuilder {
         slf
     }
 
+    fn local_ip_address(mut slf: PyRefMut<'_, Self>, ip: Option<IpAddr>) -> PyRefMut<'_, Self> {
+        slf.config.local_ip_address = ip;
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME

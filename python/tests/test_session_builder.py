@@ -347,3 +347,18 @@ async def test_custom_host_filter_fallback_on_failure(
     assert row is not None
     assert "Failed to evaluate custom host filter from Python" in caplog.text
     assert "Host Filter Exploded!" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "ip",
+    [
+        "127.0.0.1",
+        "::1",
+        ipaddress.IPv4Address("127.0.0.2"),
+        ipaddress.IPv6Address("::2"),
+        None,
+    ],
+)
+def test_local_ip_address_valid_formats(ip: Any):
+    builder = SessionBuilder().local_ip_address(ip)
+    assert isinstance(builder, SessionBuilder)
