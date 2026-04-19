@@ -242,7 +242,18 @@ impl SessionBuilder {
         slf
     }
 
-    async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> { {
+    fn connection_timeout<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        timeout: PyDuration,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.connect_timeout = timeout.0;
+        }
+        slf
+    }
+    async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
             inner.config.clone()
