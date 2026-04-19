@@ -362,3 +362,32 @@ async def test_custom_host_filter_fallback_on_failure(
 def test_local_ip_address_valid_formats(ip: Any):
     builder = SessionBuilder().local_ip_address(ip)
     assert isinstance(builder, SessionBuilder)
+
+
+@pytest.mark.parametrize(
+    "bad_range",
+    [
+        ((2000, 1000)),
+        ((80, 2000)),
+        ((1023, 1024)),
+    ],
+)
+def test_port_range_validation_logic(bad_range: tuple[int, int]):
+    builder = SessionBuilder()
+    with pytest.raises(SessionConfigError) as excinfo:
+        builder.shard_aware_local_port_range(bad_range)
+
+    assert "Invalid port range" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "valid_range",
+    [
+        ((1024, 2000)),
+        ((1024, 1024)),
+    ],
+)
+async def test_port_range_boundary_valid(valid_range: tuple[int, int]):
+    builder = SessionBuilder().shard_aware_local_port_range(valid_range)
+    assert isinstance(builder, SessionBuilder)

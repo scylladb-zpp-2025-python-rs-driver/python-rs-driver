@@ -462,7 +462,6 @@ impl From<tokio::task::JoinError> for DriverSessionConnectionError {
 /* Session configuration errors */
 
 /// Errors related to invalid session configuration.
-#[allow(clippy::enum_variant_names)]
 #[derive(Debug)]
 #[must_use]
 pub enum DriverSessionConfigError {
@@ -479,6 +478,8 @@ pub enum DriverSessionConfigError {
         index: usize,
         source: Box<PyErr>,
     },
+
+    InvalidPortRange,
 }
 
 impl DriverSessionConfigError {
@@ -548,6 +549,11 @@ impl From<DriverSessionConfigError> for PyErr {
             DriverSessionConfigError::InvalidContactPointItem { index, source } => {
                 let message = format!("Error processing contact point at index {index}");
                 build_session_config_pyerr(py, message, Some(*source), Some(index))
+            }
+
+            DriverSessionConfigError::InvalidPortRange => {
+                let message = "Invalid port range: start port must be less than or equal to end port, and both ports must be greater than or equal to 1024";
+                build_session_config_pyerr(py, message, None, None)
             }
         })
     }

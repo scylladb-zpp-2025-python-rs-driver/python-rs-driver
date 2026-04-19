@@ -181,3 +181,31 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def shard_aware_local_port_range(self, port_range: tuple[int, int]) -> SessionBuilder:
+        """
+        Specifies the local port range used for shard-aware connections.
+
+        A possible use case is when you want to have multiple [`Session`] objects and do not want
+        them to compete for the ports within the same range. It is then advised to assign
+        mutually non-overlapping port ranges to each session object.
+
+        The provided range is inclusive on both ends (i.e. ``[start, end]``).
+
+        By default the driver uses port range ``(49152, 65535)``.
+
+        **Validation Rules:**
+        A ``SessionConfigError`` is raised if:
+        1. The range is empty (``end`` < ``start``).
+        2. The range starts below port ``1024`` (reserved system ports).
+
+        Parameters
+        ----------
+        port_range : tuple[int, int]
+            A tuple of (start_port, end_port), e.g., (49152, 65535).
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...

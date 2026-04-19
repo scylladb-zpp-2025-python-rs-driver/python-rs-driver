@@ -11,8 +11,10 @@ use pyo3::prelude::*;
 use pyo3::types::PySequence;
 use scylla::authentication::PlainTextAuthenticator;
 use scylla::client::session::SessionConfig;
+use scylla::routing::ShardAwarePortRange;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
+use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 #[pyclass]
@@ -100,6 +102,16 @@ impl SessionBuilder {
     fn local_ip_address(mut slf: PyRefMut<'_, Self>, ip: Option<IpAddr>) -> PyRefMut<'_, Self> {
         slf.config.local_ip_address = ip;
         slf
+    }
+
+    fn shard_aware_local_port_range(
+        mut slf: PyRefMut<'_, Self>,
+        port_range: (u16, u16),
+    ) -> Result<PyRefMut<'_, Self>, DriverSessionConfigError> {
+        slf.config.shard_aware_local_port_range =
+            ShardAwarePortRange::new(RangeInclusive::new(port_range.0, port_range.1))
+                .map_err(|_| DriverSessionConfigError::InvalidPortRange)?;
+        Ok(slf)
     }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
