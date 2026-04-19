@@ -286,3 +286,23 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def use_keyspace(self, keyspace_name: str, case_sensitive: bool) -> SessionBuilder:
+        """
+        Sets the keyspace to be used for all connections created by this session.
+
+        Each connection created by the driver will automatically execute
+        ``USE <keyspace_name>`` before performing any other operations.
+
+        This can be changed later on an active session using ``Session.use_keyspace``.
+
+        Parameters
+        ----------
+        keyspace_name : str
+        case_sensitive : bool
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...

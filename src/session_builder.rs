@@ -155,6 +155,16 @@ impl SessionBuilder {
 
         slf
     }
+
+    fn use_keyspace<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        keyspace_name: String,
+        case_sensitive: bool,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.used_keyspace = Some(keyspace_name);
+        slf.config.keyspace_case_sensitive = case_sensitive;
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
