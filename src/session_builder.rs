@@ -193,6 +193,18 @@ impl SessionBuilder {
 
         slf
     }
+
+    pub fn tcp_nodelay<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        nodelay: bool,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.tcp_nodelay = nodelay;
+        }
+        slf
+    }
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
