@@ -265,3 +265,24 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def tcp_keepalive_interval(self, timeout: timedelta | float | None) -> SessionBuilder:
+        """
+        Sets the TCP-level keepalive interval.
+
+        The default is `None`, which implies that no keepalive messages are sent **on TCP layer** when a connection is idle.
+
+        **Note:**
+        CQL-layer keepalives are configured separately, with `keepalive_interval`
+
+        Parameters
+        ----------
+        timeout : timedelta | float | None
+            The interval between keepalive probes. If ``float``, interpreted
+            as seconds. Set to ``None`` to disable.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...

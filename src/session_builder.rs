@@ -123,7 +123,6 @@ impl SessionBuilder {
         slf.config.compression = compression.map(|c| c.into());
         slf
     }
-    
 
     fn schema_agreement_interval<'py>(
         mut slf: PyRefMut<'py, Self>,
@@ -136,6 +135,24 @@ impl SessionBuilder {
 
     pub fn tcp_nodelay(mut slf: PyRefMut<'_, Self>, nodelay: bool) -> PyRefMut<'_, Self> {
         slf.config.tcp_nodelay = nodelay;
+        slf
+    }
+
+    fn tcp_keepalive_interval<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        interval: Option<PyDuration>,
+    ) -> PyRefMut<'py, Self> {
+        if let Some(ref dur) = interval
+            && dur.0 <= Duration::from_secs(1)
+        {
+            log::warn!(
+                "Setting the TCP keepalive interval to low values ({:?}) is not recommended as it can have a negative impact on performance. Consider setting it above 1 second.",
+                dur.0
+            );
+        }
+
+        slf.config.tcp_keepalive_interval = interval.map(|delta| delta.0);
+
         slf
     }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
