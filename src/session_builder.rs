@@ -133,6 +133,11 @@ impl SessionBuilder {
 
         slf
     }
+
+    pub fn tcp_nodelay(mut slf: PyRefMut<'_, Self>, nodelay: bool) -> PyRefMut<'_, Self> {
+        slf.config.tcp_nodelay = nodelay;
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME

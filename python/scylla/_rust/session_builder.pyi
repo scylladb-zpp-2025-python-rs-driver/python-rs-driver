@@ -251,3 +251,17 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def tcp_nodelay(self, nodelay: bool) -> SessionBuilder:
+        """
+        Set the nodelay TCP flag. The default is true.
+
+        Parameters
+        ----------
+        nodelay : bool
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
