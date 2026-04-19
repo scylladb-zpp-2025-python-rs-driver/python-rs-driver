@@ -180,6 +180,19 @@ impl SessionBuilder {
         }
         slf
     }
+
+    fn schema_agreement_interval<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        timeout: PyDuration,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.schema_agreement_interval = timeout.0;
+        }
+
+        slf
+    }
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
@@ -240,6 +253,26 @@ impl PySessionBuilderConfig {
         })
     }
 }
+
+pub(crate) struct PyDuration(pub(crate) Duration);
+
+impl<'py> FromPyObject<'_, 'py> for PyDuration {
+    type Error = DriverSessionConfigError;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(duration) = obj.extract::<Duration>() {
+            return Ok(PyDuration(duration));
+        }
+
+        if let Ok(secs) = obj.extract::<f64>() {
+            let duration = Duration::try_from_secs_f64(secs)
+                .map_err(|_| DriverSessionConfigError::invalid_duration(obj))?;
+            return Ok(PyDuration(duration));
+        }
+
+        Err(DriverSessionConfigError::invalid_duration(obj))
+    }
+}
+
 #[derive(Clone)]
 enum ContactPoint {
     Host(String),
