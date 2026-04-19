@@ -151,6 +151,22 @@ impl SessionBuilder {
         }
         slf
     }
+
+    fn shard_aware_local_port_range<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        port_range: (u16, u16),
+    ) -> Result<PyRef<'py, Self>, DriverSessionConfigError> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.shard_aware_local_port_range = port_range;
+            inner.config.shard_aware_local_port_range =
+                ShardAwarePortRange::new(RangeInclusive::new(port_range.0, port_range.1))
+                    .map_err(|_| DriverSessionConfigError::InvalidPortRange)?;
+        }
+        Ok(slf)
+    }
+
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
