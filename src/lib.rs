@@ -6,6 +6,7 @@ use pyo3::prelude::*;
 use tokio::runtime::Runtime;
 
 mod batch;
+mod cache;
 mod deserialize;
 mod enums;
 mod errors;
