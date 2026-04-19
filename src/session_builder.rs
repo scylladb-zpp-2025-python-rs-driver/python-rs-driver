@@ -1,4 +1,5 @@
 use crate::RUNTIME;
+use crate::enums::PyCompression;
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
@@ -13,8 +14,8 @@ use scylla::authentication::PlainTextAuthenticator;
 use scylla::client::session::SessionConfig;
 use scylla::routing::ShardAwarePortRange;
 use std::net::{IpAddr, SocketAddr};
-use std::str::FromStr;
 use std::ops::RangeInclusive;
+use std::str::FromStr;
 use std::sync::Arc;
 
 #[pyclass]
@@ -112,6 +113,14 @@ impl SessionBuilder {
             ShardAwarePortRange::new(RangeInclusive::new(port_range.0, port_range.1))
                 .map_err(|_| DriverSessionConfigError::InvalidPortRange)?;
         Ok(slf)
+    }
+
+    fn compression(
+        mut slf: PyRefMut<'_, Self>,
+        compression: Option<PyCompression>,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.compression = compression.map(|c| c.into());
+        slf
     }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();

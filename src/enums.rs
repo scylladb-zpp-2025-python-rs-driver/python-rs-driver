@@ -1,5 +1,6 @@
 use pyo3::prelude::*;
 use scylla::statement::{Consistency, SerialConsistency};
+use scylla_cql::frame::Compression;
 
 #[pyclass(name = "Consistency", eq, eq_int, frozen, from_py_object)]
 #[derive(Clone, Copy, PartialEq)]
@@ -78,9 +79,26 @@ impl From<SerialConsistency> for PySerialConsistency {
     }
 }
 
+#[pyclass(eq, eq_int, frozen, from_py_object, name = "Compression")]
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum PyCompression {
+    Lz4,
+    Snappy,
+}
+
+impl From<PyCompression> for Compression {
+    fn from(value: PyCompression) -> Self {
+        match value {
+            PyCompression::Lz4 => Self::Lz4,
+            PyCompression::Snappy => Self::Snappy,
+        }
+    }
+}
+
 #[pymodule]
 pub(crate) fn enums(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyConsistency>()?;
     module.add_class::<PySerialConsistency>()?;
+    module.add_class::<PyCompression>()?;
     Ok(())
 }
