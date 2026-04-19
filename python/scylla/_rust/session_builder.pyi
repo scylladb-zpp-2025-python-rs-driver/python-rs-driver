@@ -7,6 +7,7 @@ from typing import Any, Optional
 from .policies import AuthenticatorProvider, AddressTranslator, TimestampGenerator, HostFilter
 from .execution_profile import ExecutionProfile
 from .session import Session
+from .enums import Compression
 
 ContactPoint = str | tuple[str | IPv4Address | IPv6Address, int]
 
@@ -211,6 +212,28 @@ class SessionBuilder:
         ----------
         port_range : tuple[int, int]
             A tuple of (start_port, end_port), e.g., (49152, 65535).
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
+
+    def compression(self, compression: Compression | None) -> SessionBuilder:
+        """
+        Sets the preferred compression algorithm for the connection.
+
+        By default, no compression is used.
+
+        If the specified compression algorithm is not supported by the
+        database server, the session will automatically fall back to
+        no compression.
+
+        Parameters
+        ----------
+        compression : Compression | None
+            The compression algorithm to use (e.g., ``Compression.Lz4``),
+            or ``None`` to disable compression.
 
         Returns
         -------

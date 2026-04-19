@@ -1,4 +1,5 @@
 use crate::RUNTIME;
+use crate::enums::PyCompression;
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
@@ -16,6 +17,7 @@ use scylla::routing::ShardAwarePortRange;
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
 use std::ops::RangeInclusive;
+use std::str::FromStr;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -167,6 +169,17 @@ impl SessionBuilder {
         Ok(slf)
     }
 
+    fn compression<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        compression: Option<PyCompression>,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.compression = compression.map(|c| c.into());
+        }
+        slf
+    }
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
