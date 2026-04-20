@@ -356,3 +356,19 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def keyspaces_to_fetch(self, keyspaces: Sequence[str]) -> SessionBuilder:
+        """
+        Sets which keyspaces should be fetched.
+
+        By default, all keyspaces are fetched.
+
+        Parameters
+        ----------
+        keyspaces : Sequence[str]
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...

@@ -3,7 +3,7 @@ import ipaddress
 from scylla.errors import SessionConfigError
 import pytest
 
-from typing import Optional, Any, Generator
+from typing import Optional, Any, Generator, Sequence
 from _pytest.logging import LogCaptureFixture
 from scylla.session_builder import SessionBuilder
 from scylla.policies import (
@@ -442,4 +442,17 @@ def test_tcp_keepalive_warnings(
 )
 def test_pool_size_happy_path(pool_size: PoolSize):
     builder = SessionBuilder().pool_size(pool_size)
+    assert isinstance(builder, SessionBuilder)
+
+
+@pytest.mark.parametrize(
+    "valid_keyspaces",
+    [
+        ["ks1", "ks2"],
+        ("ks1", "ks2"),
+        [],
+    ],
+)
+def test_keyspaces_to_fetch_happy_path(valid_keyspaces: Sequence[str]):
+    builder = SessionBuilder().keyspaces_to_fetch(valid_keyspaces)
     assert isinstance(builder, SessionBuilder)

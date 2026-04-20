@@ -186,6 +186,14 @@ impl SessionBuilder {
         slf.config.disallow_shard_aware_port = disallow;
         slf
     }
+
+    fn keyspaces_to_fetch(
+        mut slf: PyRefMut<'_, Self>,
+        keyspaces: Vec<String>,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.keyspaces_to_fetch = keyspaces;
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
