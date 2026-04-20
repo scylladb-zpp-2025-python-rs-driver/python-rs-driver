@@ -1,5 +1,8 @@
 use std::sync::LazyLock;
 
+#[cfg(test)]
+mod tests;
+
 use crate::deserialize::value;
 use deserialize::results;
 use pyo3::prelude::*;
