@@ -1,5 +1,5 @@
 use crate::RUNTIME;
-use crate::enums::{PyCompression, PyPoolSize};
+use crate::enums::{Consistency, PyCompression, PyPoolSize};
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
@@ -283,6 +283,15 @@ impl SessionBuilder {
         slf.config.tracing_info_fetch_interval = interval.0;
         slf
     }
+
+    fn tracing_info_fetch_consistency(
+        mut slf: PyRefMut<'_, Self>,
+        consistency: Consistency,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.tracing_info_fetch_consistency = consistency.to_rust();
+        slf
+    }
+
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME

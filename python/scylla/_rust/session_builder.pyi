@@ -6,7 +6,7 @@ from ipaddress import IPv4Address, IPv6Address
 from .policies import AuthenticatorProvider, AddressTranslator, TimestampGenerator, HostFilter
 from .execution_profile import ExecutionProfile
 from .session import Session
-from .enums import Compression, PoolSize
+from .enums import Compression, PoolSize, Consistency
 from datetime import timedelta
 
 ContactPoint = str | tuple[str | IPv4Address | IPv6Address, int]
@@ -546,6 +546,22 @@ class SessionBuilder:
         interval : timedelta | float
             The interval duration. If a ``float`` is provided,
             it is interpreted as **seconds**.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
+
+    def tracing_info_fetch_consistency(self, consistency: Consistency) -> SessionBuilder:
+        """
+        Sets the consistency level used when fetching tracing information.
+
+        The default is ``Consistency.ONE``.
+
+        Parameters
+        ----------
+        consistency : Consistency
 
         Returns
         -------
