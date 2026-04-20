@@ -21,3 +21,5 @@ uuid = { version = "1.11.0", features = ["v4"] }
 bigdecimal = "0.4"
 chrono = "0.4"
 num-bigint = "0.4"
+tracing = { version = "0.1", features = ["log"] }
+pyo3-log = "0.13.3"
