@@ -199,6 +199,14 @@ impl SessionBuilder {
         slf.config.fetch_schema_metadata = fetch;
         slf
     }
+
+    fn metadata_request_serverside_timeout(
+        mut slf: PyRefMut<'_, Self>,
+        timeout: PyDuration,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.metadata_request_serverside_timeout = Some(timeout.0);
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME

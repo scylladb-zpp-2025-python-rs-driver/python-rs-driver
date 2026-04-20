@@ -388,3 +388,21 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def metadata_request_serverside_timeout(self, timeout: timedelta | float) -> SessionBuilder:
+        """
+        Sets the server-side timeout for metadata queries.
+
+        The default is 2 seconds.
+
+        Parameters
+        ----------
+        timeout : timedelta | float
+            The timeout duration. If a ``float`` is provided,
+            it is interpreted as **seconds**.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
