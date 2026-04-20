@@ -406,3 +406,21 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def keepalive_interval(self, interval: timedelta | float) -> SessionBuilder:
+        """
+        Sets the CQL-level keepalive interval.
+
+        The default is 30 seconds.
+
+        Parameters
+        ----------
+        interval : timedelta | float
+            The interval duration. If a ``float`` is provided,
+            it is interpreted as **seconds**.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
