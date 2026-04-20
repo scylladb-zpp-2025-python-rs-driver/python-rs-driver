@@ -289,6 +289,18 @@ impl SessionBuilder {
         }
         slf
     }
+
+    fn fetch_schema_metadata<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        fetch: bool,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.fetch_schema_metadata = fetch;
+        }
+        slf
+    }
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();

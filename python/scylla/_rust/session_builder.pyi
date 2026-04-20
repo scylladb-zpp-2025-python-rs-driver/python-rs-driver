@@ -380,3 +380,19 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def fetch_schema_metadata(self, fetch: bool) -> SessionBuilder:
+        """
+        Controls whether schema metadata should be fetched.
+
+        The default is true.
+
+        Parameters
+        ----------
+        fetch : bool
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
