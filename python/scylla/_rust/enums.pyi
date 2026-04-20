@@ -61,6 +61,7 @@ class PoolSize:
         """
         ...
 
+
     @property
     def kind(self) -> Literal["per_host", "per_shard"]:
         """
@@ -77,3 +78,53 @@ class PoolSize:
 
     def __repr__(self) -> str: ...
 
+
+class WriteCoalescingDelay:
+    @staticmethod
+    def small_nondeterministic() -> WriteCoalescingDelay:
+        """
+        Creates a small nondeterministic delay configuration.
+
+        This is the default setting and is intended for sub-millisecond delays.
+
+        Returns
+        -------
+        WriteCoalescingDelay
+        """
+        ...
+
+    @staticmethod
+    def from_seconds(delay: float | timedelta) -> WriteCoalescingDelay:
+        """
+        Creates a delay from a float representing seconds or a timedelta.
+
+        The final value must be greater than 0.
+
+        Parameters
+        ----------
+        delay : float | timedelta
+            The delay duration. If float, it represents seconds.
+
+        Returns
+        -------
+        WriteCoalescingDelay
+        """
+        ...
+
+
+    @property
+    def kind(self) -> Literal["small_nondeterministic", "milliseconds"]:
+        """
+        The structural strategy kind used for write coalescing delays.
+        """
+        ...
+
+    @property
+    def milliseconds(self) -> int | None:
+        """
+        The duration threshold in milliseconds.
+        Returns None if using a 'small_nondeterministic' strategy.
+        """
+        ...
+
+    def __repr__(self) -> str: ...

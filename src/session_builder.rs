@@ -1,5 +1,5 @@
 use crate::RUNTIME;
-use crate::enums::{PyCompression, PyPoolSize};
+use crate::enums::{PyCompression, PyPoolSize, PyWriteCoalescingDelay};
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
@@ -403,6 +403,24 @@ impl SessionBuilder {
         }
         slf
     }
+
+    fn write_coalescing<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        delay: Option<PyWriteCoalescingDelay>,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            if let Some(delay) = delay {
+                inner.config.write_coalescing_delay = delay.inner;
+                inner.config.enable_write_coalescing = true;
+            } else {
+                inner.config.enable_write_coalescing = false;
+            }
+        }
+        slf
+    }
+
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();

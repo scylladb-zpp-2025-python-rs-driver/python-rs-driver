@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import timedelta
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, Optional
 
-from .policies import AuthenticatorProvider, AddressTranslator, TimestampGenerator, HostFilter
+from .enums import Compression, PoolSize, WriteCoalescingDelay
 from .execution_profile import ExecutionProfile
+from .policies import AddressTranslator, AuthenticatorProvider, HostFilter, TimestampGenerator
 from .session import Session
-from .enums import Compression, PoolSize
-from datetime import timedelta
 
 ContactPoint = str | tuple[str | IPv4Address | IPv6Address, int]
 
@@ -19,6 +19,7 @@ class SessionBuilderConfig:
     This object is frozen and represents the immutable state of the builder
     at the moment it was generated.
     """
+
 class SessionBuilder:
     """
     Builder for configuring and creating a :class:`Session`.
@@ -516,6 +517,34 @@ class SessionBuilder:
         Parameters
         ----------
         refresh_metadata : bool
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
+
+    def write_coalescing(self, delay: WriteCoalescingDelay | None) -> SessionBuilder:
+        """
+        Configures write coalescing.
+
+        When a delay is provided, the driver introduces a wait period before
+        flushing data to the socket. This allows it to batch multiple write
+        requests into a single system call, improving throughput.
+
+        To disable write coalescing, pass ``None``.
+
+        This optimization may increase latency if the application sends
+        requests infrequently. It is recommended to benchmark before
+        disabling this feature.
+
+        Default: ``WriteCoalescingDelay.small_nondeterministic()``
+
+        Parameters
+        ----------
+        delay : WriteCoalescingDelay | None
+            The delay configuration to use, or ``None`` to disable write
+            coalescing entirely.
 
         Returns
         -------
