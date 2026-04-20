@@ -596,3 +596,21 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def cluster_metadata_refresh_interval(self, interval: timedelta | float) -> SessionBuilder:
+        """
+        Sets how often cluster metadata is refreshed.
+
+        The default is 60 seconds.
+
+        Parameters
+        ----------
+        interval : timedelta | float
+            The interval duration. If a ``float`` is provided,
+            it is interpreted as **seconds**.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
