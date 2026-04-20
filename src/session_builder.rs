@@ -379,6 +379,18 @@ impl SessionBuilder {
         }
         slf
     }
+
+    fn hostname_resolution_timeout<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        duration: Option<PyDuration>,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.hostname_resolution_timeout = duration.map(|d| d.0);
+        }
+        slf
+    }
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
