@@ -494,3 +494,19 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def refresh_metadata_on_auto_schema_agreement(self, refresh_metadata: bool) -> SessionBuilder:
+        """
+        Controls whether metadata is refreshed after automatic schema agreement.
+
+        The default is true.
+
+        Parameters
+        ----------
+        refresh_metadata : bool
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...

@@ -258,6 +258,14 @@ impl SessionBuilder {
         slf.config.hostname_resolution_timeout = duration.map(|d| d.0);
         slf
     }
+
+    fn refresh_metadata_on_auto_schema_agreement(
+        mut slf: PyRefMut<'_, Self>,
+        refresh_metadata: bool,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.refresh_metadata_on_auto_schema_agreement = refresh_metadata;
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
