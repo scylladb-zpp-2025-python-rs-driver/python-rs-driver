@@ -250,6 +250,14 @@ impl SessionBuilder {
         slf.config.schema_agreement_automatic_waiting = enabled;
         slf
     }
+
+    fn hostname_resolution_timeout(
+        mut slf: PyRefMut<'_, Self>,
+        duration: Option<PyDuration>,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.hostname_resolution_timeout = duration.map(|d| d.0);
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME

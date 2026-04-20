@@ -476,3 +476,21 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def hostname_resolution_timeout(self, duration: timedelta | float | None) -> SessionBuilder:
+        """
+        Sets the DNS hostname resolution timeout.
+
+        The default is 5 seconds. Use ``None`` to disable the timeout.
+
+        Parameters
+        ----------
+        duration : timedelta | float | None
+            The timeout duration. If a ``float`` is provided,
+            it is interpreted as **seconds**.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
