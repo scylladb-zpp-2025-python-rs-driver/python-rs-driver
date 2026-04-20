@@ -367,6 +367,18 @@ impl SessionBuilder {
         }
         slf
     }
+
+    fn auto_await_schema_agreement<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        enabled: bool,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.schema_agreement_automatic_waiting = enabled;
+        }
+        slf
+    }
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
