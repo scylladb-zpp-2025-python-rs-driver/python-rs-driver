@@ -277,6 +277,18 @@ impl SessionBuilder {
         }
         slf
     }
+
+    fn keyspaces_to_fetch<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        keyspaces: Vec<String>,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.keyspaces_to_fetch = keyspaces;
+        }
+        slf
+    }
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
