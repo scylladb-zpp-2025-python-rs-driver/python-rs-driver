@@ -391,6 +391,18 @@ impl SessionBuilder {
         }
         slf
     }
+
+    fn refresh_metadata_on_auto_schema_agreement<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        refresh_metadata: bool,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.refresh_metadata_on_auto_schema_agreement = refresh_metadata;
+        }
+        slf
+    }
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
