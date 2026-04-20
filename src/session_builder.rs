@@ -222,6 +222,18 @@ impl SessionBuilder {
         slf.config.keepalive_interval = Some(interval.0);
         Ok(slf)
     }
+
+    fn keepalive_timeout(mut slf: PyRefMut<'_, Self>, timeout: PyDuration) -> PyRefMut<'_, Self> {
+        if timeout.0 <= Duration::from_secs(1) {
+            log::warn!(
+                "Setting the keepalive timeout to low values ({:?}) is not recommended as it can have a negative impact on performance. Consider setting it above 5 second.",
+                timeout.0
+            );
+        }
+
+        slf.config.keepalive_timeout = Some(timeout.0);
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME

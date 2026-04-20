@@ -424,3 +424,21 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def keepalive_timeout(self, timeout: timedelta | float) -> SessionBuilder:
+        """
+        Sets the keepalive timeout.
+
+        The default is 30 seconds.
+
+        Parameters
+        ----------
+        timeout : timedelta | float
+            The timeout duration. If a ``float`` is provided,
+            it is interpreted as **seconds**.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
