@@ -275,6 +275,14 @@ impl SessionBuilder {
         slf.config.tracing_info_fetch_attempts = attempts;
         slf
     }
+
+    fn tracing_info_fetch_interval(
+        mut slf: PyRefMut<'_, Self>,
+        interval: PyDuration,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.tracing_info_fetch_interval = interval.0;
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME

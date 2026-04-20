@@ -530,3 +530,25 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def tracing_info_fetch_interval(self, interval: timedelta | float) -> SessionBuilder:
+        """
+        Sets the delay between attempts to fetch tracing information.
+
+        The default is 3 milliseconds.
+
+        Cassandra users may want to increase this value - the default is good
+        for Scylla, but Cassandra sometimes needs more time for the data to
+        appear in tracing table.
+
+        Parameters
+        ----------
+        interval : timedelta | float
+            The interval duration. If a ``float`` is provided,
+            it is interpreted as **seconds**.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
