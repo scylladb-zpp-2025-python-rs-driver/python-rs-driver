@@ -14,6 +14,7 @@ use scylla::authentication::PlainTextAuthenticator;
 use scylla::client::session::SessionConfig;
 use scylla::routing::ShardAwarePortRange;
 use std::net::{IpAddr, SocketAddr};
+use std::num::NonZeroU32;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -264,6 +265,14 @@ impl SessionBuilder {
         refresh_metadata: bool,
     ) -> PyRefMut<'_, Self> {
         slf.config.refresh_metadata_on_auto_schema_agreement = refresh_metadata;
+        slf
+    }
+
+    fn tracing_info_fetch_attempts(
+        mut slf: PyRefMut<'_, Self>,
+        attempts: NonZeroU32,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.tracing_info_fetch_attempts = attempts;
         slf
     }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {

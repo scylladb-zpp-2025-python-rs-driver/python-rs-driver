@@ -510,3 +510,23 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def tracing_info_fetch_attempts(self, attempts: int) -> SessionBuilder:
+        """
+        Sets the number of attempts to fetch tracing information.
+
+        The default is 5. Must be greater than 0.
+        
+        Cassandra users may want to increase this value - the default is good
+        for Scylla, but Cassandra sometimes needs more time for the data to
+        appear in tracing table.
+
+        Parameters
+        ----------
+        attempts : int
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
