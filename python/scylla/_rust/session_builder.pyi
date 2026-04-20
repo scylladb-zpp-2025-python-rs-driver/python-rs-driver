@@ -442,3 +442,21 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def schema_agreement_timeout(self, timeout: timedelta | float) -> SessionBuilder:
+        """
+        Sets the timeout for waiting for schema agreement.
+
+        The default is 60 seconds.
+
+        Parameters
+        ----------
+        timeout : timedelta | float
+            The timeout duration. If a ``float`` is provided,
+            it is interpreted as **seconds**.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...

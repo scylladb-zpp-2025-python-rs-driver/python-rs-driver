@@ -234,6 +234,14 @@ impl SessionBuilder {
         slf.config.keepalive_timeout = Some(timeout.0);
         slf
     }
+
+    fn schema_agreement_timeout(
+        mut slf: PyRefMut<'_, Self>,
+        timeout: PyDuration,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.schema_agreement_timeout = timeout.0;
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
