@@ -460,3 +460,19 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def auto_await_schema_agreement(self, enabled: bool) -> SessionBuilder:
+        """
+        Controls automatic waiting for schema agreement after schema changes.
+
+        The default is true.
+
+        Parameters
+        ----------
+        enabled : bool
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...

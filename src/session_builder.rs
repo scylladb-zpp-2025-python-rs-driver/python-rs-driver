@@ -242,6 +242,14 @@ impl SessionBuilder {
         slf.config.schema_agreement_timeout = timeout.0;
         slf
     }
+
+    fn auto_await_schema_agreement(
+        mut slf: PyRefMut<'_, Self>,
+        enabled: bool,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.schema_agreement_automatic_waiting = enabled;
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
