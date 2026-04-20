@@ -484,6 +484,8 @@ pub enum DriverSessionConfigError {
     InvalidDuration {
         type_name: String,
     },
+
+    ZeroDurationNotAllowed,
 }
 
 impl DriverSessionConfigError {
@@ -574,6 +576,11 @@ impl From<DriverSessionConfigError> for PyErr {
                 let message = format!(
                     "Expected a datetime.timedelta or a non-negative finite float (seconds), got: {type_name}"
                 );
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::ZeroDurationNotAllowed => {
+                let message = "Duration must be greater than zero.";
                 build_session_config_pyerr(py, message, None, None)
             }
         })

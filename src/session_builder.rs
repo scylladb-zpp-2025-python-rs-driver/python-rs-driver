@@ -1,5 +1,5 @@
 use crate::RUNTIME;
-use crate::enums::{Consistency, PyCompression, PyPoolSize};
+use crate::enums::{PyCompression, PyConsistency, PyPoolSize, PyWriteCoalescingDelay};
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
@@ -286,9 +286,22 @@ impl SessionBuilder {
 
     fn tracing_info_fetch_consistency(
         mut slf: PyRefMut<'_, Self>,
-        consistency: Consistency,
+        consistency: PyConsistency,
     ) -> PyRefMut<'_, Self> {
-        slf.config.tracing_info_fetch_consistency = consistency.to_rust();
+        slf.config.tracing_info_fetch_consistency = consistency.into();
+        slf
+    }
+
+    fn write_coalescing(
+        mut slf: PyRefMut<'_, Self>,
+        delay: Option<PyWriteCoalescingDelay>,
+    ) -> PyRefMut<'_, Self> {
+        if let Some(delay) = delay {
+            slf.config.write_coalescing_delay = delay.inner;
+            slf.config.enable_write_coalescing = true;
+        } else {
+            slf.config.enable_write_coalescing = false;
+        }
         slf
     }
 
@@ -306,7 +319,7 @@ impl SessionBuilder {
     }
 }
 
-struct PyDuration(Duration);
+pub(crate) struct PyDuration(pub(crate) Duration);
 
 impl<'py> FromPyObject<'_, 'py> for PyDuration {
     type Error = DriverSessionConfigError;

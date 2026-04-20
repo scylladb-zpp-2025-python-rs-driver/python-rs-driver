@@ -1,8 +1,10 @@
+use crate::errors::DriverSessionConfigError;
+use crate::session_builder::PyDuration;
 use pyo3::prelude::*;
+use scylla::client::{PoolSize, WriteCoalescingDelay};
 use scylla::statement::{Consistency, SerialConsistency};
-use scylla::client::PoolSize;
 use scylla_cql::frame::Compression;
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU64, NonZeroUsize};
 
 #[pyclass(name = "Consistency", eq, eq_int, frozen, from_py_object)]
 #[derive(Clone, Copy, PartialEq)]
@@ -120,11 +122,42 @@ impl PyPoolSize {
     }
 }
 
+#[pyclass(name = "WriteCoalescingDelay", from_py_object, frozen)]
+#[derive(Clone, Debug)]
+pub struct PyWriteCoalescingDelay {
+    pub(crate) inner: WriteCoalescingDelay,
+}
+
+#[pymethods]
+impl PyWriteCoalescingDelay {
+    #[staticmethod]
+    fn small_nondeterministic() -> Self {
+        Self {
+            inner: WriteCoalescingDelay::SmallNondeterministic,
+        }
+    }
+
+    #[staticmethod]
+    fn from_seconds(py_duration: PyDuration) -> Result<Self, DriverSessionConfigError> {
+        let millis = py_duration.0.as_millis();
+
+        let delay_ms = u64::try_from(millis)
+            .ok()
+            .and_then(NonZeroU64::new)
+            .ok_or_else(|| DriverSessionConfigError::ZeroDurationNotAllowed)?;
+
+        Ok(Self {
+            inner: WriteCoalescingDelay::Milliseconds(delay_ms),
+        })
+    }
+}
+
 #[pymodule]
 pub(crate) fn enums(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyConsistency>()?;
     module.add_class::<PySerialConsistency>()?;
     module.add_class::<PyCompression>()?;
     module.add_class::<PyPoolSize>()?;
+    module.add_class::<PyWriteCoalescingDelay>()?;
     Ok(())
 }

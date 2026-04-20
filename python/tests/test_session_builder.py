@@ -23,7 +23,7 @@ from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
     stop_and_remove_cluster,
 )
 from datetime import timedelta
-from scylla.enums import PoolSize
+from scylla.enums import PoolSize, WriteCoalescingDelay
 
 
 @pytest.mark.asyncio
@@ -470,3 +470,27 @@ def test_keepalive_timeout_on_invalid_values(
 ):
     _ = SessionBuilder().keepalive_timeout(0.5)
     assert "Setting the keepalive timeout to low values" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "delay",
+    [WriteCoalescingDelay.small_nondeterministic(), WriteCoalescingDelay.from_seconds(0.05), None],
+)
+def test_coalescing_delay(delay: WriteCoalescingDelay):
+    builder = SessionBuilder().write_coalescing(delay)
+    assert isinstance(builder, SessionBuilder)
+
+
+@pytest.mark.parametrize(
+    "zero_input",
+    [
+        0,
+        timedelta(seconds=0),
+        timedelta(milliseconds=0),
+    ],
+)
+def test_write_coalescing_delay_zero_error(zero_input: Any):
+    with pytest.raises(SessionConfigError) as excinfo:
+        WriteCoalescingDelay.from_seconds(zero_input)
+
+    assert "Duration must be greater than zero." in str(excinfo.value)

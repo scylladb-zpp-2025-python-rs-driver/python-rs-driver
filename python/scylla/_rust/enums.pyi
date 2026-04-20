@@ -1,4 +1,5 @@
 from enum import IntEnum, Enum
+from datetime import timedelta
 
 class Consistency(IntEnum):
     Any = ...
@@ -55,5 +56,37 @@ class PoolSize:
         Returns
         -------
         PoolSize
+        """
+        ...
+
+class WriteCoalescingDelay:
+    @staticmethod
+    def small_nondeterministic() -> WriteCoalescingDelay:
+        """
+        Creates a small nondeterministic delay configuration.
+
+        This is the default setting and is intended for sub-millisecond delays.
+
+        Returns
+        -------
+        WriteCoalescingDelay
+        """
+        ...
+
+    @staticmethod
+    def from_seconds(delay: float | timedelta) -> WriteCoalescingDelay:
+        """
+        Creates a delay from a float representing seconds or a timedelta.
+
+        The final value must be greater than 0.
+
+        Parameters
+        ----------
+        delay : float | timedelta
+            The delay duration. If float, it represents seconds.
+
+        Returns
+        -------
+        WriteCoalescingDelay
         """
         ...
