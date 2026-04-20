@@ -463,3 +463,10 @@ def test_keepalive_warning_on_invalid_values(
 ):
     _ = SessionBuilder().keepalive_interval(0.5)
     assert "Setting the keepalive interval to low values" in caplog.text
+
+
+def test_keepalive_timeout_on_invalid_values(
+    caplog: LogCaptureFixture,
+):
+    _ = SessionBuilder().keepalive_timeout(0.5)
+    assert "Setting the keepalive timeout to low values" in caplog.text

@@ -334,6 +334,27 @@ impl SessionBuilder {
         }
         Ok(slf)
     }
+
+    fn keepalive_timeout<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        timeout: Option<PyDuration>,
+    ) -> PyRef<'py, Self> {
+        if let Some(ref timeout) = timeout
+            && timeout.0 <= Duration::from_secs(1)
+        {
+            log::warn!(
+                "Setting the keepalive timeout to low values ({:?}) is not recommended as it can have a negative impact on performance. Consider setting it above 5 second.",
+                timeout.0
+            );
+        }
+
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.keepalive_timeout = timeout.map(|value| value.0);
+        }
+        slf
+    }
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
