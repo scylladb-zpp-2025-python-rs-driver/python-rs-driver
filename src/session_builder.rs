@@ -194,6 +194,11 @@ impl SessionBuilder {
         slf.config.keyspaces_to_fetch = keyspaces;
         slf
     }
+
+    fn fetch_schema_metadata(mut slf: PyRefMut<'_, Self>, fetch: bool) -> PyRefMut<'_, Self> {
+        slf.config.fetch_schema_metadata = fetch;
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
