@@ -456,3 +456,10 @@ def test_pool_size_happy_path(pool_size: PoolSize):
 def test_keyspaces_to_fetch_happy_path(valid_keyspaces: Sequence[str]):
     builder = SessionBuilder().keyspaces_to_fetch(valid_keyspaces)
     assert isinstance(builder, SessionBuilder)
+
+
+def test_keepalive_warning_on_invalid_values(
+    caplog: LogCaptureFixture,
+):
+    _ = SessionBuilder().keepalive_interval(0.5)
+    assert "Setting the keepalive interval to low values" in caplog.text

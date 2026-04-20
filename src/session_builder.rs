@@ -313,6 +313,27 @@ impl SessionBuilder {
         }
         slf
     }
+
+    fn keepalive_interval<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        interval: Option<PyDuration>,
+    ) -> PyResult<PyRef<'py, Self>> {
+        if let Some(ref interval) = interval
+            && interval.0 <= Duration::from_secs(1)
+        {
+            log::warn!(
+                "Setting the keepalive interval to low values ({:?}) is not recommended as it can have a negative impact on performance. Consider setting it above 5 second.",
+                interval.0
+            );
+        }
+
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.keepalive_interval = interval.map(|value| value.0);
+        }
+        Ok(slf)
+    }
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
