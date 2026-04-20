@@ -339,3 +339,20 @@ class SessionBuilder:
         SessionBuilder
         """
         ...
+
+    def disallow_shard_aware_port(self, disallow: bool) -> SessionBuilder:
+        """
+        Controls whether the driver may connect to the shard-aware port.
+
+        By default, shard-aware port connections are allowed. This is a
+        Scylla-specific option and usually should not be changed.
+
+        Parameters
+        ----------
+        disallow : bool
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...

@@ -179,6 +179,13 @@ impl SessionBuilder {
         slf
     }
 
+    fn disallow_shard_aware_port(
+        mut slf: PyRefMut<'_, Self>,
+        disallow: bool,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.disallow_shard_aware_port = disallow;
+        slf
+    }
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
