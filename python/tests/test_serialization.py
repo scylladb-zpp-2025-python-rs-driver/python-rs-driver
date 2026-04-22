@@ -17,8 +17,7 @@ from scylla.errors import ExecuteError
 
 
 async def set_up() -> Session:
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     await session.execute("""
             CREATE KEYSPACE IF NOT EXISTS testks

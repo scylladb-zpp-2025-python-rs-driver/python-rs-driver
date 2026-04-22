@@ -462,58 +462,45 @@ impl From<tokio::task::JoinError> for DriverSessionConnectionError {
 /* Session configuration errors */
 
 /// Errors related to invalid session configuration.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug)]
 #[must_use]
 pub enum DriverSessionConfigError {
-    /// The provided port value is invalid (e.g. not an integer, or out of the valid range).
-    InvalidPort { source: Box<PyErr> },
-    /// The contact_points argument is of the wrong type (e.g. a string instead of a list).
-    ContactPointsTypeError,
-    /// try_iter() failed on the contact_points argument.
-    ContactPointsNotIterable { source: Box<PyErr> },
-    /// Failed to access an item in the contact_points iterable at the given index.
-    ContactPointAccessFailed { index: usize, source: Box<PyErr> },
-    /// An item in the contact_points iterable is of the wrong type (e.g. not a string).
-    ContactPointTypeError { index: usize, source: Box<PyErr> },
-    /// Failed to convert an item in the contact_points iterable to a string (e.g. invalid UTF-8).
-    ContactPointConversionFailed { index: usize, source: Box<PyErr> },
+    ContactPointsIterationFailed {
+        source: Box<PyErr>,
+    },
+    /// The contact_points argument is of the wrong type.
+    ContactPointTypeError {
+        type_name: String,
+    },
+
+    /// Wraps a Core Error with the index where it happened
+    InvalidContactPointItem {
+        index: usize,
+        source: Box<PyErr>,
+    },
 }
 
 impl DriverSessionConfigError {
     /* Constructors */
+    pub fn contact_point_type_error(obj: Borrowed<PyAny>) -> Self {
+        let type_name = obj
+            .get_type()
+            .name()
+            .map(|n| n.to_string())
+            .unwrap_or_else(|_| "UnknownType".to_string());
 
-    pub fn invalid_port(source: PyErr) -> Self {
-        Self::InvalidPort {
+        Self::ContactPointTypeError { type_name }
+    }
+
+    pub fn contact_points_iteration_failed(source: PyErr) -> Self {
+        Self::ContactPointsIterationFailed {
             source: Box::new(source),
         }
     }
 
-    pub fn contact_points_type_error() -> Self {
-        Self::ContactPointsTypeError
-    }
-
-    pub fn contact_points_not_iterable(source: PyErr) -> Self {
-        Self::ContactPointsNotIterable {
-            source: Box::new(source),
-        }
-    }
-
-    pub fn contact_point_access_failed(index: usize, source: PyErr) -> Self {
-        Self::ContactPointAccessFailed {
-            index,
-            source: Box::new(source),
-        }
-    }
-
-    pub fn contact_point_type_error(index: usize, source: PyErr) -> Self {
-        Self::ContactPointTypeError {
-            index,
-            source: Box::new(source),
-        }
-    }
-
-    pub fn contact_point_conversion_failed(index: usize, source: PyErr) -> Self {
-        Self::ContactPointConversionFailed {
+    pub fn contact_points_invalid_item(index: usize, source: PyErr) -> Self {
+        Self::InvalidContactPointItem {
             index,
             source: Box::new(source),
         }
@@ -544,42 +531,22 @@ fn build_session_config_pyerr(
 impl From<DriverSessionConfigError> for PyErr {
     fn from(e: DriverSessionConfigError) -> PyErr {
         Python::attach(|py| match e {
-            DriverSessionConfigError::InvalidPort { source } => {
-                let message = "Invalid port value: expected an integer between 0 and 65535.";
-
-                build_session_config_pyerr(py, message, Some(*source), None)
-            }
-
-            DriverSessionConfigError::ContactPointsTypeError => {
-                let message = "contact_points should be a sequence of strings, not a string!";
+            DriverSessionConfigError::ContactPointTypeError { type_name } => {
+                let message = format!(
+                    "Invalid contact points type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these, got {type_name}"
+                );
 
                 build_session_config_pyerr(py, message, None, None)
             }
 
-            DriverSessionConfigError::ContactPointsNotIterable { source } => {
-                let message = "contact_points is not iterable: expected a sequence of strings (e.g. list or tuple) for contact_points";
+            DriverSessionConfigError::ContactPointsIterationFailed { source } => {
+                let message = "Failed to iterate over sequence of contact points".to_string();
 
                 build_session_config_pyerr(py, message, Some(*source), None)
             }
 
-            DriverSessionConfigError::ContactPointAccessFailed { index, source } => {
-                let message = format!("Failed to access contact point at index {index}");
-
-                build_session_config_pyerr(py, message, Some(*source), Some(index))
-            }
-
-            DriverSessionConfigError::ContactPointTypeError { index, source } => {
-                let message =
-                    format!("Invalid contact point type at index {index}: expected a string");
-
-                build_session_config_pyerr(py, message, Some(*source), Some(index))
-            }
-
-            DriverSessionConfigError::ContactPointConversionFailed { index, source } => {
-                let message = format!(
-                    "Failed to convert contact point at index {index} to string (e.g. invalid UTF-8)"
-                );
-
+            DriverSessionConfigError::InvalidContactPointItem { index, source } => {
+                let message = format!("Error processing contact point at index {index}");
                 build_session_config_pyerr(py, message, Some(*source), Some(index))
             }
         })

@@ -239,7 +239,7 @@ async def main() -> None:
     port = int(port_str)
 
     print(f"Connecting to {host}:{port} ...")
-    session = await SessionBuilder([host], port).connect()
+    session = await SessionBuilder().contact_points((host, port)).connect()
 
     await setup_schema(session)
 

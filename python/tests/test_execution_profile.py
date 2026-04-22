@@ -72,8 +72,7 @@ async def test_create_session_with_profile():
     expected_timeout = 10.5
     expected_consistency = Consistency.All
     profile = ExecutionProfile(timeout=expected_timeout, consistency=expected_consistency)
-    builder = SessionBuilder(["127.0.0.2"], 9042, execution_profile=profile)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).execution_profile(profile).connect()
     result = await session.execute("SELECT * FROM system.local")
     print(result)
 
@@ -82,8 +81,7 @@ async def test_create_session_with_profile():
 @pytest.mark.requires_db
 async def test_invalid_consistency_for_query():
     profile = ExecutionProfile(consistency=Consistency.Three)
-    builder = SessionBuilder(["127.0.0.2"], 9042, execution_profile=profile)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).execution_profile(profile).connect()
     with pytest.raises(ExecuteError) as exc_info:
         _ = await session.execute("SELECT * FROM system.local")
     assert "failed to execute statement" in str(exc_info.value).lower()
@@ -93,8 +91,7 @@ async def test_invalid_consistency_for_query():
 @pytest.mark.requires_db
 async def test_invalid_consistency_for_prepared_statement():
     profile = ExecutionProfile(consistency=Consistency.Three)
-    builder = SessionBuilder(["127.0.0.2"], 9042, execution_profile=profile)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).execution_profile(profile).connect()
     prepared = await session.prepare("SELECT * FROM system.local")
     with pytest.raises(ExecuteError) as exc_info:
         _ = await session.execute(prepared)
@@ -238,8 +235,7 @@ def test_statement_chaining():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_invalid_consistency_for_statement():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
     stmt = Statement("SELECT * FROM system.local").with_consistency(Consistency.Three)
     with pytest.raises(ExecuteError) as exc_info:
         _ = await session.execute(stmt)
@@ -249,8 +245,7 @@ async def test_invalid_consistency_for_statement():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_consistency():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     prepared = await session.prepare("SELECT * FROM system.local")
     expected_consistency = Consistency.All
@@ -262,8 +257,7 @@ async def test_prepared_with_consistency():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_and_get_consistency():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     prepared = await session.prepare("SELECT * FROM system.local")
     expected_consistency = Consistency.All
@@ -277,8 +271,7 @@ async def test_prepared_with_and_get_consistency():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_and_without_consistency():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     prepared = await session.prepare("SELECT * FROM system.local")
     expected_consistency = Consistency.All
@@ -292,8 +285,7 @@ async def test_prepared_with_and_without_consistency():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_execution_profile():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     prepared = await session.prepare("SELECT * FROM system.local")
     expected_profile = ExecutionProfile()
@@ -305,8 +297,7 @@ async def test_prepared_with_execution_profile():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_and_get_execution_profile():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     expected_timeout = 1.5
     prepared = await session.prepare("SELECT * FROM system.local")
@@ -321,8 +312,7 @@ async def test_prepared_with_and_get_execution_profile():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_and_without_execution_profile():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     expected_timeout = 1.5
     expected_profile = ExecutionProfile(timeout=expected_timeout)
@@ -337,8 +327,7 @@ async def test_prepared_with_and_without_execution_profile():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_request_timeout():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     prepared = await session.prepare("SELECT * FROM system.local")
     expected_timeout = 10.5
@@ -350,8 +339,7 @@ async def test_prepared_with_request_timeout():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_and_get_request_timeout():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     prepared = await session.prepare("SELECT * FROM system.local")
     expected_timeout = 10.5
@@ -365,8 +353,7 @@ async def test_prepared_with_and_get_request_timeout():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_and_without_request_timeout():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     prepared = await session.prepare("SELECT * FROM system.local")
     expected_timeout = 10.5
@@ -382,8 +369,7 @@ async def test_prepared_with_and_without_request_timeout():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_negative_timeout():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     prepared = await session.prepare("SELECT * FROM system.local")
 
@@ -396,8 +382,7 @@ async def test_prepared_with_negative_timeout():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_timeout_set_to_none():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     prepared = await session.prepare("SELECT * FROM system.local")
     expected_timeout = None
@@ -410,8 +395,7 @@ async def test_prepared_with_timeout_set_to_none():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_serial_consistency():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     prepared = await session.prepare("SELECT * FROM system.local")
     expected_serial_consistency = SerialConsistency.Serial
@@ -423,8 +407,7 @@ async def test_prepared_with_serial_consistency():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_and_get_serial_consistency():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     prepared = await session.prepare("SELECT * FROM system.local")
     expected_serial_consistency = SerialConsistency.Serial
@@ -438,8 +421,7 @@ async def test_prepared_with_and_get_serial_consistency():
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_prepared_with_and_without_serial_consistency():
-    builder = SessionBuilder(["127.0.0.2"], 9042)
-    session = await builder.connect()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
 
     prepared = await session.prepare("SELECT * FROM system.local")
     expected_serial_consistency = SerialConsistency.Serial
