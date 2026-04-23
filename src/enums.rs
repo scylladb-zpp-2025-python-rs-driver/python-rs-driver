@@ -1,7 +1,8 @@
 use crate::errors::DriverSessionConfigError;
 use crate::session_builder::PyDuration;
 use pyo3::prelude::*;
-use scylla::client::{PoolSize, WriteCoalescingDelay};
+use pyo3::types::PyString;
+use scylla::client::{PoolSize, SelfIdentity, WriteCoalescingDelay};
 use scylla::statement::{Consistency, SerialConsistency};
 use scylla_cql::frame::Compression;
 use std::num::{NonZeroU64, NonZeroUsize};
@@ -152,6 +153,99 @@ impl PyWriteCoalescingDelay {
     }
 }
 
+#[pyclass(name = "SelfIdentity", from_py_object, frozen)]
+#[derive(Clone, Debug, Default)]
+pub struct PySelfIdentity {
+    pub(crate) inner: SelfIdentity<'static>,
+}
+
+#[pymethods]
+impl PySelfIdentity {
+    #[new]
+    #[pyo3(signature = (
+        *,
+        custom_driver_name = None,
+        custom_driver_version = None,
+        application_name = None,
+        application_version = None,
+        client_id = None,
+    ))]
+    fn new(
+        custom_driver_name: Option<String>,
+        custom_driver_version: Option<String>,
+        application_name: Option<String>,
+        application_version: Option<String>,
+        client_id: Option<String>,
+    ) -> Self {
+        let mut inner = SelfIdentity::new();
+
+        if let Some(v) = custom_driver_name {
+            inner.set_custom_driver_name(v);
+        } else {
+            inner.set_custom_driver_name("Python-RS Driver");
+        }
+
+        if let Some(v) = custom_driver_version {
+            inner.set_custom_driver_version(v);
+        } else {
+            inner.set_custom_driver_version(env!("CARGO_PKG_VERSION"));
+        }
+
+        if let Some(v) = application_name {
+            inner.set_application_name(v);
+        }
+        if let Some(v) = application_version {
+            inner.set_application_version(v);
+        }
+        if let Some(v) = client_id {
+            inner.set_client_id(v);
+        }
+
+        Self { inner }
+    }
+
+    #[getter]
+    fn custom_driver_name(&self) -> Option<&str> {
+        self.inner.get_custom_driver_name()
+    }
+
+    #[getter]
+    fn custom_driver_version(&self) -> Option<&str> {
+        self.inner.get_custom_driver_version()
+    }
+
+    #[getter]
+    fn application_name(&self) -> Option<&str> {
+        self.inner.get_application_name()
+    }
+
+    #[getter]
+    fn application_version(&self) -> Option<&str> {
+        self.inner.get_application_version()
+    }
+
+    #[getter]
+    fn client_id(&self) -> Option<&str> {
+        self.inner.get_client_id()
+    }
+
+    fn __repr__(&self, py: Python) -> PyResult<Py<PyString>> {
+        let repr_str = PyString::from_fmt(
+            py,
+            format_args!(
+                "SelfIdentity(custom_driver_name={:?}, custom_driver_version={:?}, application_name={:?}, application_version={:?}, client_id={:?})",
+                self.custom_driver_name(),
+                self.custom_driver_version(),
+                self.application_name(),
+                self.application_version(),
+                self.client_id(),
+            ),
+        )?;
+
+        Ok(repr_str.into())
+    }
+}
+
 #[pymodule]
 pub(crate) fn enums(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyConsistency>()?;
@@ -159,5 +253,6 @@ pub(crate) fn enums(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<(
     module.add_class::<PyCompression>()?;
     module.add_class::<PyPoolSize>()?;
     module.add_class::<PyWriteCoalescingDelay>()?;
+    module.add_class::<PySelfIdentity>()?;
     Ok(())
 }

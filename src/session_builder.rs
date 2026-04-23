@@ -1,5 +1,7 @@
 use crate::RUNTIME;
-use crate::enums::{PyCompression, PyConsistency, PyPoolSize, PyWriteCoalescingDelay};
+use crate::enums::{
+    PyCompression, PyConsistency, PyPoolSize, PySelfIdentity, PyWriteCoalescingDelay,
+};
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
@@ -312,6 +314,15 @@ impl SessionBuilder {
         slf.config.cluster_metadata_refresh_interval = interval.0;
         slf
     }
+
+    pub fn custom_identity(
+        mut slf: PyRefMut<'_, Self>,
+        identity: PySelfIdentity,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.identity = identity.inner;
+        slf
+    }
+
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME

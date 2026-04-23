@@ -23,7 +23,7 @@ from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
     stop_and_remove_cluster,
 )
 from datetime import timedelta
-from scylla.enums import PoolSize, WriteCoalescingDelay
+from scylla.enums import PoolSize, WriteCoalescingDelay, SelfIdentity
 
 
 @pytest.mark.asyncio
@@ -494,3 +494,32 @@ def test_write_coalescing_delay_zero_error(zero_input: Any):
         WriteCoalescingDelay.from_seconds(zero_input)
 
     assert "Duration must be greater than zero." in str(excinfo.value)
+
+
+def test_self_identity_constructor_defaults():
+    identity = SelfIdentity()
+
+    assert identity.custom_driver_name == "Python-RS Driver"
+    assert identity.custom_driver_version is not None
+    assert identity.application_name is None
+    assert identity.application_version is None
+    assert identity.client_id is None
+
+
+def test_self_identity_constructor_values():
+    identity = SelfIdentity(
+        custom_driver_name="custom-driver",
+        custom_driver_version="1.2.3",
+        application_name="my-app",
+        application_version="4.5.6",
+        client_id="client-1",
+    )
+
+    assert identity.custom_driver_name == "custom-driver"
+    assert identity.custom_driver_version == "1.2.3"
+    assert identity.application_name == "my-app"
+    assert identity.application_version == "4.5.6"
+    assert identity.client_id == "client-1"
+
+    builder = SessionBuilder().custom_identity(identity)
+    assert isinstance(builder, SessionBuilder)

@@ -6,7 +6,7 @@ from ipaddress import IPv4Address, IPv6Address
 from .policies import AuthenticatorProvider, AddressTranslator, TimestampGenerator, HostFilter
 from .execution_profile import ExecutionProfile
 from .session import Session
-from .enums import Compression, PoolSize, Consistency, WriteCoalescingDelay
+from .enums import Compression, PoolSize, Consistency, WriteCoalescingDelay, SelfIdentity
 from datetime import timedelta
 
 ContactPoint = str | tuple[str | IPv4Address | IPv6Address, int]
@@ -608,6 +608,24 @@ class SessionBuilder:
         interval : timedelta | float
             The interval duration. If a ``float`` is provided,
             it is interpreted as **seconds**.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
+
+    def custom_identity(self, identity: SelfIdentity) -> SessionBuilder:
+        """
+        Sets self-identifying information sent by the driver in the STARTUP message.
+
+        By default, the driver sends its built-in driver name and version.
+        Other identity fields are not sent unless explicitly set.
+
+        Parameters
+        ----------
+        identity : SelfIdentity
+            Self-identifying information to advertise.
 
         Returns
         -------
