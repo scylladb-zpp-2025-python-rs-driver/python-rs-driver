@@ -1,5 +1,5 @@
 use crate::RUNTIME;
-use crate::enums::{PyCompression, PyPoolSize, PyWriteCoalescingDelay};
+use crate::enums::{PyCompression, PyPoolSize, PySelfIdentity, PyWriteCoalescingDelay};
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
@@ -17,7 +17,6 @@ use scylla::routing::ShardAwarePortRange;
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
 use std::ops::RangeInclusive;
-use std::str::FromStr;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -417,6 +416,18 @@ impl SessionBuilder {
             } else {
                 inner.config.enable_write_coalescing = false;
             }
+        }
+        slf
+    }
+
+    pub fn custom_identity<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        identity: PySelfIdentity,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.identity = identity.inner;
         }
         slf
     }

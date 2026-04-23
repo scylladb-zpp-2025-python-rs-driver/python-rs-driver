@@ -5,7 +5,7 @@ from datetime import timedelta
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, Optional
 
-from .enums import Compression, PoolSize, WriteCoalescingDelay
+from .enums import Compression, PoolSize, SelfIdentity, WriteCoalescingDelay
 from .execution_profile import ExecutionProfile
 from .policies import AddressTranslator, AuthenticatorProvider, HostFilter, TimestampGenerator
 from .session import Session
@@ -545,6 +545,24 @@ class SessionBuilder:
         delay : WriteCoalescingDelay | None
             The delay configuration to use, or ``None`` to disable write
             coalescing entirely.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
+
+    def custom_identity(self, identity: SelfIdentity) -> SessionBuilder:
+        """
+        Sets self-identifying information sent by the driver in the STARTUP message.
+
+        By default, the driver sends its built-in driver name and version.
+        Other identity fields are not sent unless explicitly set.
+
+        Parameters
+        ----------
+        identity : SelfIdentity
+            Self-identifying information to advertise.
 
         Returns
         -------
