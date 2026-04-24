@@ -765,10 +765,10 @@ impl From<tokio::task::JoinError> for DriverSchemaAgreementError {
 #[derive(Debug)]
 #[must_use]
 pub enum DriverStatementConfigError {
-    /// The provided request timeout is not a positive finite number of seconds.
+    /// The provided request timeout is not a non-negative finite number of seconds.
     InvalidRequestTimeout { value: f64 },
-    /// Failed to convert the provided request timeout value into a valid duration.
-    RequestTimeoutConversionFailed { value: f64 },
+    /// An error occurred in Python code while handling a statement value.
+    PythonConversionFailed { source: Box<PyErr> },
 }
 
 impl DriverStatementConfigError {
@@ -778,8 +778,10 @@ impl DriverStatementConfigError {
         Self::InvalidRequestTimeout { value }
     }
 
-    pub fn request_timeout_conversion_failed(value: f64) -> Self {
-        Self::RequestTimeoutConversionFailed { value }
+    pub fn python_conversion_failed(source: PyErr) -> Self {
+        Self::PythonConversionFailed {
+            source: Box::new(source),
+        }
     }
 }
 
@@ -788,14 +790,17 @@ impl From<DriverStatementConfigError> for PyErr {
         match e {
             DriverStatementConfigError::InvalidRequestTimeout { value } => {
                 StatementConfigError::new_err(format!(
-                    "timeout must be a positive, finite number (in seconds), got {value}"
+                    "timeout must be a non-negative, finite number (in seconds), got {value}"
                 ))
             }
-            DriverStatementConfigError::RequestTimeoutConversionFailed { value } => {
-                StatementConfigError::new_err(format!(
-                    "Failed to convert timeout value {value} to a valid duration"
-                ))
-            }
+            DriverStatementConfigError::PythonConversionFailed { source } => Python::attach(|py| {
+                let err = StatementConfigError::new_err(
+                    "Python conversion failed while handling batch value",
+                );
+
+                err.set_cause(py, Some(*source));
+                err
+            }),
         }
     }
 }
@@ -804,10 +809,8 @@ impl From<DriverStatementConfigError> for PyErr {
 #[derive(Debug)]
 #[must_use]
 pub enum DriverBatchError {
-    /// The provided request timeout is not a positive finite number of seconds.
+    /// The provided request timeout is not a non-negative finite number of seconds.
     InvalidRequestTimeout { value: f64 },
-    /// Failed to convert the provided request timeout value into a valid duration.
-    RequestTimeoutConversionFailed { value: f64 },
     /// An error occurred in Python code while handling a batch value.
     PythonConversionFailed { source: Box<PyErr> },
 }
@@ -817,10 +820,6 @@ impl DriverBatchError {
 
     pub fn invalid_request_timeout(value: f64) -> Self {
         Self::InvalidRequestTimeout { value }
-    }
-
-    pub fn request_timeout_conversion_failed(value: f64) -> Self {
-        Self::RequestTimeoutConversionFailed { value }
     }
 
     pub fn python_conversion_failed(source: PyErr) -> Self {
@@ -834,11 +833,8 @@ impl From<DriverBatchError> for PyErr {
     fn from(e: DriverBatchError) -> PyErr {
         match e {
             DriverBatchError::InvalidRequestTimeout { value } => BatchError::new_err(format!(
-                "timeout must be a positive, finite number (in seconds), got {value}"
+                "timeout must be a non-negative, finite number (in seconds), got {value}"
             )),
-            DriverBatchError::RequestTimeoutConversionFailed { value } => BatchError::new_err(
-                format!("Failed to convert timeout value {value} to a valid duration"),
-            ),
             DriverBatchError::PythonConversionFailed { source } => Python::attach(|py| {
                 let err =
                     BatchError::new_err("Python conversion failed while handling batch value");

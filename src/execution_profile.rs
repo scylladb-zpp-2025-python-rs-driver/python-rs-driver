@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 use scylla::client;
 use std::time::Duration;
 
-use crate::enums::{Consistency, SerialConsistency};
+use crate::enums::{PyConsistency, PySerialConsistency};
 use crate::errors::DriverStatementConfigError;
 
 #[pyclass(frozen, from_py_object)]
@@ -16,51 +16,48 @@ impl ExecutionProfile {
     #[new]
     #[pyo3(signature = (
         timeout=30.0,
-        consistency=Consistency::LocalQuorum,
-        serial_consistency=SerialConsistency::LocalSerial,
+        consistency=PyConsistency::LocalQuorum,
+        serial_consistency=PySerialConsistency::LocalSerial,
     ))]
     pub(crate) fn new(
         timeout: Option<f64>,
-        consistency: Consistency,
-        serial_consistency: Option<SerialConsistency>,
+        consistency: PyConsistency,
+        serial_consistency: Option<PySerialConsistency>,
     ) -> Result<Self, DriverStatementConfigError> {
         let mut profile_builder = client::execution_profile::ExecutionProfile::builder();
 
-        if let Some(secs) = timeout
-            && (!secs.is_finite() || secs <= 0.0)
-        {
-            return Err(DriverStatementConfigError::InvalidRequestTimeout { value: secs });
-        }
-
         if let Some(secs) = timeout {
             let duration = Duration::try_from_secs_f64(secs)
-                .map_err(|_| DriverStatementConfigError::request_timeout_conversion_failed(secs))?;
+                .map_err(|_| DriverStatementConfigError::invalid_request_timeout(secs))?;
 
             profile_builder = profile_builder.request_timeout(Some(duration));
         }
 
-        profile_builder = profile_builder.consistency(consistency.to_rust());
+        profile_builder = profile_builder.consistency(consistency.into());
 
         profile_builder =
-            profile_builder.serial_consistency(serial_consistency.map(|sc| sc.to_rust()));
+            profile_builder.serial_consistency(serial_consistency.map(|sc| sc.into()));
 
         Ok(ExecutionProfile {
             _inner: profile_builder.build(),
         })
     }
 
+    #[getter]
     pub(crate) fn get_request_timeout(&self) -> Option<f64> {
         self._inner.get_request_timeout().map(|d| d.as_secs_f64())
     }
 
-    pub(crate) fn get_consistency(&self) -> Consistency {
-        Consistency::to_python(self._inner.get_consistency())
+    #[getter]
+    pub(crate) fn get_consistency(&self) -> PyConsistency {
+        PyConsistency::from(self._inner.get_consistency())
     }
 
-    pub(crate) fn get_serial_consistency(&self) -> Option<SerialConsistency> {
+    #[getter]
+    pub(crate) fn get_serial_consistency(&self) -> Option<PySerialConsistency> {
         self._inner
             .get_serial_consistency()
-            .map(SerialConsistency::to_python)
+            .map(PySerialConsistency::from)
     }
 }
 
