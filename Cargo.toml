@@ -3,12 +3,16 @@ name = "scylla"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["python-extension"]
+python-extension = ["pyo3/extension-module"]
+
 [lib]
 name = "scylla"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.28.2", features = ["extension-module", "experimental-async", "bigdecimal", "num-bigint", "uuid", "chrono", "time", "py-clone"] }
+pyo3 = { version = "0.28.2", features = ["experimental-async", "bigdecimal", "num-bigint", "uuid", "chrono", "time", "py-clone"] }
 pyo3-async-runtimes = { version = "0.28.0", features = ["tokio-runtime"] }
 tokio = { version = "1.42.0", features = ["full"] }
 scylla = { git = "https://github.com/scylladb-zpp-2025-python-rs-driver/scylla-rust-driver", features = ["chrono-04", "bigdecimal-04", "num-bigint-04"]}

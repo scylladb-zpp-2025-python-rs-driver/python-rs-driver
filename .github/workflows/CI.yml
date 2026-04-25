@@ -68,6 +68,9 @@ jobs:
                   echo "Waiting for nodes... (attempt $i/30)" && sleep 1 ||
                   { echo "All nodes ready"; break; }; done
 
+            - name: Run native Rust tests
+              run: cargo test --no-default-features
+
             - name: Run tests with Python 3.10
               run: uv run --python 3.10 pytest -v
 
