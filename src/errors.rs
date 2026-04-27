@@ -486,6 +486,10 @@ pub enum DriverSessionConfigError {
         type_name: String,
     },
 
+    InvalidTimestampGenerator {
+        type_name: String,
+    },
+
     InvalidContactPointAddress {
         addr: String,
         source: AddrParseError,
@@ -521,6 +525,12 @@ impl DriverSessionConfigError {
 
     pub fn invalid_address_translator(obj: Borrowed<PyAny>) -> Self {
         Self::InvalidAddressTranslator {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_timestamp_generator(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidTimestampGenerator {
             type_name: get_type_name(obj),
         }
     }
@@ -590,6 +600,13 @@ impl From<DriverSessionConfigError> for PyErr {
             DriverSessionConfigError::InvalidAddressTranslator { type_name } => {
                 let message = format!(
                     "Expected an class implementing AddressTranslator protocol or a dict[ContactPoint, ContactPoint], got {type_name}"
+                );
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidTimestampGenerator { type_name } => {
+                let message = format!(
+                    "Expected a class implementing TimestampGenerator protocol, got {type_name}"
                 );
                 build_session_config_pyerr(py, message, None, None)
             }

@@ -5,7 +5,8 @@ from ._rust.policies import (  # pyright: ignore[reportMissingModuleSource]
     Authenticator,
     AuthenticatorProvider,
     UntranslatedPeer,
-    TimestampGenerator,
+    MonotonicTimestampGenerator,
+    SimpleTimestampGenerator,
     HostFilter,
     Peer,
 )
@@ -15,12 +16,20 @@ from ._rust.policies import (  # pyright: ignore[reportMissingModuleSource]
 class AddressTranslator(Protocol):
     def translate(self, info: UntranslatedPeer) -> str | tuple[str | IPv4Address | IPv6Address, int]: ...
 
+
+@runtime_checkable
+class TimestampGenerator(Protocol):
+    def next_timestamp(self) -> int: ...
+
+
 __all__ = [
     "Authenticator",
     "AuthenticatorProvider",
     "AddressTranslator",
     "UntranslatedPeer",
-    "TimestampGenerator",
     "HostFilter",
+    "TimestampGenerator",
+    "MonotonicTimestampGenerator",
+    "SimpleTimestampGenerator",
     "Peer",
 ]

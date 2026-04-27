@@ -3,7 +3,7 @@ use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
     AddressTranslatorInput, InternalAuthenticatorProvider, InternalHostFilter,
-    InternalTimestampGenerator, PyAuthenticatorProvider, PyHostFilter, PyTimestampGenerator,
+    PyAuthenticatorProvider, PyHostFilter, TimestampGeneratorInput,
 };
 use crate::session::Session;
 use pyo3::prelude::*;
@@ -13,6 +13,7 @@ use scylla::client::session::SessionConfig;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[pyclass]
 struct SessionBuilder {
@@ -74,11 +75,9 @@ impl SessionBuilder {
 
     fn timestamp_generator<'py>(
         mut slf: PyRefMut<'py, Self>,
-        generator: Py<PyTimestampGenerator>,
+        generator: TimestampGeneratorInput,
     ) -> PyRefMut<'py, Self> {
-        slf.config.timestamp_generator = Some(Arc::new(InternalTimestampGenerator {
-            py_timestamp_generator: generator,
-        }));
+        slf.config.timestamp_generator = Some(generator.into_inner());
 
         slf
     }
@@ -156,6 +155,25 @@ impl TryFrom<ContactPoint> for SocketAddr {
                 DriverSessionConfigError::invalid_contact_point_addr(addr_str, reason)
             }),
         }
+    }
+}
+
+pub(crate) struct PyDuration(pub(crate) Duration);
+
+impl<'py> FromPyObject<'_, 'py> for PyDuration {
+    type Error = DriverSessionConfigError;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(duration) = obj.extract::<Duration>() {
+            return Ok(PyDuration(duration));
+        }
+
+        if let Ok(secs) = obj.extract::<f64>() {
+            let duration = Duration::try_from_secs_f64(secs)
+                .map_err(|_| DriverSessionConfigError::invalid_duration(obj))?;
+            return Ok(PyDuration(duration));
+        }
+
+        Err(DriverSessionConfigError::invalid_duration(obj))
     }
 }
 

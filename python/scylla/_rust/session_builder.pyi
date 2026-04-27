@@ -6,7 +6,6 @@ from ipaddress import IPv4Address, IPv6Address
 from .policies import AuthenticatorProvider, AddressTranslator, TimestampGenerator, HostFilter
 from .execution_profile import ExecutionProfile
 from .session import Session
-from datetime import timedelta
 from typing import Any
 
 Address = str | tuple[str | IPv4Address | IPv6Address, int]
@@ -149,7 +148,8 @@ class SessionBuilder:
         Parameters
         ----------
         generator : TimestampGenerator
-            An instance of a class inheriting from :class:`TimestampGenerator`.
+            A custom Python object implementing the :class:`TimestampGenerator`
+            protocol.
 
         Returns
         -------

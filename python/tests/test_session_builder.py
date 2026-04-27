@@ -11,9 +11,11 @@ from scylla.policies import (
     AuthenticatorProvider,
     AddressTranslator,
     UntranslatedPeer,
-    TimestampGenerator,
     HostFilter,
     Peer,
+    TimestampGenerator,
+    MonotonicTimestampGenerator,
+    SimpleTimestampGenerator,
 )
 
 from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
@@ -22,6 +24,8 @@ from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
     start_cluster,
     stop_and_remove_cluster,
 )
+
+import time
 
 
 @pytest.mark.asyncio
@@ -257,7 +261,7 @@ async def test_address_translator_dict_invalid():
     assert "invalid socket address syntax" in str(excinfo.value.__cause__)
 
 
-class MockTimestampGenerator(TimestampGenerator):
+class MockTimestampGenerator:
     fixed_ts: int
     called: bool
 
@@ -271,7 +275,7 @@ class MockTimestampGenerator(TimestampGenerator):
         return self.fixed_ts
 
 
-class FailingTimestampGenerator(TimestampGenerator):
+class FailingTimestampGenerator:
     def next_timestamp(self) -> int:
         raise RuntimeError("Timestamp Generation Exploded!")
 
@@ -281,6 +285,7 @@ class FailingTimestampGenerator(TimestampGenerator):
 async def test_custom_timestamp_generator_success() -> None:
     my_custom_ts = 1122334455
     ts_gen = MockTimestampGenerator(my_custom_ts)
+    assert isinstance(ts_gen, TimestampGenerator)
 
     builder = (
         SessionBuilder()
@@ -310,10 +315,45 @@ async def test_custom_timestamp_generator_success() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
+async def test_simple_timestamp_generator_success() -> None:
+    ts_gen = SimpleTimestampGenerator()
+
+    builder = (
+        SessionBuilder()
+        .contact_points([("127.0.0.2", 9042)])
+        .user("cassandra", "cassandra")
+        .timestamp_generator(ts_gen)
+    )
+
+    session = await builder.connect()
+
+    await session.execute(
+        "CREATE KEYSPACE IF NOT EXISTS ks WITH REPLICATION = "
+        "{'class': 'NetworkTopologyStrategy', 'replication_factor': 1}"
+    )
+    await session.execute("CREATE TABLE IF NOT EXISTS ks.verify_simple_ts (id int PRIMARY KEY, val text)")
+
+    now_micros = int(time.time() * 1_000_000)
+
+    await session.execute("INSERT INTO ks.verify_simple_ts (id, val) VALUES (1, 'rust-ts')")
+
+    result = await session.execute("SELECT WRITETIME(val) FROM ks.verify_simple_ts WHERE id = 1")
+    row = await result.first_row()
+
+    assert row is not None
+    db_timestamp = row["writetime(val)"]
+
+    assert db_timestamp >= now_micros
+    assert db_timestamp < now_micros + 5_000_000
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
 async def test_custom_timestamp_generator_fallback_on_failure(
     caplog: LogCaptureFixture,
 ) -> None:
     ts_gen = FailingTimestampGenerator()
+    assert isinstance(ts_gen, TimestampGenerator)
 
     builder = (
         SessionBuilder()
@@ -328,6 +368,32 @@ async def test_custom_timestamp_generator_fallback_on_failure(
 
     assert "Failed to generate custom timestamp from Python" in caplog.text
     assert "Timestamp Generation Exploded!" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_monotonic_timestamp_generator_works_with_session() -> None:
+    ts_gen = MonotonicTimestampGenerator()
+
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).timestamp_generator(ts_gen)
+
+    session = await builder.connect()
+
+    await session.execute(
+        "CREATE KEYSPACE IF NOT EXISTS ks WITH REPLICATION = "
+        "{'class': 'NetworkTopologyStrategy', 'replication_factor': 1}"
+    )
+    await session.execute("CREATE TABLE IF NOT EXISTS ks.verify_monotonic_ts (id int PRIMARY KEY, val text)")
+
+    await session.execute("INSERT INTO ks.verify_monotonic_ts (id, val) VALUES (1, 'a')")
+    await session.execute("UPDATE ks.verify_monotonic_ts SET val = 'b' WHERE id = 1")
+
+    result = await session.execute("SELECT WRITETIME(val) FROM ks.verify_monotonic_ts WHERE id = 1")
+    row = await result.first_row()
+
+    assert row is not None
+    assert isinstance(row["writetime(val)"], int)
+    assert row["writetime(val)"] > 0
 
 
 class AcceptAllHostFilter(HostFilter):
