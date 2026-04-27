@@ -6,7 +6,7 @@ use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
     AddressTranslatorInput, InternalAuthenticatorProvider, InternalHostFilter,
-    InternalTimestampGenerator, PyAuthenticatorProvider, PyHostFilter, PyTimestampGenerator,
+    PyAuthenticatorProvider, PyHostFilter, TimestampGeneratorInput,
 };
 use crate::session::Session;
 use pyo3::prelude::*;
@@ -81,11 +81,9 @@ impl SessionBuilder {
 
     fn timestamp_generator<'py>(
         mut slf: PyRefMut<'py, Self>,
-        generator: Py<PyTimestampGenerator>,
+        generator: TimestampGeneratorInput,
     ) -> PyRefMut<'py, Self> {
-        slf.config.timestamp_generator = Some(Arc::new(InternalTimestampGenerator {
-            py_timestamp_generator: generator,
-        }));
+        slf.config.timestamp_generator = Some(generator.into_inner());
 
         slf
     }
