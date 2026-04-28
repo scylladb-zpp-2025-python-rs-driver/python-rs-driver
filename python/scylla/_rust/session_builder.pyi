@@ -6,8 +6,12 @@ from ipaddress import IPv4Address, IPv6Address
 from .policies import AuthenticatorProvider, AddressTranslator, TimestampGenerator, HostFilter
 from .execution_profile import ExecutionProfile
 from .session import Session
+from datetime import timedelta
+from typing import Any
 
-ContactPoint = str | tuple[str | IPv4Address | IPv6Address, int]
+Address = str | tuple[str | IPv4Address | IPv6Address, int]
+
+TranslationMap = dict[Any, Any]
 
 class SessionBuilder:
     """
@@ -32,7 +36,7 @@ class SessionBuilder:
         """
         ...
 
-    def contact_points(self, contact_points: ContactPoint | Sequence[ContactPoint]) -> SessionBuilder:
+    def contact_points(self, contact_points: Address | Sequence[Address]) -> SessionBuilder:
         """
         Set the contact points used to bootstrap the connection.
 
@@ -111,14 +115,22 @@ class SessionBuilder:
         """
         ...
 
-    def address_translator(self, translator: AddressTranslator) -> SessionBuilder:
+    def address_translator(self, translator: AddressTranslator | TranslationMap) -> SessionBuilder:
         """
-        Registers a custom Python-defined address translator.
+        Registers an address translator for the session.
+
+        The translator can be either a custom Python object implementing the
+        :class:`AddressTranslator` protocol or a static translation mapping.
 
         Parameters
         ----------
-        translator : AddressTranslator
-            An instance of a class inheriting from :class:`AddressTranslator`.
+        translator : AddressTranslator | dict
+            The translation logic to apply. Can be:
+
+            Addresses in the dictionary can be provided as:
+
+            * A string: ``"127.0.0.1:9042"``
+            * A tuple: ``("127.0.0.1", 9042)``, ``(IPv4Address("127.0.0.1"), 9042)``, etc.
 
         Returns
         -------

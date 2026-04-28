@@ -1,6 +1,5 @@
-import ipaddress
 import uuid
-from typing import Optional, Tuple, Any
+from typing import Optional, Any, Protocol, runtime_checkable
 from ipaddress import IPv4Address, IPv6Address
 
 class Authenticator:
@@ -42,23 +41,25 @@ class UntranslatedPeer:
     @property
     def host_id(self) -> uuid.UUID: ...
     @property
-    def untranslated_address(self) -> Tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, int]: ...
+    def untranslated_address(self) -> tuple[IPv4Address | IPv6Address, int]: ...
     @property
     def datacenter(self) -> Optional[str]: ...
     @property
     def rack(self) -> Optional[str]: ...
     def __repr__(self) -> str: ...
 
-class AddressTranslator:
+@runtime_checkable
+class AddressTranslator(Protocol):
     """
-    Base class for implementing custom address translation.
-    Subclass this to provide your own translation logic.
+    Protocol for custom address translation.
     """
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-    def translate(self, info: UntranslatedPeer) -> Tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, int]:
+    def translate(self, info: UntranslatedPeer) -> str | tuple[str | IPv4Address | IPv6Address, int]:
         """
         Translates a node's address.
-        Must return a tuple of (ip_address, port_integer).
+        Must return a tuple of (ip_address | str, port_integer) or string with valid address and port.
+
+        When returning a string, it should therefore be a numeric IP address
+        plus port (for example ``"127.0.0.1:9042"`` or ``"[::1]:9042"``).
         """
         ...
 

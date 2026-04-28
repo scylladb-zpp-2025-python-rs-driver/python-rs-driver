@@ -1,13 +1,12 @@
 // src/errors.rs
-use std::error::Error;
-use std::fmt;
-
 use pyo3::PyErr;
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyNone};
-
+use std::error::Error;
+use std::fmt;
+use std::net::AddrParseError;
 /* Python exception classes */
 
 create_exception!(errors, ScyllaError, PyException);
@@ -469,28 +468,36 @@ pub enum DriverSessionConfigError {
     ContactPointsIterationFailed {
         source: Box<PyErr>,
     },
-    /// The contact_points argument is of the wrong type.
+
     ContactPointTypeError {
         type_name: String,
     },
 
-    /// Wraps a Core Error with the index where it happened
     InvalidContactPointItem {
         index: usize,
         source: Box<PyErr>,
+    },
+
+    InvalidDuration {
+        type_name: String,
+    },
+
+    InvalidAddressTranslator {
+        type_name: String,
+    },
+
+    InvalidContactPointAddress {
+        addr: String,
+        source: AddrParseError,
     },
 }
 
 impl DriverSessionConfigError {
     /* Constructors */
     pub fn contact_point_type_error(obj: Borrowed<PyAny>) -> Self {
-        let type_name = obj
-            .get_type()
-            .name()
-            .map(|n| n.to_string())
-            .unwrap_or_else(|_| "UnknownType".to_string());
-
-        Self::ContactPointTypeError { type_name }
+        Self::ContactPointTypeError {
+            type_name: get_type_name(obj),
+        }
     }
 
     pub fn contact_points_iteration_failed(source: PyErr) -> Self {
@@ -504,6 +511,22 @@ impl DriverSessionConfigError {
             index,
             source: Box::new(source),
         }
+    }
+
+    pub fn invalid_duration(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidDuration {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_address_translator(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidAddressTranslator {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_contact_point_addr(addr: String, source: AddrParseError) -> Self {
+        Self::InvalidContactPointAddress { addr, source }
     }
 }
 
@@ -528,6 +551,13 @@ fn build_session_config_pyerr(
     err
 }
 
+fn get_type_name(obj: Borrowed<PyAny>) -> String {
+    obj.get_type()
+        .name()
+        .map(|n| n.to_string())
+        .unwrap_or_else(|_| "UnknownType".to_string())
+}
+
 impl From<DriverSessionConfigError> for PyErr {
     fn from(e: DriverSessionConfigError) -> PyErr {
         Python::attach(|py| match e {
@@ -548,6 +578,25 @@ impl From<DriverSessionConfigError> for PyErr {
             DriverSessionConfigError::InvalidContactPointItem { index, source } => {
                 let message = format!("Error processing contact point at index {index}");
                 build_session_config_pyerr(py, message, Some(*source), Some(index))
+            }
+
+            DriverSessionConfigError::InvalidDuration { type_name } => {
+                let message = format!(
+                    "Expected a datetime.timedelta or a non-negative finite float (seconds), got: {type_name}"
+                );
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidAddressTranslator { type_name } => {
+                let message = format!(
+                    "Expected an class implementing AddressTranslator protocol or a dict[ContactPoint, ContactPoint], got {type_name}"
+                );
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidContactPointAddress { addr, source } => {
+                let message = format!("Invalid contact point address '{addr}': {source}");
+                build_session_config_pyerr(py, message, None, None)
             }
         })
     }
