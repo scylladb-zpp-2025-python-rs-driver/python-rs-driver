@@ -7,6 +7,8 @@ from ._rust.policies import (  # pyright: ignore[reportMissingModuleSource]
     MonotonicTimestampGenerator,
     SimpleTimestampGenerator,
     HostFilter,
+    AcceptAllHostFilter,
+    DcHostFilter,
     Peer,
 )
 
@@ -17,6 +19,8 @@ __all__ = [
     "UntranslatedPeer",
     "TimestampGenerator",
     "HostFilter",
+    "AcceptAllHostFilter",
+    "DcHostFilter",
     "MonotonicTimestampGenerator",
     "SimpleTimestampGenerator",
     "Peer",

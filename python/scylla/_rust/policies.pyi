@@ -160,3 +160,15 @@ class HostFilter:
         accepting the host.
         """
         ...
+
+class AcceptAllHostFilter(HostFilter):
+    """
+    A host filter that accepts every node in the cluster.
+    """
+    def __init__(self) -> None: ...
+
+class DcHostFilter(HostFilter):
+    """
+    A host filter that accepts nodes only from the specified datacenter.
+    """
+    def __init__(self, local_dc: str) -> None: ...

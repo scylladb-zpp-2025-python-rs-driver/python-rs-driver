@@ -1,5 +1,5 @@
 use crate::errors::DriverSessionConfigError;
-use crate::session_builder::{ContactPoint, PyDuration};
+use crate::session_builder::{ContactPoint, ContactPoints, PyDuration};
 use async_trait::async_trait;
 use pyo3::exceptions::PyNotImplementedError;
 use pyo3::prelude::{PyAnyMethods, PyDictMethods, PyModule, PyModuleMethods};
@@ -12,7 +12,9 @@ use scylla::authentication::{AuthError, AuthenticatorProvider, AuthenticatorSess
 use scylla::cluster::metadata::Peer;
 use scylla::errors::{CustomTranslationError, TranslationError};
 use scylla::policies::address_translator::{AddressTranslator, UntranslatedPeer};
-use scylla::policies::host_filter::HostFilter;
+use scylla::policies::host_filter::{
+    AcceptAllHostFilter, AllowListHostFilter, DcHostFilter, HostFilter,
+};
 use scylla::policies::timestamp_generator::{
     MonotonicTimestampGenerator, SimpleTimestampGenerator, TimestampGenerator,
 };
@@ -386,7 +388,7 @@ impl PySimpleTimestampGenerator {
     }
 }
 
-#[pyclass(subclass, skip_from_py_object, name = "HostFilter")]
+#[pyclass(subclass, skip_from_py_object, name = "HostFilter", frozen)]
 pub(crate) struct PyHostFilter {}
 
 #[pymethods]
@@ -403,8 +405,8 @@ impl PyHostFilter {
     }
 }
 
-pub(crate) struct InternalHostFilter {
-    pub(crate) py_host_filter: Py<PyHostFilter>,
+struct InternalHostFilter {
+    py_host_filter: Py<PyHostFilter>,
 }
 impl HostFilter for InternalHostFilter {
     fn accept(&self, peer: &Peer) -> bool {
@@ -419,6 +421,82 @@ impl HostFilter for InternalHostFilter {
                     log::error!("Failed to evaluate custom host filter from Python: {}", err);
                     true
                 })
+        })
+    }
+}
+
+pub(crate) struct HostFilterInput {
+    inner: Arc<dyn HostFilter>,
+}
+
+impl HostFilterInput {
+    pub(crate) fn into_inner(self) -> Arc<dyn HostFilter> {
+        self.inner
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for HostFilterInput {
+    type Error = DriverSessionConfigError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(host_filter) = obj.extract::<Bound<'_, PyHostFilter>>() {
+            if let Ok(filter) = host_filter.cast::<PyAcceptAllHostFilter>() {
+                return Ok(Self {
+                    inner: filter.borrow().inner.clone(),
+                });
+            }
+
+            if let Ok(filter) = host_filter.cast::<PyDcHostFilter>() {
+                return Ok(Self {
+                    inner: filter.borrow().inner.clone(),
+                });
+            }
+
+            return Ok(Self {
+                inner: Arc::new(InternalHostFilter {
+                    py_host_filter: host_filter.to_owned().unbind(),
+                }),
+            });
+        }
+
+        if let Ok(points) = obj.extract::<ContactPoints>() {
+            let filter = AllowListHostFilter::new(points)
+                .map_err(|_| DriverSessionConfigError::InvalidHostFilterAddress)?;
+            return Ok(Self {
+                inner: Arc::new(filter),
+            });
+        }
+
+        Err(DriverSessionConfigError::invalid_host_filter(obj))
+    }
+}
+
+#[pyclass(extends=PyHostFilter, name = "AcceptAllHostFilter", frozen)]
+struct PyAcceptAllHostFilter {
+    inner: Arc<AcceptAllHostFilter>,
+}
+
+#[pymethods]
+impl PyAcceptAllHostFilter {
+    #[new]
+    pub fn new() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(PyHostFilter {}).add_subclass(PyAcceptAllHostFilter {
+            inner: Arc::new(AcceptAllHostFilter {}),
+        })
+    }
+}
+
+#[pyclass(extends=PyHostFilter, name = "DcHostFilter", frozen)]
+struct PyDcHostFilter {
+    inner: Arc<DcHostFilter>,
+}
+
+#[pymethods]
+impl PyDcHostFilter {
+    #[new]
+    pub fn new(local_dc: String) -> PyClassInitializer<Self> {
+        PyClassInitializer::from(PyHostFilter {}).add_subclass(PyDcHostFilter {
+            inner: Arc::new(DcHostFilter::new(local_dc)),
         })
     }
 }
@@ -472,6 +550,8 @@ pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResul
     module.add_class::<PyMonotonicTimestampGenerator>()?;
     module.add_class::<PySimpleTimestampGenerator>()?;
     module.add_class::<PyHostFilter>()?;
+    module.add_class::<PyAcceptAllHostFilter>()?;
+    module.add_class::<PyDcHostFilter>()?;
     module.add_class::<PyPeer>()?;
     Ok(())
 }

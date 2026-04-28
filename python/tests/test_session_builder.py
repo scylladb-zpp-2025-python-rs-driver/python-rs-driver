@@ -16,6 +16,8 @@ from scylla.policies import (
     Peer,
     MonotonicTimestampGenerator,
     SimpleTimestampGenerator,
+    AcceptAllHostFilter,
+    DcHostFilter,
 )
 
 from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
@@ -393,7 +395,7 @@ async def test_monotonic_timestamp_generator_works_with_session() -> None:
     assert row["writetime(val)"] > 0
 
 
-class AcceptAllHostFilter(HostFilter):
+class CustomAcceptAllHostFilter(HostFilter):
     def __init__(self) -> None:
         super().__init__()
         self.called = False
@@ -415,7 +417,7 @@ class FailingHostFilter(HostFilter):
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_custom_host_filter_success() -> None:
-    host_filter = AcceptAllHostFilter()
+    host_filter = CustomAcceptAllHostFilter()
 
     builder = (
         SessionBuilder().contact_points([("127.0.0.2", 9042)]).user("cassandra", "cassandra").host_filter(host_filter)
@@ -504,7 +506,7 @@ async def test_host_filter_list_with_garbage_string_fails() -> None:
     garbage_list = ["this-is-not-an-address-and-has-no-port", ("127.0.0.1", 9042)]
 
     with pytest.raises(SessionConfigError) as excinfo:
-        builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(garbage_list)
+        _ = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(garbage_list)
 
     assert "invalid socket address" in str(excinfo.value).lower()
 

@@ -5,8 +5,8 @@ use crate::enums::{
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
-    AddressTranslatorInput, InternalAuthenticatorProvider, InternalHostFilter,
-    PyAuthenticatorProvider, PyHostFilter, TimestampGeneratorInput,
+    AddressTranslatorInput, HostFilterInput, InternalAuthenticatorProvider,
+    PyAuthenticatorProvider, TimestampGeneratorInput,
 };
 use crate::session::Session;
 use pyo3::prelude::*;
@@ -14,7 +14,7 @@ use pyo3::types::PySequence;
 use scylla::authentication::PlainTextAuthenticator;
 use scylla::client::session::SessionConfig;
 use scylla::routing::ShardAwarePortRange;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::num::NonZeroU32;
 use std::ops::RangeInclusive;
 use std::str::FromStr;
@@ -87,14 +87,11 @@ impl SessionBuilder {
 
         slf
     }
-
     fn host_filter<'py>(
         mut slf: PyRefMut<'py, Self>,
-        host_filter: Py<PyHostFilter>,
+        host_filter: HostFilterInput,
     ) -> PyRefMut<'py, Self> {
-        slf.config.host_filter = Some(Arc::new(InternalHostFilter {
-            py_host_filter: host_filter,
-        }));
+        slf.config.host_filter = Some(host_filter.into_inner());
 
         slf
     }
@@ -365,6 +362,17 @@ impl ContactPoint {
     }
 }
 
+impl ToSocketAddrs for ContactPoint {
+    type Iter = std::vec::IntoIter<SocketAddr>;
+
+    fn to_socket_addrs(&self) -> std::io::Result<Self::Iter> {
+        match self {
+            ContactPoint::SocketAddr(addr) => Ok(vec![*addr].into_iter()),
+            ContactPoint::Host(host) => host.to_socket_addrs(),
+        }
+    }
+}
+
 impl<'py> FromPyObject<'_, 'py> for ContactPoint {
     type Error = DriverSessionConfigError;
 
@@ -402,9 +410,21 @@ impl TryFrom<ContactPoint> for SocketAddr {
     }
 }
 
-enum ContactPoints {
+pub(crate) enum ContactPoints {
     Single(ContactPoint),
     Multiple(Vec<ContactPoint>),
+}
+
+impl IntoIterator for ContactPoints {
+    type Item = ContactPoint;
+    type IntoIter = std::vec::IntoIter<ContactPoint>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        match self {
+            ContactPoints::Single(cp) => vec![cp].into_iter(),
+            ContactPoints::Multiple(cps) => cps.into_iter(),
+        }
+    }
 }
 
 impl ContactPoints {

@@ -161,17 +161,23 @@ class SessionBuilder:
         """
         ...
 
-    def host_filter(self, host_filter: HostFilter) -> SessionBuilder:
+    def host_filter(self, host_filter: HostFilter | Sequence[Address]) -> SessionBuilder:
         """
-        Registers a custom Python-defined host filter.
+        Registers a host filter or a list of allowed addresses.
 
-        The filter is consulted to decide whether a discovered node should be
-        accepted by the driver.
+        This decides whether a discovered node should be accepted by the driver.
+        You can provide a custom filter object for complex logic, or a simple
+        sequence of addresses to act as an allow-list.
 
         Parameters
         ----------
-        host_filter : HostFilter
-            An instance of a class inheriting from :class:`HostFilter`.
+        host_filter : HostFilter | Sequence[Address]
+            If a :class:`HostFilter` instance, the driver calls its ``accept`` method
+            for each node.
+            If a sequence of addresses, only nodes matching those addresses
+            will be accepted.
+
+            Address = str | tuple[str | IPv4Address | IPv6Address, int]
 
         Returns
         -------
