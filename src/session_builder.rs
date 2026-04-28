@@ -5,9 +5,8 @@ use crate::enums::{
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
-    InternalAddressTranslator, InternalAuthenticatorProvider, InternalHostFilter,
-    InternalTimestampGenerator, PyAddressTranslator, PyAuthenticatorProvider, PyHostFilter,
-    PyTimestampGenerator,
+    AddressTranslatorInput, InternalAuthenticatorProvider, InternalHostFilter,
+    InternalTimestampGenerator, PyAuthenticatorProvider, PyHostFilter, PyTimestampGenerator,
 };
 use crate::session::Session;
 use pyo3::prelude::*;
@@ -73,11 +72,9 @@ impl SessionBuilder {
 
     fn address_translator<'py>(
         mut slf: PyRefMut<'py, Self>,
-        translator: Py<PyAddressTranslator>,
+        translator: AddressTranslatorInput,
     ) -> PyRefMut<'py, Self> {
-        slf.config.address_translator = Some(Arc::new(InternalAddressTranslator {
-            python_translator: translator,
-        }));
+        slf.config.address_translator = Some(translator.into_inner());
 
         slf
     }
@@ -356,7 +353,7 @@ impl<'py> FromPyObject<'_, 'py> for PyDuration {
     }
 }
 
-enum ContactPoint {
+pub(crate) enum ContactPoint {
     Host(String),
     SocketAddr(SocketAddr),
 }
@@ -391,6 +388,19 @@ impl<'py> FromPyObject<'_, 'py> for ContactPoint {
         }
 
         Err(DriverSessionConfigError::contact_point_type_error(obj))
+    }
+}
+
+impl TryFrom<ContactPoint> for SocketAddr {
+    type Error = DriverSessionConfigError;
+
+    fn try_from(value: ContactPoint) -> Result<Self, Self::Error> {
+        match value {
+            ContactPoint::SocketAddr(addr) => Ok(addr),
+            ContactPoint::Host(addr_str) => SocketAddr::from_str(&addr_str).map_err(|reason| {
+                DriverSessionConfigError::invalid_contact_point_addr(addr_str, reason)
+            }),
+        }
     }
 }
 

@@ -1,15 +1,21 @@
+use crate::errors::DriverSessionConfigError;
+use crate::session_builder::ContactPoint;
 use async_trait::async_trait;
 use pyo3::exceptions::PyNotImplementedError;
-use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
+use pyo3::prelude::{PyAnyMethods, PyDictMethods, PyModule, PyModuleMethods};
 use pyo3::types::{PyDict, PyString, PyTuple};
-use pyo3::{Bound, Py, PyResult, Python, pyclass, pymethods, pymodule};
+use pyo3::{
+    Borrowed, Bound, FromPyObject, Py, PyAny, PyResult, Python, pyclass, pymethods, pymodule,
+};
 use scylla::authentication::{AuthError, AuthenticatorProvider, AuthenticatorSession};
 use scylla::cluster::metadata::Peer;
 use scylla::errors::{CustomTranslationError, TranslationError};
 use scylla::policies::address_translator::{AddressTranslator, UntranslatedPeer};
 use scylla::policies::host_filter::HostFilter;
 use scylla::policies::timestamp_generator::TimestampGenerator;
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
@@ -129,7 +135,7 @@ impl AuthenticatorSession for InternalAuthenticator {
     }
 }
 
-#[pyclass(subclass, skip_from_py_object, name = "AddressTranslator")]
+#[pyclass(subclass, skip_from_py_object, name = "AddressTranslator", frozen)]
 pub(crate) struct PyAddressTranslator {}
 
 #[pymethods]
@@ -145,9 +151,8 @@ impl PyAddressTranslator {
         Err(PyNotImplementedError::new_err("Method is not implemented"))
     }
 }
-
-pub(crate) struct InternalAddressTranslator {
-    pub(crate) python_translator: Py<PyAddressTranslator>,
+struct InternalAddressTranslator {
+    inner: Py<PyAddressTranslator>,
 }
 
 #[async_trait]
@@ -157,7 +162,7 @@ impl AddressTranslator for InternalAddressTranslator {
         untranslated_peer: &UntranslatedPeer,
     ) -> Result<SocketAddr, TranslationError> {
         let result = Python::attach(|py| -> PyResult<(IpAddr, u16)> {
-            let py_trans = self.python_translator.bind(py);
+            let py_trans = self.inner.bind(py);
             let py_peer_info = PyUntranslatedPeer::from(untranslated_peer);
 
             py_trans
@@ -167,6 +172,52 @@ impl AddressTranslator for InternalAddressTranslator {
         .map_err(CustomTranslationError::new)?;
 
         Ok(SocketAddr::from(result))
+    }
+}
+
+pub(crate) struct AddressTranslatorInput {
+    inner: Arc<dyn AddressTranslator>,
+}
+
+impl AddressTranslatorInput {
+    pub(crate) fn into_inner(self) -> Arc<dyn AddressTranslator> {
+        self.inner
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for AddressTranslatorInput {
+    type Error = DriverSessionConfigError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(translator) = obj.extract::<Py<PyAddressTranslator>>() {
+            return Ok(Self {
+                inner: Arc::new(InternalAddressTranslator { inner: translator }),
+            });
+        }
+
+        if let Ok(dict) = obj.cast::<PyDict>() {
+            let map = dict
+                .iter().enumerate()
+                .map(|(idx, (k, v))| {
+
+                    let from = k.extract::<ContactPoint>()
+                        .and_then(SocketAddr::try_from)
+                        .map_err(|e| DriverSessionConfigError::contact_points_invalid_item(idx, e.into()))?;
+
+                    let to = v.extract::<ContactPoint>()
+                        .and_then(SocketAddr::try_from)
+                        .map_err(|e| DriverSessionConfigError::contact_points_invalid_item(idx, e.into()))?;
+
+                    Ok((from, to))
+                })
+                .collect::<Result<HashMap<SocketAddr, SocketAddr>, Self::Error>>()?;
+
+            return Ok(Self {
+                inner: Arc::new(map),
+            });
+        }
+
+        Err(DriverSessionConfigError::invalid_address_translator(obj))
     }
 }
 
