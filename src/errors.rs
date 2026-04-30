@@ -5,8 +5,8 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyNone};
 use std::error::Error;
-use std::{fmt, io};
 use std::net::AddrParseError;
+use std::fmt;
 /* Python exception classes */
 
 create_exception!(errors, ScyllaError, PyException);
@@ -464,15 +464,15 @@ impl From<tokio::task::JoinError> for DriverSessionConnectionError {
 #[derive(Debug)]
 #[must_use]
 pub enum DriverSessionConfigError {
-    ContactPointsIterationFailed {
+    InvalidNodeAddressSequence {
         source: Box<PyErr>,
     },
 
-    ContactPointTypeError {
+    AddressTypeError {
         type_name: String,
     },
 
-    InvalidContactPointItem {
+    InvalidNodeAddressItem {
         index: usize,
         source: Box<PyErr>,
     },
@@ -498,8 +498,8 @@ pub enum DriverSessionConfigError {
     },
 
     InvalidHostFilterAddress,
-    
-    InvalidContactPointAddress {
+
+    InvalidNodeAddress {
         addr: String,
         source: AddrParseError,
     },
@@ -507,20 +507,20 @@ pub enum DriverSessionConfigError {
 
 impl DriverSessionConfigError {
     /* Constructors */
-    pub fn contact_point_type_error(obj: Borrowed<PyAny>) -> Self {
-        Self::ContactPointTypeError {
+    pub fn address_type_error(obj: Borrowed<PyAny>) -> Self {
+        Self::AddressTypeError {
             type_name: get_type_name(obj),
         }
     }
 
-    pub fn contact_points_iteration_failed(source: PyErr) -> Self {
-        Self::ContactPointsIterationFailed {
+    pub fn node_addr_iteration_failed(source: PyErr) -> Self {
+        Self::InvalidNodeAddressSequence {
             source: Box::new(source),
         }
     }
 
-    pub fn contact_points_invalid_item(index: usize, source: PyErr) -> Self {
-        Self::InvalidContactPointItem {
+    pub fn invalid_node_addr_item(index: usize, source: PyErr) -> Self {
+        Self::InvalidNodeAddressItem {
             index,
             source: Box::new(source),
         }
@@ -550,8 +550,8 @@ impl DriverSessionConfigError {
         }
     }
 
-    pub fn invalid_contact_point_addr(addr: String, source: AddrParseError) -> Self {
-        Self::InvalidContactPointAddress { addr, source }
+    pub fn invalid_node_addr(addr: String, source: AddrParseError) -> Self {
+        Self::InvalidNodeAddress { addr, source }
     }
 }
 
@@ -586,22 +586,24 @@ fn get_type_name(obj: Borrowed<PyAny>) -> String {
 impl From<DriverSessionConfigError> for PyErr {
     fn from(e: DriverSessionConfigError) -> PyErr {
         Python::attach(|py| match e {
-            DriverSessionConfigError::ContactPointTypeError { type_name } => {
+            DriverSessionConfigError::AddressTypeError { type_name } => {
                 let message = format!(
-                    "Invalid contact points type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these, got {type_name}"
+                    "Invalid address type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these, got {type_name}"
                 );
 
                 build_session_config_pyerr(py, message, None, None)
             }
 
-            DriverSessionConfigError::ContactPointsIterationFailed { source } => {
-                let message = "Failed to iterate over sequence of contact points".to_string();
+            DriverSessionConfigError::InvalidNodeAddressSequence { source } => {
+                let message =
+                    "Failed to iterate over sequence of addresses provided for configuration"
+                        .to_string();
 
                 build_session_config_pyerr(py, message, Some(*source), None)
             }
 
-            DriverSessionConfigError::InvalidContactPointItem { index, source } => {
-                let message = format!("Error processing contact point at index {index}");
+            DriverSessionConfigError::InvalidNodeAddressItem { index, source } => {
+                let message = format!("Error processing address at index {index}");
                 build_session_config_pyerr(py, message, Some(*source), Some(index))
             }
 
@@ -624,7 +626,7 @@ impl From<DriverSessionConfigError> for PyErr {
 
             DriverSessionConfigError::InvalidAddressTranslator { type_name } => {
                 let message = format!(
-                    "Expected an AddressTranslator subclass or a dict[ContactPoint, ContactPoint], got {type_name}"
+                    "Expected an AddressTranslator subclass or a dict[Address, Address], got {type_name}"
                 );
                 build_session_config_pyerr(py, message, None, None)
             }
@@ -641,12 +643,12 @@ impl From<DriverSessionConfigError> for PyErr {
                 build_session_config_pyerr(py, message, None, None)
             }
 
-            DriverSessionConfigError::InvalidContactPointAddress { addr, source } => {
-                let message = format!("Invalid contact point address '{addr}': {source}");
+            DriverSessionConfigError::InvalidNodeAddress { addr, source } => {
+                let message = format!("'{}' is not a valid address: {}", addr, source);
                 build_session_config_pyerr(py, message, None, None)
             }
 
-            DriverSessionConfigError::InvalidHostFilterAddress  => {
+            DriverSessionConfigError::InvalidHostFilterAddress => {
                 let message = "Invalid socket address".to_string();
                 build_session_config_pyerr(py, message, None, None)
             }

@@ -1,5 +1,5 @@
 use crate::errors::DriverSessionConfigError;
-use crate::session_builder::{ContactPoint, ContactPoints, PyDuration};
+use crate::session_builder::{NodeAddr, NodeAddrs, PyDuration};
 use async_trait::async_trait;
 use pyo3::exceptions::PyNotImplementedError;
 use pyo3::prelude::{PyAnyMethods, PyDictMethods, PyModule, PyModuleMethods};
@@ -202,16 +202,22 @@ impl<'py> FromPyObject<'_, 'py> for AddressTranslatorInput {
 
         if let Ok(dict) = obj.cast::<PyDict>() {
             let map = dict
-                .iter().enumerate()
+                .iter()
+                .enumerate()
                 .map(|(idx, (k, v))| {
-
-                    let from = k.extract::<ContactPoint>()
+                    let from = k
+                        .extract::<NodeAddr>()
                         .and_then(SocketAddr::try_from)
-                        .map_err(|e| DriverSessionConfigError::contact_points_invalid_item(idx, e.into()))?;
+                        .map_err(|e| {
+                            DriverSessionConfigError::invalid_node_addr_item(idx, e.into())
+                        })?;
 
-                    let to = v.extract::<ContactPoint>()
+                    let to = v
+                        .extract::<NodeAddr>()
                         .and_then(SocketAddr::try_from)
-                        .map_err(|e| DriverSessionConfigError::contact_points_invalid_item(idx, e.into()))?;
+                        .map_err(|e| {
+                            DriverSessionConfigError::invalid_node_addr_item(idx, e.into())
+                        })?;
 
                     Ok((from, to))
                 })
@@ -459,7 +465,7 @@ impl<'py> FromPyObject<'_, 'py> for HostFilterInput {
             });
         }
 
-        if let Ok(points) = obj.extract::<ContactPoints>() {
+        if let Ok(points) = obj.extract::<NodeAddrs>() {
             let filter = AllowListHostFilter::new(points)
                 .map_err(|_| DriverSessionConfigError::InvalidHostFilterAddress)?;
             return Ok(Self {

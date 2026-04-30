@@ -57,9 +57,8 @@ async def test_contact_points_invalid_types(item: Any):
     with pytest.raises(SessionConfigError) as excinfo:
         builder.contact_points(item)  # type: ignore[arg-type]
 
-    assert (
-        "Invalid contact points type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these"
-        in str(excinfo.value.__cause__)
+    assert "Invalid address type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these" in str(
+        excinfo.value.__cause__
     )
 
 

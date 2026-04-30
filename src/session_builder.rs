@@ -36,7 +36,7 @@ impl SessionBuilder {
     }
     fn contact_points<'py>(
         mut slf: PyRefMut<'py, Self>,
-        contact_points: ContactPoints,
+        contact_points: NodeAddrs,
     ) -> PyRefMut<'py, Self> {
         contact_points.add_known_nodes(&mut slf.config);
         slf
@@ -348,90 +348,89 @@ impl<'py> FromPyObject<'_, 'py> for PyDuration {
     }
 }
 
-pub(crate) enum ContactPoint {
+pub(crate) enum NodeAddr {
     Host(String),
     SocketAddr(SocketAddr),
 }
 
-impl ContactPoint {
+impl NodeAddr {
     fn add_known_node(self, config: &mut SessionConfig) {
         match self {
-            ContactPoint::Host(host) => config.add_known_node(host),
-            ContactPoint::SocketAddr(addr) => config.add_known_node_addr(addr),
+            NodeAddr::Host(host) => config.add_known_node(host),
+            NodeAddr::SocketAddr(addr) => config.add_known_node_addr(addr),
         }
     }
 }
 
-impl ToSocketAddrs for ContactPoint {
+impl ToSocketAddrs for NodeAddr {
     type Iter = std::vec::IntoIter<SocketAddr>;
 
     fn to_socket_addrs(&self) -> std::io::Result<Self::Iter> {
         match self {
-            ContactPoint::SocketAddr(addr) => Ok(vec![*addr].into_iter()),
-            ContactPoint::Host(host) => host.to_socket_addrs(),
+            NodeAddr::SocketAddr(addr) => Ok(vec![*addr].into_iter()),
+            NodeAddr::Host(host) => host.to_socket_addrs(),
         }
     }
 }
 
-impl<'py> FromPyObject<'_, 'py> for ContactPoint {
+impl<'py> FromPyObject<'_, 'py> for NodeAddr {
     type Error = DriverSessionConfigError;
 
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         if let Ok(s) = obj.extract::<String>() {
-            return Ok(ContactPoint::Host(s));
+            return Ok(NodeAddr::Host(s));
         }
 
         if let Ok((host_str, port)) = obj.extract::<(&str, u16)>() {
             return if let Ok(ip) = IpAddr::from_str(host_str) {
-                Ok(ContactPoint::SocketAddr(SocketAddr::new(ip, port)))
+                Ok(NodeAddr::SocketAddr(SocketAddr::new(ip, port)))
             } else {
-                Ok(ContactPoint::Host(format!("{}:{}", host_str, port)))
+                Ok(NodeAddr::Host(format!("{}:{}", host_str, port)))
             };
         }
 
         if let Ok((host, port)) = obj.extract::<(IpAddr, u16)>() {
-            return Ok(ContactPoint::SocketAddr(SocketAddr::new(host, port)));
+            return Ok(NodeAddr::SocketAddr(SocketAddr::new(host, port)));
         }
 
-        Err(DriverSessionConfigError::contact_point_type_error(obj))
+        Err(DriverSessionConfigError::address_type_error(obj))
     }
 }
 
-impl TryFrom<ContactPoint> for SocketAddr {
+impl TryFrom<NodeAddr> for SocketAddr {
     type Error = DriverSessionConfigError;
 
-    fn try_from(value: ContactPoint) -> Result<Self, Self::Error> {
+    fn try_from(value: NodeAddr) -> Result<Self, Self::Error> {
         match value {
-            ContactPoint::SocketAddr(addr) => Ok(addr),
-            ContactPoint::Host(addr_str) => SocketAddr::from_str(&addr_str).map_err(|reason| {
-                DriverSessionConfigError::invalid_contact_point_addr(addr_str, reason)
-            }),
+            NodeAddr::SocketAddr(addr) => Ok(addr),
+            NodeAddr::Host(addr_str) => SocketAddr::from_str(&addr_str)
+                .map_err(|reason| DriverSessionConfigError::invalid_node_addr(addr_str, reason)),
         }
     }
 }
 
-pub(crate) enum ContactPoints {
-    Single(ContactPoint),
-    Multiple(Vec<ContactPoint>),
+pub(crate) enum NodeAddrs {
+    Single(NodeAddr),
+    Multiple(Vec<NodeAddr>),
 }
 
-impl IntoIterator for ContactPoints {
-    type Item = ContactPoint;
-    type IntoIter = std::vec::IntoIter<ContactPoint>;
+impl IntoIterator for NodeAddrs {
+    type Item = NodeAddr;
+    type IntoIter = std::vec::IntoIter<NodeAddr>;
 
     fn into_iter(self) -> Self::IntoIter {
         match self {
-            ContactPoints::Single(cp) => vec![cp].into_iter(),
-            ContactPoints::Multiple(cps) => cps.into_iter(),
+            NodeAddrs::Single(cp) => vec![cp].into_iter(),
+            NodeAddrs::Multiple(cps) => cps.into_iter(),
         }
     }
 }
 
-impl ContactPoints {
+impl NodeAddrs {
     fn add_known_nodes(self, config: &mut SessionConfig) {
         match self {
-            ContactPoints::Single(cp) => cp.add_known_node(config),
-            ContactPoints::Multiple(seq) => {
+            NodeAddrs::Single(cp) => cp.add_known_node(config),
+            NodeAddrs::Multiple(seq) => {
                 for cp in seq.into_iter() {
                     cp.add_known_node(config);
                 }
@@ -440,36 +439,35 @@ impl ContactPoints {
     }
 }
 
-impl<'py> FromPyObject<'_, 'py> for ContactPoints {
+impl<'py> FromPyObject<'_, 'py> for NodeAddrs {
     type Error = DriverSessionConfigError;
 
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
-        if let Ok(s) = obj.extract::<ContactPoint>() {
-            return Ok(ContactPoints::Single(s));
+        if let Ok(s) = obj.extract::<NodeAddr>() {
+            return Ok(NodeAddrs::Single(s));
         }
 
         if let Ok(seq) = obj.cast::<PySequence>() {
             let iter = seq
                 .try_iter()
-                .map_err(DriverSessionConfigError::contact_points_iteration_failed)?;
+                .map_err(DriverSessionConfigError::node_addr_iteration_failed)?;
 
-            let list: Vec<ContactPoint> = iter
+            let list: Vec<NodeAddr> = iter
                 .enumerate()
                 .map(|(index, item_result)| {
-                    let item = item_result.map_err(|e| {
-                        DriverSessionConfigError::contact_points_invalid_item(index, e)
-                    })?;
+                    let item = item_result
+                        .map_err(|e| DriverSessionConfigError::invalid_node_addr_item(index, e))?;
 
-                    item.extract::<ContactPoint>().map_err(|e| {
-                        DriverSessionConfigError::contact_points_invalid_item(index, e.into())
+                    item.extract::<NodeAddr>().map_err(|e| {
+                        DriverSessionConfigError::invalid_node_addr_item(index, e.into())
                     })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            return Ok(ContactPoints::Multiple(list));
+            return Ok(NodeAddrs::Multiple(list));
         }
 
-        Err(DriverSessionConfigError::contact_point_type_error(obj))
+        Err(DriverSessionConfigError::address_type_error(obj))
     }
 }
 
