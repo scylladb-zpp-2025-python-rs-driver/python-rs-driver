@@ -1,5 +1,5 @@
 use crate::errors::DriverSessionConfigError;
-use crate::session_builder::{ContactPoint, ContactPoints, PyDuration};
+use crate::session_builder::{NodeAddr, NodeAddrs, PyDuration};
 use async_trait::async_trait;
 use pyo3::exceptions::PyNotImplementedError;
 use pyo3::prelude::{PyAnyMethods, PyDictMethods, PyModule, PyModuleMethods};
@@ -156,7 +156,7 @@ impl AddressTranslator for InternalAddressTranslator {
 
             let translated = py_trans
                 .call_method1(intern!(py, "translate"), (peer_info,))?
-                .extract::<ContactPoint>()?;
+                .extract::<NodeAddr>()?;
 
             SocketAddr::try_from(translated).map_err(|e| e.into())
         })
@@ -184,17 +184,17 @@ impl<'py> FromPyObject<'_, 'py> for AddressTranslatorInput {
                 .enumerate()
                 .map(|(idx, (k, v))| {
                     let from = k
-                        .extract::<ContactPoint>()
+                        .extract::<NodeAddr>()
                         .and_then(SocketAddr::try_from)
                         .map_err(|e| {
-                            DriverSessionConfigError::contact_points_invalid_item(idx, e.into())
+                            DriverSessionConfigError::invalid_node_addr_item(idx, e.into())
                         })?;
 
                     let to = v
-                        .extract::<ContactPoint>()
+                        .extract::<NodeAddr>()
                         .and_then(SocketAddr::try_from)
                         .map_err(|e| {
-                            DriverSessionConfigError::contact_points_invalid_item(idx, e.into())
+                            DriverSessionConfigError::invalid_node_addr_item(idx, e.into())
                         })?;
 
                     Ok((from, to))
@@ -406,8 +406,8 @@ impl<'py> FromPyObject<'_, 'py> for HostFilterInput {
     type Error = DriverSessionConfigError;
 
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
-        if let Ok(points) = obj.extract::<ContactPoints>() {
-            let filter = AllowListHostFilter::new(points)
+        if let Ok(points) = obj.extract::<NodeAddrs>() {
+            let filter = AllowListHostFilter::new(points.inner)
                 .map_err(|_| DriverSessionConfigError::InvalidHostFilterAddress)?;
             return Ok(Self {
                 inner: Arc::new(filter),
