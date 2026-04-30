@@ -1,5 +1,5 @@
 use crate::errors::DriverSessionConfigError;
-use crate::session_builder::{ContactPoint, PyDuration};
+use crate::session_builder::{ContactPoint, ContactPoints, PyDuration};
 use async_trait::async_trait;
 use pyo3::exceptions::PyNotImplementedError;
 use pyo3::prelude::{PyAnyMethods, PyDictMethods, PyModule, PyModuleMethods};
@@ -12,7 +12,9 @@ use scylla::authentication::{AuthError, AuthenticatorProvider, AuthenticatorSess
 use scylla::cluster::metadata::Peer;
 use scylla::errors::{CustomTranslationError, TranslationError};
 use scylla::policies::address_translator::{AddressTranslator, UntranslatedPeer};
-use scylla::policies::host_filter::HostFilter;
+use scylla::policies::host_filter::{
+    AcceptAllHostFilter, AllowListHostFilter, DcHostFilter, HostFilter,
+};
 use scylla::policies::timestamp_generator::{
     MonotonicTimestampGenerator, SimpleTimestampGenerator, TimestampGenerator,
 };
@@ -370,34 +372,17 @@ impl PySimpleTimestampGenerator {
     }
 }
 
-#[pyclass(subclass, skip_from_py_object, name = "HostFilter")]
-pub(crate) struct PyHostFilter {}
-
-#[pymethods]
-impl PyHostFilter {
-    #[expect(unused_variables)]
-    #[new]
-    #[pyo3(signature = (*args, **kwargs))]
-    pub fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Self {
-        PyHostFilter {}
-    }
-
-    fn accept(&self, _peer: Py<PyPeer>) -> PyResult<bool> {
-        Err(PyNotImplementedError::new_err("Method is not implemented"))
-    }
-}
-
-pub(crate) struct InternalHostFilter {
-    pub(crate) py_host_filter: Py<PyHostFilter>,
+struct InternalHostFilter {
+    py_host_filter: Py<PyAny>,
 }
 impl HostFilter for InternalHostFilter {
     fn accept(&self, peer: &Peer) -> bool {
         Python::attach(|py| {
             let py_filter = self.py_host_filter.bind(py);
-            let py_peer = PyPeer::from(peer);
+            let py_peer = PyPeer::from(peer.clone());
 
             py_filter
-                .call_method1("accept", (py_peer,))
+                .call_method1(intern!(py, "accept"), (py_peer,))
                 .and_then(|res| res.extract::<bool>())
                 .unwrap_or_else(|err| {
                     log::error!("Failed to evaluate custom host filter from Python: {}", err);
@@ -407,13 +392,103 @@ impl HostFilter for InternalHostFilter {
     }
 }
 
-#[pyclass(get_all, frozen, name = "Peer")]
+pub(crate) struct HostFilterInput {
+    inner: Arc<dyn HostFilter>,
+}
+
+impl HostFilterInput {
+    pub(crate) fn into_inner(self) -> Arc<dyn HostFilter> {
+        self.inner
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for HostFilterInput {
+    type Error = DriverSessionConfigError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(points) = obj.extract::<ContactPoints>() {
+            let filter = AllowListHostFilter::new(points)
+                .map_err(|_| DriverSessionConfigError::InvalidHostFilterAddress)?;
+            return Ok(Self {
+                inner: Arc::new(filter),
+            });
+        }
+
+        if let Ok(filter) = obj.cast::<PyAcceptAllHostFilter>() {
+            return Ok(Self {
+                inner: filter.get().inner.clone(),
+            });
+        }
+
+        if let Ok(filter) = obj.cast::<PyDcHostFilter>() {
+            return Ok(Self {
+                inner: filter.get().inner.clone(),
+            });
+        }
+
+        if !obj.hasattr(intern!(obj.py(), "accept")).unwrap_or(false) {
+            return Err(DriverSessionConfigError::invalid_host_filter(obj));
+        }
+
+        Ok(Self {
+            inner: Arc::new(InternalHostFilter {
+                py_host_filter: obj.to_owned().unbind(),
+            }),
+        })
+    }
+}
+
+#[pyclass(name = "AcceptAllHostFilter", frozen)]
+struct PyAcceptAllHostFilter {
+    inner: Arc<AcceptAllHostFilter>,
+}
+
+#[pymethods]
+impl PyAcceptAllHostFilter {
+    #[new]
+    pub fn new() -> Self {
+        PyAcceptAllHostFilter {
+            inner: Arc::new(AcceptAllHostFilter {}),
+        }
+    }
+
+    pub fn accept(&self, _peer: Py<PyPeer>) -> bool {
+        true
+    }
+}
+
+#[pyclass(name = "DcHostFilter", frozen)]
+struct PyDcHostFilter {
+    inner: Arc<DcHostFilter>,
+}
+
+#[pymethods]
+impl PyDcHostFilter {
+    #[new]
+    pub fn new(local_dc: String) -> Self {
+        PyDcHostFilter {
+            inner: Arc::new(DcHostFilter::new(local_dc)),
+        }
+    }
+
+    pub fn accept(&self, peer: Py<PyPeer>) -> bool {
+        self.inner.accept(&peer.get().inner)
+    }
+}
+
+#[pyclass(frozen, name = "Peer")]
 pub struct PyPeer {
+    inner: Peer,
+    #[pyo3(get)]
     pub host_id: uuid::Uuid,
+    #[pyo3(get)]
     pub address: (IpAddr, u16),
     //TODO when LBC is merged switch to using Token instead of i64
+    #[pyo3(get)]
     pub tokens: Vec<i64>,
+    #[pyo3(get)]
     pub datacenter: Option<String>,
+    #[pyo3(get)]
     pub rack: Option<String>,
 }
 
@@ -434,14 +509,15 @@ impl PyPeer {
     }
 }
 
-impl From<&Peer> for PyPeer {
-    fn from(peer: &Peer) -> Self {
+impl From<Peer> for PyPeer {
+    fn from(peer: Peer) -> Self {
         Self {
             host_id: peer.host_id,
             address: (peer.address.ip(), peer.address.port()),
             tokens: peer.tokens.iter().map(|t| t.value()).collect(),
             datacenter: peer.datacenter.clone(),
             rack: peer.rack.clone(),
+            inner: peer,
         }
     }
 }
@@ -453,7 +529,8 @@ pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResul
     module.add_class::<PyUntranslatedPeer>()?;
     module.add_class::<PyMonotonicTimestampGenerator>()?;
     module.add_class::<PySimpleTimestampGenerator>()?;
-    module.add_class::<PyHostFilter>()?;
+    module.add_class::<PyAcceptAllHostFilter>()?;
+    module.add_class::<PyDcHostFilter>()?;
     module.add_class::<PyPeer>()?;
     Ok(())
 }

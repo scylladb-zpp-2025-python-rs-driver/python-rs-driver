@@ -11,11 +11,13 @@ from scylla.policies import (
     AuthenticatorProvider,
     AddressTranslator,
     UntranslatedPeer,
-    HostFilter,
     Peer,
     TimestampGenerator,
     MonotonicTimestampGenerator,
     SimpleTimestampGenerator,
+    AcceptAllHostFilter,
+    DcHostFilter,
+    HostFilter,
 )
 
 from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
@@ -396,7 +398,7 @@ async def test_monotonic_timestamp_generator_works_with_session() -> None:
     assert row["writetime(val)"] > 0
 
 
-class AcceptAllHostFilter(HostFilter):
+class CustomAcceptAllHostFilter:
     def __init__(self) -> None:
         super().__init__()
         self.called = False
@@ -410,7 +412,7 @@ class AcceptAllHostFilter(HostFilter):
         return True
 
 
-class FailingHostFilter(HostFilter):
+class FailingHostFilter:
     def accept(self, peer: Peer) -> bool:
         raise RuntimeError("Host Filter Exploded!")
 
@@ -418,7 +420,8 @@ class FailingHostFilter(HostFilter):
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_custom_host_filter_success() -> None:
-    host_filter = AcceptAllHostFilter()
+    host_filter = CustomAcceptAllHostFilter()
+    assert isinstance(host_filter, HostFilter)
 
     builder = (
         SessionBuilder().contact_points([("127.0.0.2", 9042)]).user("cassandra", "cassandra").host_filter(host_filter)
@@ -441,6 +444,7 @@ async def test_custom_host_filter_fallback_on_failure(
     caplog: LogCaptureFixture,
 ) -> None:
     host_filter = FailingHostFilter()
+    assert isinstance(host_filter, HostFilter)
 
     builder = (
         SessionBuilder().contact_points([("127.0.0.2", 9042)]).user("cassandra", "cassandra").host_filter(host_filter)
@@ -454,3 +458,59 @@ async def test_custom_host_filter_fallback_on_failure(
     assert row is not None
     assert "Failed to evaluate custom host filter from Python" in caplog.text
     assert "Host Filter Exploded!" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_accept_all_host_filter() -> None:
+    host_filter = AcceptAllHostFilter()
+
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(host_filter)
+
+    session = await builder.connect()
+
+    result = await session.execute("SELECT release_version FROM system.local")
+    row = await result.first_row()
+
+    assert row is not None
+    assert len(row) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_dc_host_filter_matches() -> None:
+    host_filter = DcHostFilter("datacenter1")
+
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(host_filter)
+
+    session = await builder.connect()
+
+    result = await session.execute("SELECT data_center FROM system.local")
+    row = await result.first_row()
+
+    assert row is not None
+    assert row["data_center"] == "datacenter1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_host_filter_list_with_resolvable_dns() -> None:
+    accepted_list = ["127.0.0.1:9042", ("127.0.0.2", 9042), "localhost:9042"]
+
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(accepted_list)
+
+    session = await builder.connect()
+    assert session is not None
+
+    await session.execute("SELECT * FROM system.local")
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_host_filter_list_with_garbage_string_fails() -> None:
+    garbage_list = ["this-is-not-an-address-and-has-no-port", ("127.0.0.1", 9042)]
+
+    with pytest.raises(SessionConfigError) as excinfo:
+        _ = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(garbage_list)
+
+    assert "invalid socket address" in str(excinfo.value).lower()

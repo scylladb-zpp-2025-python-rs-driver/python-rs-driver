@@ -5,7 +5,6 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyNone};
 use std::error::Error;
-use std::fmt;
 use std::net::AddrParseError;
 /* Python exception classes */
 
@@ -490,6 +489,12 @@ pub enum DriverSessionConfigError {
         type_name: String,
     },
 
+    InvalidHostFilter {
+        type_name: String,
+    },
+
+    InvalidHostFilterAddress,
+
     InvalidContactPointAddress {
         addr: String,
         source: AddrParseError,
@@ -531,6 +536,12 @@ impl DriverSessionConfigError {
 
     pub fn invalid_timestamp_generator(obj: Borrowed<PyAny>) -> Self {
         Self::InvalidTimestampGenerator {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_host_filter(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidHostFilter {
             type_name: get_type_name(obj),
         }
     }
@@ -611,8 +622,20 @@ impl From<DriverSessionConfigError> for PyErr {
                 build_session_config_pyerr(py, message, None, None)
             }
 
+            DriverSessionConfigError::InvalidHostFilter { type_name } => {
+                let message = format!(
+                    "Expected a class implementing HostFilter protocol or a sequence[str | tuple[str | ipaddress, int]], got {type_name}"
+                );
+                build_session_config_pyerr(py, message, None, None)
+            }
+
             DriverSessionConfigError::InvalidContactPointAddress { addr, source } => {
                 let message = format!("Invalid contact point address '{addr}': {source}");
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidHostFilterAddress => {
+                let message = "Invalid socket address".to_string();
                 build_session_config_pyerr(py, message, None, None)
             }
         })

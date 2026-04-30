@@ -7,7 +7,8 @@ from ._rust.policies import (  # pyright: ignore[reportMissingModuleSource]
     UntranslatedPeer,
     MonotonicTimestampGenerator,
     SimpleTimestampGenerator,
-    HostFilter,
+    AcceptAllHostFilter,
+    DcHostFilter,
     Peer,
 )
 
@@ -22,12 +23,19 @@ class TimestampGenerator(Protocol):
     def next_timestamp(self) -> int: ...
 
 
+@runtime_checkable
+class HostFilter(Protocol):
+    def accept(self, peer: Peer) -> bool: ...
+
+
 __all__ = [
     "Authenticator",
     "AuthenticatorProvider",
     "AddressTranslator",
     "UntranslatedPeer",
     "HostFilter",
+    "AcceptAllHostFilter",
+    "DcHostFilter",
     "TimestampGenerator",
     "MonotonicTimestampGenerator",
     "SimpleTimestampGenerator",
