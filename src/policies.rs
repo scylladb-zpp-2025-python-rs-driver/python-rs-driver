@@ -23,8 +23,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[derive(Clone)]
-#[pyclass(subclass, skip_from_py_object, name = "AuthenticatorProvider")]
+#[pyclass(subclass, skip_from_py_object, name = "AuthenticatorProvider", frozen)]
 pub(crate) struct PyAuthenticatorProvider {}
 
 #[pymethods]
@@ -41,9 +40,8 @@ impl PyAuthenticatorProvider {
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct InternalAuthenticatorProvider {
-    pub(crate) python_authenticator: Py<PyAuthenticatorProvider>,
+struct InternalAuthenticatorProvider {
+    python_authenticator: Py<PyAuthenticatorProvider>,
 }
 
 #[async_trait]
@@ -56,13 +54,13 @@ impl AuthenticatorProvider for InternalAuthenticatorProvider {
             |py| -> PyResult<(Option<Vec<u8>>, Box<InternalAuthenticator>)> {
                 let py_auth_provider = self.python_authenticator.bind(py);
 
-                let py_auth_any =
-                    py_auth_provider.call_method1("new_authenticator", (authenticator_name,))?;
+                let py_auth_any = py_auth_provider
+                    .call_method1(intern!(py, "new_authenticator"), (authenticator_name,))?;
 
                 let py_auth = py_auth_any.cast::<PyAuthenticator>()?;
 
                 let response = py_auth
-                    .call_method0("initial_response")?
+                    .call_method0(intern!(py, "initial_response"))?
                     .extract::<Option<Vec<u8>>>()?;
 
                 Ok((
@@ -79,7 +77,7 @@ impl AuthenticatorProvider for InternalAuthenticatorProvider {
     }
 }
 
-#[pyclass(subclass, name = "Authenticator")]
+#[pyclass(subclass, name = "Authenticator", frozen)]
 pub(crate) struct PyAuthenticator {}
 
 #[pymethods]
@@ -104,8 +102,8 @@ impl PyAuthenticator {
     }
 }
 
-pub(crate) struct InternalAuthenticator {
-    pub(crate) python_authenticator: Py<PyAuthenticator>,
+struct InternalAuthenticator {
+    python_authenticator: Py<PyAuthenticator>,
 }
 
 #[async_trait]
@@ -118,7 +116,7 @@ impl AuthenticatorSession for InternalAuthenticator {
             let py_auth = self.python_authenticator.bind(py);
 
             py_auth
-                .call_method1("evaluate_challenge", (token,))?
+                .call_method1(intern!(py, "evaluate_challenge"), (token,))?
                 .extract::<Option<Vec<u8>>>()
         })
         .map_err(|e| format!("Python evaluate_challenge failed: {:?}", e))?;
@@ -130,13 +128,41 @@ impl AuthenticatorSession for InternalAuthenticator {
         let result = Python::attach(|py| -> PyResult<()> {
             let py_auth = self.python_authenticator.bind(py);
 
-            py_auth.call_method1("success", (token,))?;
+            py_auth.call_method1(intern!(py, "success"), (token,))?;
 
             Ok(())
         })
         .map_err(|e| format!("Python success failed: {:?}", e))?;
 
         Ok(result)
+    }
+}
+
+pub(crate) struct AuthenticatorProviderInput {
+    inner: Arc<dyn AuthenticatorProvider>,
+}
+
+impl AuthenticatorProviderInput {
+    pub(crate) fn into_inner(self) -> Arc<dyn AuthenticatorProvider> {
+        self.inner
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for AuthenticatorProviderInput {
+    type Error = DriverSessionConfigError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(python_authenticator) = obj.extract::<Py<PyAuthenticatorProvider>>() {
+            return Ok(Self {
+                inner: Arc::new(InternalAuthenticatorProvider {
+                    python_authenticator,
+                }),
+            });
+        }
+
+        Err(DriverSessionConfigError::invalid_authenticator_provider(
+            obj,
+        ))
     }
 }
 

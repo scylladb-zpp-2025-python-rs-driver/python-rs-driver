@@ -482,6 +482,10 @@ pub enum DriverSessionConfigError {
         type_name: String,
     },
 
+    InvalidAuthenticatorProvider {
+        type_name: String,
+    },
+
     InvalidAddressTranslator {
         type_name: String,
     },
@@ -525,6 +529,12 @@ impl DriverSessionConfigError {
 
     pub fn invalid_duration(obj: Borrowed<PyAny>) -> Self {
         Self::InvalidDuration {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_authenticator_provider(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidAuthenticatorProvider {
             type_name: get_type_name(obj),
         }
     }
@@ -608,6 +618,12 @@ impl From<DriverSessionConfigError> for PyErr {
                 let message = format!(
                     "Expected a datetime.timedelta or a non-negative finite float (seconds), got: {type_name}"
                 );
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidAuthenticatorProvider { type_name } => {
+                let message =
+                    format!("Expected an AuthenticatorProvider subclass, got {type_name}");
                 build_session_config_pyerr(py, message, None, None)
             }
 

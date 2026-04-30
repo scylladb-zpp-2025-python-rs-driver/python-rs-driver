@@ -2,8 +2,7 @@ use crate::RUNTIME;
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
-    AddressTranslatorInput, HostFilterInput, InternalAuthenticatorProvider,
-    PyAuthenticatorProvider, TimestampGeneratorInput,
+    AddressTranslatorInput, AuthenticatorProviderInput, HostFilterInput, TimestampGeneratorInput,
 };
 use crate::session::Session;
 use pyo3::prelude::*;
@@ -55,11 +54,9 @@ impl SessionBuilder {
 
     fn authenticator_provider<'py>(
         mut slf: PyRefMut<'py, Self>,
-        authenticator: Py<PyAuthenticatorProvider>,
+        authenticator: AuthenticatorProviderInput,
     ) -> PyRefMut<'py, Self> {
-        slf.config.authenticator = Some(Arc::new(InternalAuthenticatorProvider {
-            python_authenticator: authenticator,
-        }));
+        slf.config.authenticator = Some(authenticator.into_inner());
 
         slf
     }
