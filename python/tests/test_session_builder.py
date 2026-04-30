@@ -453,6 +453,62 @@ async def test_custom_host_filter_fallback_on_failure(
     assert "Host Filter Exploded!" in caplog.text
 
 
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_builtin_accept_all_host_filter() -> None:
+    host_filter = AcceptAllHostFilter()
+
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(host_filter)
+
+    session = await builder.connect()
+
+    result = await session.execute("SELECT release_version FROM system.local")
+    row = await result.first_row()
+
+    assert row is not None
+    assert len(row) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_dc_host_filter_matches() -> None:
+    host_filter = DcHostFilter("datacenter1")
+
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(host_filter)
+
+    session = await builder.connect()
+
+    result = await session.execute("SELECT data_center FROM system.local")
+    row = await result.first_row()
+
+    assert row is not None
+    assert row["data_center"] == "datacenter1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_host_filter_list_with_resolvable_dns() -> None:
+    accepted_list = ["127.0.0.1:9042", ("127.0.0.2", 9042), "localhost:9042"]
+
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(accepted_list)
+
+    session = await builder.connect()
+    assert session is not None
+
+    await session.execute("SELECT * FROM system.local")
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_host_filter_list_with_garbage_string_fails() -> None:
+    garbage_list = ["this-is-not-an-address-and-has-no-port", ("127.0.0.1", 9042)]
+
+    with pytest.raises(SessionConfigError) as excinfo:
+        builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(garbage_list)
+
+    assert "invalid socket address" in str(excinfo.value).lower()
+
+
 @pytest.mark.parametrize(
     "ip",
     [
