@@ -1,11 +1,15 @@
 use std::sync::LazyLock;
 
+#[cfg(test)]
+mod tests;
+
 use crate::deserialize::value;
 use deserialize::results;
 use pyo3::prelude::*;
 use tokio::runtime::Runtime;
 
 mod batch;
+mod cache;
 mod deserialize;
 mod enums;
 mod errors;
