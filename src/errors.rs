@@ -1,13 +1,12 @@
 // src/errors.rs
-use std::error::Error;
-use std::fmt;
-
 use pyo3::PyErr;
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyNone};
-
+use std::error::Error;
+use std::fmt;
+use std::net::AddrParseError;
 /* Python exception classes */
 
 create_exception!(errors, ScyllaError, PyException);
@@ -462,48 +461,107 @@ impl From<tokio::task::JoinError> for DriverSessionConnectionError {
 /* Session configuration errors */
 
 /// Errors related to invalid session configuration.
-#[allow(clippy::enum_variant_names)]
 #[derive(Debug)]
 #[must_use]
 pub enum DriverSessionConfigError {
-    ContactPointsIterationFailed {
+    InvalidNodeAddressSequence {
         source: Box<PyErr>,
     },
-    /// The contact_points argument is of the wrong type.
-    ContactPointTypeError {
+
+    AddressTypeError {
         type_name: String,
     },
 
-    /// Wraps a Core Error with the index where it happened
-    InvalidContactPointItem {
+    InvalidNodeAddressItem {
         index: usize,
         source: Box<PyErr>,
+    },
+
+    InvalidPortRange,
+
+    InvalidDuration {
+        type_name: String,
+    },
+
+    ZeroDurationNotAllowed,
+
+    InvalidAuthenticatorProvider {
+        type_name: String,
+    },
+
+    InvalidAddressTranslator {
+        type_name: String,
+    },
+
+    InvalidTimestampGenerator {
+        type_name: String,
+    },
+
+    InvalidHostFilter {
+        type_name: String,
+    },
+
+    InvalidHostFilterAddress,
+
+    InvalidNodeAddress {
+        addr: String,
+        source: AddrParseError,
     },
 }
 
 impl DriverSessionConfigError {
     /* Constructors */
-    pub fn contact_point_type_error(obj: Borrowed<PyAny>) -> Self {
-        let type_name = obj
-            .get_type()
-            .name()
-            .map(|n| n.to_string())
-            .unwrap_or_else(|_| "UnknownType".to_string());
-
-        Self::ContactPointTypeError { type_name }
+    pub fn address_type_error(obj: Borrowed<PyAny>) -> Self {
+        Self::AddressTypeError {
+            type_name: get_type_name(obj),
+        }
     }
 
-    pub fn contact_points_iteration_failed(source: PyErr) -> Self {
-        Self::ContactPointsIterationFailed {
+    pub fn node_addr_iteration_failed(source: PyErr) -> Self {
+        Self::InvalidNodeAddressSequence {
             source: Box::new(source),
         }
     }
 
-    pub fn contact_points_invalid_item(index: usize, source: PyErr) -> Self {
-        Self::InvalidContactPointItem {
+    pub fn invalid_node_addr_item(index: usize, source: PyErr) -> Self {
+        Self::InvalidNodeAddressItem {
             index,
             source: Box::new(source),
         }
+    }
+
+    pub fn invalid_duration(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidDuration {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_authenticator_provider(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidAuthenticatorProvider {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_address_translator(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidAddressTranslator {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_timestamp_generator(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidTimestampGenerator {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_host_filter(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidHostFilter {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_node_addr(addr: String, source: AddrParseError) -> Self {
+        Self::InvalidNodeAddress { addr, source }
     }
 }
 
@@ -528,26 +586,87 @@ fn build_session_config_pyerr(
     err
 }
 
+fn get_type_name(obj: Borrowed<PyAny>) -> String {
+    obj.get_type()
+        .name()
+        .map(|n| n.to_string())
+        .unwrap_or_else(|_| "UnknownType".to_string())
+}
+
 impl From<DriverSessionConfigError> for PyErr {
     fn from(e: DriverSessionConfigError) -> PyErr {
         Python::attach(|py| match e {
-            DriverSessionConfigError::ContactPointTypeError { type_name } => {
+            DriverSessionConfigError::AddressTypeError { type_name } => {
                 let message = format!(
-                    "Invalid contact points type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these, got {type_name}"
+                    "Invalid address type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these, got {type_name}"
                 );
 
                 build_session_config_pyerr(py, message, None, None)
             }
 
-            DriverSessionConfigError::ContactPointsIterationFailed { source } => {
-                let message = "Failed to iterate over sequence of contact points".to_string();
+            DriverSessionConfigError::InvalidNodeAddressSequence { source } => {
+                let message =
+                    "Failed to iterate over sequence of addresses provided for configuration"
+                        .to_string();
 
                 build_session_config_pyerr(py, message, Some(*source), None)
             }
 
-            DriverSessionConfigError::InvalidContactPointItem { index, source } => {
-                let message = format!("Error processing contact point at index {index}");
+            DriverSessionConfigError::InvalidNodeAddressItem { index, source } => {
+                let message = format!("Error processing address at index {index}");
                 build_session_config_pyerr(py, message, Some(*source), Some(index))
+            }
+
+            DriverSessionConfigError::InvalidPortRange => {
+                let message = "Invalid port range: start port must be less than or equal to end port, and both ports must be greater than or equal to 1024";
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidDuration { type_name } => {
+                let message = format!(
+                    "Expected a datetime.timedelta or a non-negative finite float (seconds), got: {type_name}"
+                );
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::ZeroDurationNotAllowed => {
+                let message = "Duration must be greater than zero.";
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidAuthenticatorProvider { type_name } => {
+                let message =
+                    format!("Expected an AuthenticatorProvider subclass, got {type_name}");
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidAddressTranslator { type_name } => {
+                let message = format!(
+                    "Expected an AddressTranslator subclass or a dict[Address, Address], got {type_name}"
+                );
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidTimestampGenerator { type_name } => {
+                let message = format!("Expected an TimestampGenerator subclass, got {type_name}");
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidHostFilter { type_name } => {
+                let message = format!(
+                    "Expected an HostFilter subclass or a sequence[str | tuple[str | ipaddress, int]], got {type_name}"
+                );
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidNodeAddress { addr, source } => {
+                let message = format!("'{}' is not a valid address: {}", addr, source);
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidHostFilterAddress => {
+                let message = "Invalid socket address".to_string();
+                build_session_config_pyerr(py, message, None, None)
             }
         })
     }

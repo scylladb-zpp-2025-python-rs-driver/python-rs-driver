@@ -1,19 +1,29 @@
+use crate::errors::DriverSessionConfigError;
+use crate::session_builder::{NodeAddr, NodeAddrs, PyDuration};
 use async_trait::async_trait;
 use pyo3::exceptions::PyNotImplementedError;
-use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
+use pyo3::prelude::{PyAnyMethods, PyDictMethods, PyModule, PyModuleMethods};
 use pyo3::types::{PyDict, PyString, PyTuple};
-use pyo3::{Bound, Py, PyResult, Python, pyclass, pymethods, pymodule};
+use pyo3::{
+    Borrowed, Bound, FromPyObject, Py, PyAny, PyClassInitializer, PyResult, Python, pyclass,
+    pymethods, pymodule,
+};
 use scylla::authentication::{AuthError, AuthenticatorProvider, AuthenticatorSession};
 use scylla::cluster::metadata::Peer;
 use scylla::errors::{CustomTranslationError, TranslationError};
 use scylla::policies::address_translator::{AddressTranslator, UntranslatedPeer};
-use scylla::policies::host_filter::HostFilter;
-use scylla::policies::timestamp_generator::TimestampGenerator;
+use scylla::policies::host_filter::{
+    AcceptAllHostFilter, AllowListHostFilter, DcHostFilter, HostFilter,
+};
+use scylla::policies::timestamp_generator::{
+    MonotonicTimestampGenerator, SimpleTimestampGenerator, TimestampGenerator,
+};
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[derive(Clone)]
-#[pyclass(subclass, skip_from_py_object, name = "AuthenticatorProvider")]
+#[pyclass(subclass, skip_from_py_object, name = "AuthenticatorProvider", frozen)]
 pub(crate) struct PyAuthenticatorProvider {}
 
 #[pymethods]
@@ -30,9 +40,8 @@ impl PyAuthenticatorProvider {
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct InternalAuthenticatorProvider {
-    pub(crate) python_authenticator: Py<PyAuthenticatorProvider>,
+struct InternalAuthenticatorProvider {
+    python_authenticator: Py<PyAuthenticatorProvider>,
 }
 
 #[async_trait]
@@ -68,7 +77,7 @@ impl AuthenticatorProvider for InternalAuthenticatorProvider {
     }
 }
 
-#[pyclass(subclass, name = "Authenticator")]
+#[pyclass(subclass, name = "Authenticator", frozen)]
 pub(crate) struct PyAuthenticator {}
 
 #[pymethods]
@@ -93,8 +102,8 @@ impl PyAuthenticator {
     }
 }
 
-pub(crate) struct InternalAuthenticator {
-    pub(crate) python_authenticator: Py<PyAuthenticator>,
+struct InternalAuthenticator {
+    python_authenticator: Py<PyAuthenticator>,
 }
 
 #[async_trait]
@@ -129,7 +138,36 @@ impl AuthenticatorSession for InternalAuthenticator {
     }
 }
 
-#[pyclass(subclass, skip_from_py_object, name = "AddressTranslator")]
+pub(crate) struct AuthenticatorProviderInput {
+    inner: Arc<dyn AuthenticatorProvider>,
+}
+
+impl AuthenticatorProviderInput {
+    pub(crate) fn into_inner(self) -> Arc<dyn AuthenticatorProvider> {
+        self.inner
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for AuthenticatorProviderInput {
+    type Error = DriverSessionConfigError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(python_authenticator) = obj.extract::<Py<PyAuthenticatorProvider>>() {
+            return Ok(Self {
+                inner: Arc::new(InternalAuthenticatorProvider {
+                    python_authenticator,
+                }),
+            });
+        }
+
+        Err(DriverSessionConfigError::invalid_authenticator_provider(
+            obj,
+        ))
+    }
+}
+
+#[pyclass(subclass, skip_from_py_object, name = "AddressTranslator", frozen)]
+
 pub(crate) struct PyAddressTranslator {}
 
 #[pymethods]
@@ -145,9 +183,8 @@ impl PyAddressTranslator {
         Err(PyNotImplementedError::new_err("Method is not implemented"))
     }
 }
-
-pub(crate) struct InternalAddressTranslator {
-    pub(crate) python_translator: Py<PyAddressTranslator>,
+struct InternalAddressTranslator {
+    inner: Py<PyAddressTranslator>,
 }
 
 #[async_trait]
@@ -157,7 +194,7 @@ impl AddressTranslator for InternalAddressTranslator {
         untranslated_peer: &UntranslatedPeer,
     ) -> Result<SocketAddr, TranslationError> {
         let result = Python::attach(|py| -> PyResult<(IpAddr, u16)> {
-            let py_trans = self.python_translator.bind(py);
+            let py_trans = self.inner.bind(py);
             let py_peer_info = PyUntranslatedPeer::from(untranslated_peer);
 
             py_trans
@@ -167,6 +204,58 @@ impl AddressTranslator for InternalAddressTranslator {
         .map_err(CustomTranslationError::new)?;
 
         Ok(SocketAddr::from(result))
+    }
+}
+
+pub(crate) struct AddressTranslatorInput {
+    inner: Arc<dyn AddressTranslator>,
+}
+
+impl AddressTranslatorInput {
+    pub(crate) fn into_inner(self) -> Arc<dyn AddressTranslator> {
+        self.inner
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for AddressTranslatorInput {
+    type Error = DriverSessionConfigError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(translator) = obj.extract::<Py<PyAddressTranslator>>() {
+            return Ok(Self {
+                inner: Arc::new(InternalAddressTranslator { inner: translator }),
+            });
+        }
+
+        if let Ok(dict) = obj.cast::<PyDict>() {
+            let map = dict
+                .iter()
+                .enumerate()
+                .map(|(idx, (k, v))| {
+                    let from = k
+                        .extract::<NodeAddr>()
+                        .and_then(SocketAddr::try_from)
+                        .map_err(|e| {
+                            DriverSessionConfigError::invalid_node_addr_item(idx, e.into())
+                        })?;
+
+                    let to = v
+                        .extract::<NodeAddr>()
+                        .and_then(SocketAddr::try_from)
+                        .map_err(|e| {
+                            DriverSessionConfigError::invalid_node_addr_item(idx, e.into())
+                        })?;
+
+                    Ok((from, to))
+                })
+                .collect::<Result<HashMap<SocketAddr, SocketAddr>, Self::Error>>()?;
+
+            return Ok(Self {
+                inner: Arc::new(map),
+            });
+        }
+
+        Err(DriverSessionConfigError::invalid_address_translator(obj))
     }
 }
 
@@ -209,7 +298,7 @@ impl From<&UntranslatedPeer<'_>> for PyUntranslatedPeer {
     }
 }
 
-#[pyclass(subclass, skip_from_py_object, name = "TimestampGenerator")]
+#[pyclass(subclass, skip_from_py_object, name = "TimestampGenerator", frozen)]
 pub(crate) struct PyTimestampGenerator {}
 
 #[pymethods]
@@ -226,8 +315,8 @@ impl PyTimestampGenerator {
     }
 }
 
-pub(crate) struct InternalTimestampGenerator {
-    pub(crate) py_timestamp_generator: Py<PyTimestampGenerator>,
+struct InternalTimestampGenerator {
+    py_timestamp_generator: Py<PyTimestampGenerator>,
 }
 impl TimestampGenerator for InternalTimestampGenerator {
     fn next_timestamp(&self) -> i64 {
@@ -250,7 +339,89 @@ impl TimestampGenerator for InternalTimestampGenerator {
     }
 }
 
-#[pyclass(subclass, skip_from_py_object, name = "HostFilter")]
+pub(crate) struct TimestampGeneratorInput {
+    inner: Arc<dyn TimestampGenerator>,
+}
+
+impl TimestampGeneratorInput {
+    pub(crate) fn into_inner(self) -> Arc<dyn TimestampGenerator> {
+        self.inner
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for TimestampGeneratorInput {
+    type Error = DriverSessionConfigError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        let generator = obj
+            .extract::<Bound<PyTimestampGenerator>>()
+            .map_err(|_| DriverSessionConfigError::invalid_timestamp_generator(obj))?;
+
+        if let Ok(monotonic) = generator.cast::<PyMonotonicTimestampGenerator>() {
+            return Ok(Self {
+                inner: monotonic.borrow().inner.clone(),
+            });
+        }
+
+        if let Ok(simple) = generator.cast::<PySimpleTimestampGenerator>() {
+            return Ok(Self {
+                inner: simple.borrow().inner.clone(),
+            });
+        }
+
+        Ok(Self {
+            inner: Arc::new(InternalTimestampGenerator {
+                py_timestamp_generator: generator.to_owned().unbind(),
+            }),
+        })
+    }
+}
+
+#[pyclass(extends=PyTimestampGenerator, name = "MonotonicTimestampGenerator", frozen)]
+struct PyMonotonicTimestampGenerator {
+    inner: Arc<MonotonicTimestampGenerator>,
+}
+
+#[pymethods]
+impl PyMonotonicTimestampGenerator {
+    #[new]
+    #[pyo3(signature = (warn_on_drift=true, warning_threshold=PyDuration(Duration::from_secs(1)), warning_interval=PyDuration(Duration::from_secs(1))))]
+    pub fn new(
+        warn_on_drift: bool,
+        warning_threshold: PyDuration,
+        warning_interval: PyDuration,
+    ) -> PyClassInitializer<Self> {
+        let mut monotonic_timestamp_generator = MonotonicTimestampGenerator::new()
+            .with_warning_times(warning_threshold.0, warning_interval.0);
+
+        if !warn_on_drift {
+            monotonic_timestamp_generator = monotonic_timestamp_generator.without_warnings();
+        }
+
+        PyClassInitializer::from(PyTimestampGenerator {}).add_subclass(
+            PyMonotonicTimestampGenerator {
+                inner: Arc::new(monotonic_timestamp_generator),
+            },
+        )
+    }
+}
+
+#[pyclass(extends=PyTimestampGenerator, name = "SimpleTimestampGenerator", frozen)]
+struct PySimpleTimestampGenerator {
+    inner: Arc<SimpleTimestampGenerator>,
+}
+
+#[pymethods]
+impl PySimpleTimestampGenerator {
+    #[new]
+    pub fn new() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(PyTimestampGenerator {}).add_subclass(PySimpleTimestampGenerator {
+            inner: Arc::new(SimpleTimestampGenerator {}),
+        })
+    }
+}
+
+#[pyclass(subclass, skip_from_py_object, name = "HostFilter", frozen)]
 pub(crate) struct PyHostFilter {}
 
 #[pymethods]
@@ -267,8 +438,8 @@ impl PyHostFilter {
     }
 }
 
-pub(crate) struct InternalHostFilter {
-    pub(crate) py_host_filter: Py<PyHostFilter>,
+struct InternalHostFilter {
+    py_host_filter: Py<PyHostFilter>,
 }
 impl HostFilter for InternalHostFilter {
     fn accept(&self, peer: &Peer) -> bool {
@@ -283,6 +454,82 @@ impl HostFilter for InternalHostFilter {
                     log::error!("Failed to evaluate custom host filter from Python: {}", err);
                     true
                 })
+        })
+    }
+}
+
+pub(crate) struct HostFilterInput {
+    inner: Arc<dyn HostFilter>,
+}
+
+impl HostFilterInput {
+    pub(crate) fn into_inner(self) -> Arc<dyn HostFilter> {
+        self.inner
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for HostFilterInput {
+    type Error = DriverSessionConfigError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(host_filter) = obj.extract::<Bound<'_, PyHostFilter>>() {
+            if let Ok(filter) = host_filter.cast::<PyAcceptAllHostFilter>() {
+                return Ok(Self {
+                    inner: filter.borrow().inner.clone(),
+                });
+            }
+
+            if let Ok(filter) = host_filter.cast::<PyDcHostFilter>() {
+                return Ok(Self {
+                    inner: filter.borrow().inner.clone(),
+                });
+            }
+
+            return Ok(Self {
+                inner: Arc::new(InternalHostFilter {
+                    py_host_filter: host_filter.to_owned().unbind(),
+                }),
+            });
+        }
+
+        if let Ok(points) = obj.extract::<NodeAddrs>() {
+            let filter = AllowListHostFilter::new(points)
+                .map_err(|_| DriverSessionConfigError::InvalidHostFilterAddress)?;
+            return Ok(Self {
+                inner: Arc::new(filter),
+            });
+        }
+
+        Err(DriverSessionConfigError::invalid_host_filter(obj))
+    }
+}
+
+#[pyclass(extends=PyHostFilter, name = "AcceptAllHostFilter", frozen)]
+struct PyAcceptAllHostFilter {
+    inner: Arc<AcceptAllHostFilter>,
+}
+
+#[pymethods]
+impl PyAcceptAllHostFilter {
+    #[new]
+    pub fn new() -> PyClassInitializer<Self> {
+        PyClassInitializer::from(PyHostFilter {}).add_subclass(PyAcceptAllHostFilter {
+            inner: Arc::new(AcceptAllHostFilter {}),
+        })
+    }
+}
+
+#[pyclass(extends=PyHostFilter, name = "DcHostFilter", frozen)]
+struct PyDcHostFilter {
+    inner: Arc<DcHostFilter>,
+}
+
+#[pymethods]
+impl PyDcHostFilter {
+    #[new]
+    pub fn new(local_dc: String) -> PyClassInitializer<Self> {
+        PyClassInitializer::from(PyHostFilter {}).add_subclass(PyDcHostFilter {
+            inner: Arc::new(DcHostFilter::new(local_dc)),
         })
     }
 }
@@ -333,7 +580,11 @@ pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResul
     module.add_class::<PyUntranslatedPeer>()?;
     module.add_class::<PyAddressTranslator>()?;
     module.add_class::<PyTimestampGenerator>()?;
+    module.add_class::<PyMonotonicTimestampGenerator>()?;
+    module.add_class::<PySimpleTimestampGenerator>()?;
     module.add_class::<PyHostFilter>()?;
+    module.add_class::<PyAcceptAllHostFilter>()?;
+    module.add_class::<PyDcHostFilter>()?;
     module.add_class::<PyPeer>()?;
     Ok(())
 }

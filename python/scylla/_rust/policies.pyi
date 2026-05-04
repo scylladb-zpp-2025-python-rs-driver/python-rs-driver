@@ -82,6 +82,39 @@ class TimestampGenerator:
         """
         ...
 
+class SimpleTimestampGenerator(TimestampGenerator):
+    """
+    A simple client-side timestamp generator based on the system clock.
+
+    This generator returns the current system time in microseconds since
+    the Unix Epoch (1970-01-01)
+    """
+    def __init__(self) -> None: ...
+
+class MonotonicTimestampGenerator(TimestampGenerator):
+    """
+    Timestamp generator that guarantees monotonically increasing timestamps.
+
+    Parameters
+    ----------
+    warn_on_drift : bool, default True
+        Whether to log warnings when generated timestamps drift too far from
+        the system clock.
+
+    warning_threshold : int, default 1
+        Drift threshold in seconds after which warnings may be emitted.
+
+    warning_interval : int, default 1
+        Minimum interval in seconds between drift warnings.
+    """
+
+    def __init__(
+        self,
+        warn_on_drift: bool = True,
+        warning_threshold: int = 1,
+        warning_interval: int = 1,
+    ) -> None: ...
+
 class Peer:
     """
     Information about a ScyllaDB node discovered by the driver.
@@ -127,3 +160,15 @@ class HostFilter:
         accepting the host.
         """
         ...
+
+class AcceptAllHostFilter(HostFilter):
+    """
+    A host filter that accepts every node in the cluster.
+    """
+    def __init__(self) -> None: ...
+
+class DcHostFilter(HostFilter):
+    """
+    A host filter that accepts nodes only from the specified datacenter.
+    """
+    def __init__(self, local_dc: str) -> None: ...
