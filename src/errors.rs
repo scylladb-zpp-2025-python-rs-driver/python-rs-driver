@@ -27,6 +27,8 @@ create_exception!(errors, SessionConnectionError, ScyllaError);
 
 create_exception!(errors, SessionConfigError, ScyllaError);
 
+create_exception!(errors, TlsError, ScyllaError);
+
 create_exception!(errors, StatementConversionError, ScyllaError);
 
 create_exception!(errors, ExecuteError, ScyllaError);
@@ -550,6 +552,47 @@ impl From<DriverSessionConfigError> for PyErr {
                 build_session_config_pyerr(py, message, Some(*source), Some(index))
             }
         })
+    }
+}
+
+/* TLS Configuration errors */
+
+/// Errors that can occur during TLS context creation and configuration.
+#[derive(Debug)]
+#[must_use]
+pub enum DriverTlsError {
+    /// An error originating from the underlying OpenSSL library.
+    OpenSslError { source: Box<str> },
+    /// Invalid parameters passed to the TLS context builder.
+    InvalidParameters { message: Box<str> },
+}
+
+impl DriverTlsError {
+    /* Constructors */
+
+    pub fn openssl_error(source: openssl::error::ErrorStack) -> Self {
+        Self::OpenSslError {
+            source: source.to_string().into_boxed_str(),
+        }
+    }
+
+    pub fn invalid_parameters(message: impl Into<Box<str>>) -> Self {
+        Self::InvalidParameters {
+            message: message.into(),
+        }
+    }
+}
+
+impl From<DriverTlsError> for PyErr {
+    fn from(e: DriverTlsError) -> PyErr {
+        match e {
+            DriverTlsError::OpenSslError { source } => {
+                TlsError::new_err(format!("Failed to configure TLS context: {source}"))
+            }
+            DriverTlsError::InvalidParameters { message } => {
+                TlsError::new_err(format!("Invalid TLS parameters: {message}"))
+            }
+        }
     }
 }
 
@@ -1180,6 +1223,7 @@ pub(crate) fn errors(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<(
         py.get_type::<SessionConnectionError>(),
     )?;
     module.add("SessionConfigError", py.get_type::<SessionConfigError>())?;
+    module.add("TlsError", py.get_type::<TlsError>())?;
     module.add(
         "StatementConversionError",
         py.get_type::<StatementConversionError>(),
