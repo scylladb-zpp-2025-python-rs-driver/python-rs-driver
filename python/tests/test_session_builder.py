@@ -3,7 +3,7 @@ import ipaddress
 from scylla.errors import SessionConfigError
 import pytest
 
-from typing import Optional, Any, Generator
+from typing import Optional, Any, Generator, Sequence
 from _pytest.logging import LogCaptureFixture
 from scylla.session_builder import SessionBuilder
 from scylla.policies import (
@@ -22,6 +22,8 @@ from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
     start_cluster,
     stop_and_remove_cluster,
 )
+from datetime import timedelta
+from scylla.enums import PoolSize, WriteCoalescingDelay, SelfIdentity
 
 
 @pytest.mark.asyncio
@@ -347,3 +349,177 @@ async def test_custom_host_filter_fallback_on_failure(
     assert row is not None
     assert "Failed to evaluate custom host filter from Python" in caplog.text
     assert "Host Filter Exploded!" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "ip",
+    [
+        "127.0.0.1",
+        "::1",
+        ipaddress.IPv4Address("127.0.0.2"),
+        ipaddress.IPv6Address("::2"),
+        None,
+    ],
+)
+def test_local_ip_address_valid_formats(ip: Any):
+    builder = SessionBuilder().local_ip_address(ip)
+    assert isinstance(builder, SessionBuilder)
+
+
+@pytest.mark.parametrize(
+    "bad_range",
+    [
+        ((2000, 1000)),
+        ((80, 2000)),
+        ((1023, 1024)),
+    ],
+)
+def test_port_range_validation_logic(bad_range: tuple[int, int]):
+    builder = SessionBuilder()
+    with pytest.raises(SessionConfigError) as excinfo:
+        builder.shard_aware_local_port_range(bad_range)
+
+    assert "Invalid port range" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "valid_range",
+    [
+        ((1024, 2000)),
+        ((1024, 1024)),
+    ],
+)
+async def test_port_range_boundary_valid(valid_range: tuple[int, int]):
+    builder = SessionBuilder().shard_aware_local_port_range(valid_range)
+    assert isinstance(builder, SessionBuilder)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "valid_duration",
+    [
+        0.5,
+        5,
+        timedelta(milliseconds=200),
+        timedelta(seconds=2, microseconds=500),
+        0.0,
+    ],
+)
+async def test_schema_agreement_interval_happy_path(valid_duration: Any):
+    builder = SessionBuilder().schema_agreement_interval(valid_duration)
+    assert isinstance(builder, SessionBuilder)
+
+
+@pytest.mark.parametrize(
+    "invalid_input",
+    [
+        -1.0,
+        float("inf"),
+    ],
+)
+def test_schema_agreement_interval_error_consistency(invalid_input: Any):
+    builder = SessionBuilder()
+    with pytest.raises(SessionConfigError) as excinfo:
+        builder.schema_agreement_interval(invalid_input)
+
+    assert "Expected a datetime.timedelta or a non-negative finite float (seconds)" in str(excinfo.value)
+
+
+def test_tcp_keepalive_warnings(
+    caplog: LogCaptureFixture,
+):
+    _ = SessionBuilder().tcp_keepalive_interval(0.5)
+    assert "Setting the TCP keepalive interval to low values" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "pool_size",
+    [
+        PoolSize.per_host(5),
+        PoolSize.per_shard(5),
+    ],
+)
+def test_pool_size_happy_path(pool_size: PoolSize):
+    builder = SessionBuilder().pool_size(pool_size)
+    assert isinstance(builder, SessionBuilder)
+
+
+@pytest.mark.parametrize(
+    "valid_keyspaces",
+    [
+        ["ks1", "ks2"],
+        ("ks1", "ks2"),
+        [],
+    ],
+)
+def test_keyspaces_to_fetch_happy_path(valid_keyspaces: Sequence[str]):
+    builder = SessionBuilder().keyspaces_to_fetch(valid_keyspaces)
+    assert isinstance(builder, SessionBuilder)
+
+
+def test_keepalive_warning_on_invalid_values(
+    caplog: LogCaptureFixture,
+):
+    _ = SessionBuilder().keepalive_interval(0.5)
+    assert "Setting the keepalive interval to low values" in caplog.text
+
+
+def test_keepalive_timeout_on_invalid_values(
+    caplog: LogCaptureFixture,
+):
+    _ = SessionBuilder().keepalive_timeout(0.5)
+    assert "Setting the keepalive timeout to low values" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "delay",
+    [WriteCoalescingDelay.small_nondeterministic(), WriteCoalescingDelay.from_seconds(0.05), None],
+)
+def test_coalescing_delay(delay: WriteCoalescingDelay):
+    builder = SessionBuilder().write_coalescing(delay)
+    assert isinstance(builder, SessionBuilder)
+
+
+@pytest.mark.parametrize(
+    "zero_input",
+    [
+        0,
+        timedelta(seconds=0),
+        timedelta(milliseconds=0),
+    ],
+)
+def test_write_coalescing_delay_zero_error(zero_input: Any):
+    with pytest.raises(SessionConfigError) as excinfo:
+        WriteCoalescingDelay.from_seconds(zero_input)
+
+    assert "Duration must be greater than zero." in str(excinfo.value)
+
+
+def test_self_identity_constructor_defaults():
+    identity = SelfIdentity()
+
+    assert identity.custom_driver_name == "Python-RS Driver"
+    assert identity.custom_driver_version is not None
+    assert identity.application_name is None
+    assert identity.application_version is None
+    assert identity.client_id is None
+
+
+def test_self_identity_constructor_values():
+    identity = SelfIdentity(
+        custom_driver_name="custom-driver",
+        custom_driver_version="1.2.3",
+        application_name="my-app",
+        application_version="4.5.6",
+        client_id="client-1",
+    )
+
+    assert identity.custom_driver_name == "custom-driver"
+    assert identity.custom_driver_version == "1.2.3"
+    assert identity.application_name == "my-app"
+    assert identity.application_version == "4.5.6"
+    assert identity.client_id == "client-1"
+
+    builder = SessionBuilder().custom_identity(identity)
+    assert isinstance(builder, SessionBuilder)

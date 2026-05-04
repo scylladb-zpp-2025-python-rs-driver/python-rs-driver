@@ -1,4 +1,7 @@
 use crate::RUNTIME;
+use crate::enums::{
+    PyCompression, PyConsistency, PyPoolSize, PySelfIdentity, PyWriteCoalescingDelay,
+};
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
@@ -11,9 +14,13 @@ use pyo3::prelude::*;
 use pyo3::types::PySequence;
 use scylla::authentication::PlainTextAuthenticator;
 use scylla::client::session::SessionConfig;
+use scylla::routing::ShardAwarePortRange;
 use std::net::{IpAddr, SocketAddr};
+use std::num::NonZeroU32;
+use std::ops::RangeInclusive;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[pyclass]
 struct SessionBuilder {
@@ -97,6 +104,225 @@ impl SessionBuilder {
         slf
     }
 
+    fn local_ip_address(mut slf: PyRefMut<'_, Self>, ip: Option<IpAddr>) -> PyRefMut<'_, Self> {
+        slf.config.local_ip_address = ip;
+        slf
+    }
+
+    fn shard_aware_local_port_range(
+        mut slf: PyRefMut<'_, Self>,
+        port_range: (u16, u16),
+    ) -> Result<PyRefMut<'_, Self>, DriverSessionConfigError> {
+        slf.config.shard_aware_local_port_range =
+            ShardAwarePortRange::new(RangeInclusive::new(port_range.0, port_range.1))
+                .map_err(|_| DriverSessionConfigError::InvalidPortRange)?;
+        Ok(slf)
+    }
+
+    fn compression(
+        mut slf: PyRefMut<'_, Self>,
+        compression: Option<PyCompression>,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.compression = compression.map(|c| c.into());
+        slf
+    }
+
+    fn schema_agreement_interval<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        timeout: PyDuration,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.schema_agreement_interval = timeout.0;
+
+        slf
+    }
+
+    pub fn tcp_nodelay(mut slf: PyRefMut<'_, Self>, nodelay: bool) -> PyRefMut<'_, Self> {
+        slf.config.tcp_nodelay = nodelay;
+        slf
+    }
+
+    fn tcp_keepalive_interval<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        interval: Option<PyDuration>,
+    ) -> PyRefMut<'py, Self> {
+        if let Some(ref dur) = interval
+            && dur.0 <= Duration::from_secs(1)
+        {
+            log::warn!(
+                "Setting the TCP keepalive interval to low values ({:?}) is not recommended as it can have a negative impact on performance. Consider setting it above 1 second.",
+                dur.0
+            );
+        }
+
+        slf.config.tcp_keepalive_interval = interval.map(|delta| delta.0);
+
+        slf
+    }
+
+    fn use_keyspace<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        keyspace_name: String,
+        case_sensitive: bool,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.used_keyspace = Some(keyspace_name);
+        slf.config.keyspace_case_sensitive = case_sensitive;
+        slf
+    }
+
+    fn connection_timeout<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        timeout: PyDuration,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.connect_timeout = timeout.0;
+        slf
+    }
+
+    fn pool_size<'py>(mut slf: PyRefMut<'py, Self>, size: PyPoolSize) -> PyRefMut<'py, Self> {
+        slf.config.connection_pool_size = size.inner;
+        slf
+    }
+
+    fn disallow_shard_aware_port(
+        mut slf: PyRefMut<'_, Self>,
+        disallow: bool,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.disallow_shard_aware_port = disallow;
+        slf
+    }
+
+    fn keyspaces_to_fetch(
+        mut slf: PyRefMut<'_, Self>,
+        keyspaces: Vec<String>,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.keyspaces_to_fetch = keyspaces;
+        slf
+    }
+
+    fn fetch_schema_metadata(mut slf: PyRefMut<'_, Self>, fetch: bool) -> PyRefMut<'_, Self> {
+        slf.config.fetch_schema_metadata = fetch;
+        slf
+    }
+
+    fn metadata_request_serverside_timeout(
+        mut slf: PyRefMut<'_, Self>,
+        timeout: PyDuration,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.metadata_request_serverside_timeout = Some(timeout.0);
+        slf
+    }
+
+    fn keepalive_interval(
+        mut slf: PyRefMut<'_, Self>,
+        interval: PyDuration,
+    ) -> PyResult<PyRefMut<'_, Self>> {
+        if interval.0 <= Duration::from_secs(1) {
+            log::warn!(
+                "Setting the keepalive interval to low values ({:?}) is not recommended as it can have a negative impact on performance. Consider setting it above 5 second.",
+                interval.0
+            );
+        }
+
+        slf.config.keepalive_interval = Some(interval.0);
+        Ok(slf)
+    }
+
+    fn keepalive_timeout(mut slf: PyRefMut<'_, Self>, timeout: PyDuration) -> PyRefMut<'_, Self> {
+        if timeout.0 <= Duration::from_secs(1) {
+            log::warn!(
+                "Setting the keepalive timeout to low values ({:?}) is not recommended as it can have a negative impact on performance. Consider setting it above 5 second.",
+                timeout.0
+            );
+        }
+
+        slf.config.keepalive_timeout = Some(timeout.0);
+        slf
+    }
+
+    fn schema_agreement_timeout(
+        mut slf: PyRefMut<'_, Self>,
+        timeout: PyDuration,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.schema_agreement_timeout = timeout.0;
+        slf
+    }
+
+    fn auto_await_schema_agreement(
+        mut slf: PyRefMut<'_, Self>,
+        enabled: bool,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.schema_agreement_automatic_waiting = enabled;
+        slf
+    }
+
+    fn hostname_resolution_timeout(
+        mut slf: PyRefMut<'_, Self>,
+        duration: Option<PyDuration>,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.hostname_resolution_timeout = duration.map(|d| d.0);
+        slf
+    }
+
+    fn refresh_metadata_on_auto_schema_agreement(
+        mut slf: PyRefMut<'_, Self>,
+        refresh_metadata: bool,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.refresh_metadata_on_auto_schema_agreement = refresh_metadata;
+        slf
+    }
+
+    fn tracing_info_fetch_attempts(
+        mut slf: PyRefMut<'_, Self>,
+        attempts: NonZeroU32,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.tracing_info_fetch_attempts = attempts;
+        slf
+    }
+
+    fn tracing_info_fetch_interval(
+        mut slf: PyRefMut<'_, Self>,
+        interval: PyDuration,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.tracing_info_fetch_interval = interval.0;
+        slf
+    }
+
+    fn tracing_info_fetch_consistency(
+        mut slf: PyRefMut<'_, Self>,
+        consistency: PyConsistency,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.tracing_info_fetch_consistency = consistency.into();
+        slf
+    }
+
+    fn write_coalescing(
+        mut slf: PyRefMut<'_, Self>,
+        delay: Option<PyWriteCoalescingDelay>,
+    ) -> PyRefMut<'_, Self> {
+        if let Some(delay) = delay {
+            slf.config.write_coalescing_delay = delay.inner;
+            slf.config.enable_write_coalescing = true;
+        } else {
+            slf.config.enable_write_coalescing = false;
+        }
+        slf
+    }
+
+    fn cluster_metadata_refresh_interval(
+        mut slf: PyRefMut<'_, Self>,
+        interval: PyDuration,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.cluster_metadata_refresh_interval = interval.0;
+        slf
+    }
+
+    pub fn custom_identity(
+        mut slf: PyRefMut<'_, Self>,
+        identity: PySelfIdentity,
+    ) -> PyRefMut<'_, Self> {
+        slf.config.identity = identity.inner;
+        slf
+    }
+
     async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
@@ -108,6 +334,25 @@ impl SessionBuilder {
             }),
             Err(err) => Err(DriverSessionConnectionError::new_session_error(err)),
         }
+    }
+}
+
+pub(crate) struct PyDuration(pub(crate) Duration);
+
+impl<'py> FromPyObject<'_, 'py> for PyDuration {
+    type Error = DriverSessionConfigError;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(duration) = obj.extract::<Duration>() {
+            return Ok(PyDuration(duration));
+        }
+
+        if let Ok(secs) = obj.extract::<f64>() {
+            let duration = Duration::try_from_secs_f64(secs)
+                .map_err(|_| DriverSessionConfigError::invalid_duration(obj))?;
+            return Ok(PyDuration(duration));
+        }
+
+        Err(DriverSessionConfigError::invalid_duration(obj))
     }
 }
 
