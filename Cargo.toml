@@ -16,7 +16,7 @@ pyo3 = { version = "0.28.2", features = ["experimental-async", "bigdecimal", "nu
 pyo3-async-runtimes = { version = "0.28.0", features = ["tokio-runtime"] }
 tokio = { version = "1.42.0", features = ["full"] }
 
-scylla = { git = "https://github.com/scylladb/scylla-rust-driver", rev = "ea6ed753521d145927ff12e83a62f5b0b547c402", features = ["chrono-04", "bigdecimal-04", "num-bigint-04", "unstable-python-rs"] }
+scylla = { git = "https://github.com/scylladb/scylla-rust-driver", rev = "ea6ed753521d145927ff12e83a62f5b0b547c402", features = ["chrono-04", "bigdecimal-04", "num-bigint-04", "unstable-python-rs", "openssl-010"] }
 scylla-cql-core = { git = "https://github.com/scylladb/scylla-rust-driver", rev = "ea6ed753521d145927ff12e83a62f5b0b547c402", features = ["chrono-04", "bigdecimal-04", "num-bigint-04", "unstable-python-rs"] }
 scylla-cql = { git = "https://github.com/scylladb/scylla-rust-driver", rev = "ea6ed753521d145927ff12e83a62f5b0b547c402", features = ["chrono-04", "bigdecimal-04", "num-bigint-04", "unstable-python-rs"] }
 
@@ -31,3 +31,4 @@ async-trait = "0.1.89"
 log = "0.4.29"
 tracing = { version = "0.1", features = ["log"] }
 pyo3-log = "0.13.3"
+openssl = { version = "0.10"}

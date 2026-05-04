@@ -9,6 +9,7 @@ from .enums import Compression, PoolSize, SelfIdentity, WriteCoalescingDelay
 from .execution_profile import ExecutionProfile
 from .policies import AddressTranslator, AuthenticatorProvider, HostFilter, TimestampGenerator
 from .session import Session
+from .tls import TlsContext
 
 ContactPoint = str | tuple[str | IPv4Address | IPv6Address, int]
 
@@ -638,5 +639,21 @@ class SessionBuilder:
         Returns
         -------
         SessionBuilderConfig
+        """
+        ...
+
+    def tls_context(self, tls_context: TlsContext | None) -> SessionBuilder:
+        """
+        Configures the session to use the provided TLS/SSL context.
+        Passing `None` explicitly disables TLS, which is the default behavior.
+
+        Parameters
+        ----------
+        tls_context : TlsContext | None
+                An instance of :class:`TlsContext` or ``None`` to disable TLS.
+
+        Returns
+        -------
+        SessionBuilder
         """
         ...
