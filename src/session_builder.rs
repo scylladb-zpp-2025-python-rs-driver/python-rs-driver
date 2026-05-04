@@ -7,6 +7,7 @@ use crate::policies::{
     PyTimestampGenerator,
 };
 use crate::session::Session;
+use crate::tls::PyTlsContext;
 use pyo3::prelude::*;
 use pyo3::types::PySequence;
 use scylla::authentication::PlainTextAuthenticator;
@@ -94,6 +95,19 @@ impl SessionBuilder {
             py_host_filter: host_filter,
         }));
 
+        slf
+    }
+
+    fn tls_context<'py>(
+        mut slf: PyRefMut<'py, Self>,
+        tls_context: PyRef<'py, PyTlsContext>,
+    ) -> PyRefMut<'py, Self> {
+        slf.config.tls_context = Some(tls_context.inner.clone().into());
+        slf
+    }
+
+    fn disable_tls(mut slf: PyRefMut<'_, Self>) -> PyRefMut<'_, Self> {
+        slf.config.tls_context = None;
         slf
     }
 

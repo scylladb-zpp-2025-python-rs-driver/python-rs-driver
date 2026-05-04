@@ -15,7 +15,7 @@ crate-type = ["cdylib"]
 pyo3 = { version = "0.28.2", features = ["experimental-async", "bigdecimal", "num-bigint", "uuid", "chrono", "time", "py-clone"] }
 pyo3-async-runtimes = { version = "0.28.0", features = ["tokio-runtime"] }
 tokio = { version = "1.42.0", features = ["full"] }
-scylla = { git = "https://github.com/scylladb-zpp-2025-python-rs-driver/scylla-rust-driver", features = ["chrono-04", "bigdecimal-04", "num-bigint-04"]}
+scylla = { git = "https://github.com/scylladb-zpp-2025-python-rs-driver/scylla-rust-driver", features = ["chrono-04", "bigdecimal-04", "num-bigint-04", "openssl-010"]}
 scylla-cql = { git = "https://github.com/scylladb-zpp-2025-python-rs-driver/scylla-rust-driver", features = ["chrono-04", "bigdecimal-04", "num-bigint-04"]}
 
 yoke = "0.8.1"
@@ -28,3 +28,4 @@ num-bigint = "0.4"
 async-trait = "0.1.89"
 log = "0.4.29"
 pyo3-log = "0.13.3"
+openssl = "0.10"

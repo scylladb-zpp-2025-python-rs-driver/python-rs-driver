@@ -6,6 +6,7 @@ from ipaddress import IPv4Address, IPv6Address
 from .policies import AuthenticatorProvider, AddressTranslator, TimestampGenerator, HostFilter
 from .execution_profile import ExecutionProfile
 from .session import Session
+from .tls import _RustTlsContext as TlsContext  # pyright: ignore[reportPrivateUsage]
 
 ContactPoint = str | tuple[str | IPv4Address | IPv6Address, int]
 
@@ -156,6 +157,35 @@ class SessionBuilder:
         ----------
         host_filter : HostFilter
             An instance of a class inheriting from :class:`HostFilter`.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
+
+    def tls_context(self, tls_context: TlsContext) -> SessionBuilder:
+        """
+        Configures the session to use the provided TLS/SSL context.
+
+        Parameters
+        ----------
+        tls_context : Any
+            The native Rust TLS context created via `scylla.tls.TlsContext.from_pem()`
+            or `from_files()`.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
+
+    def disable_tls(self) -> SessionBuilder:
+        """
+        Explicitly disables TLS for the session.
+
+        This is the default behavior, but this method can be used to override
+        a previously set TLS context on this builder instance.
 
         Returns
         -------
