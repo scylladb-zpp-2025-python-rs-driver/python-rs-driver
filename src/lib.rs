@@ -6,6 +6,8 @@ mod tests;
 use crate::deserialize::value;
 use deserialize::results;
 use pyo3::prelude::*;
+use pyo3::sync::OnceExt;
+use std::sync::Once;
 use tokio::runtime::Runtime;
 
 mod batch;
@@ -26,11 +28,22 @@ use crate::utils::add_submodule;
 
 pub static RUNTIME: LazyLock<Runtime> = LazyLock::new(|| Runtime::new().unwrap());
 
+static INIT_LOG: Once = Once::new();
+
+fn init_logging(py: Python<'_>) {
+    INIT_LOG.call_once_py_attached(py, || {
+        if let Err(e) = pyo3_log::try_init() {
+            eprintln!("pyo3_log::try_init failed: {:?}", e);
+        }
+    });
+}
+
 /// A Python module implemented in Rust.
 #[pymodule]
 #[pyo3(name = "_rust")]
 fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
-    let _ = pyo3_log::try_init();
+    init_logging(py);
+
     add_submodule(
         py,
         module,
