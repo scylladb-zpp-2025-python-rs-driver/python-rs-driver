@@ -1,7 +1,7 @@
 use crate::deserialize::value::{PyDeserializeValue, PyDeserializedValue};
 use crate::errors::{DriverDeserializationError, DriverExecuteError, DriverRowIterationError};
 use crate::serialize::value_list::PyValueList;
-use crate::session::{ExecutableStatement, Session};
+use crate::session::{ExecutableStatement, PySession};
 use pyo3::exceptions::{PyRuntimeError, PyStopAsyncIteration, PyStopIteration};
 use pyo3::prelude::{PyDictMethods, PyListMethods, PyModule, PyModuleMethods};
 use pyo3::types::{PyDict, PyList, PyString, PyTuple};
@@ -662,7 +662,7 @@ pub(crate) enum Pager {
     Unpaged,
     Paged {
         paging_response: PagingStateResponse,
-        session: Session,
+        session: PySession,
         query_request: ExecutableStatement,
         value_list: PyValueList,
     },
@@ -675,7 +675,7 @@ impl Pager {
 
     pub(crate) fn paged(
         paging_response: PagingStateResponse,
-        session: Session,
+        session: PySession,
         query_request: ExecutableStatement,
         value_list: PyValueList,
     ) -> Self {

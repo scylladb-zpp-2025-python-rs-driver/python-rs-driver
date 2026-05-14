@@ -6,7 +6,7 @@ use crate::policies::{
     InternalTimestampGenerator, PyAddressTranslator, PyAuthenticatorProvider, PyHostFilter,
     PyTimestampGenerator,
 };
-use crate::session::Session;
+use crate::session::PySession;
 use pyo3::prelude::*;
 use pyo3::types::PySequence;
 use scylla::authentication::PlainTextAuthenticator;
@@ -97,13 +97,13 @@ impl SessionBuilder {
         slf
     }
 
-    async fn connect(&self) -> Result<Session, DriverSessionConnectionError> {
+    async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = self.config.clone();
         let session_result = RUNTIME
             .spawn(async move { scylla::client::session::Session::connect(config).await })
             .await?;
         match session_result {
-            Ok(session) => Ok(Session {
+            Ok(session) => Ok(PySession {
                 _inner: Arc::new(session),
             }),
             Err(err) => Err(DriverSessionConnectionError::new_session_error(err)),

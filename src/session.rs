@@ -12,7 +12,7 @@ use crate::statement::PyPreparedStatement;
 use crate::statement::PyStatement;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
-use scylla::client::session::Session as ScyllaSession;
+use scylla::client::session::Session;
 use scylla::response::query_result::QueryResult;
 use scylla::statement::batch::BatchStatement;
 use scylla::statement::prepared::PreparedStatement;
@@ -20,14 +20,14 @@ use scylla::statement::unprepared::Statement;
 use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 use std::future::Future;
 
-#[pyclass(frozen, skip_from_py_object)]
+#[pyclass(name = "Session", frozen, skip_from_py_object)]
 #[derive(Clone)]
-pub(crate) struct Session {
-    pub(crate) _inner: Arc<ScyllaSession>,
+pub(crate) struct PySession {
+    pub(crate) _inner: Arc<Session>,
 }
 
 #[pymethods]
-impl Session {
+impl PySession {
     #[pyo3(signature = (statement, values=None, /, *, factory=None, paging_state=None, paged=true))]
     async fn execute(
         &self,
@@ -112,7 +112,7 @@ impl Session {
     }
 }
 
-impl Session {
+impl PySession {
     async fn execute_unpaged(
         &self,
         statement: ExecutableStatement,
@@ -159,7 +159,7 @@ impl Session {
     async fn session_spawn_on_runtime<F, Fut, R, E>(&self, f: F) -> Result<R, E>
     where
         // closure: takes Arc<ScyllaSession> and returns a future
-        F: FnOnce(Arc<ScyllaSession>) -> Fut + Send + 'static,
+        F: FnOnce(Arc<Session>) -> Fut + Send + 'static,
         // for spawn we need Send + 'static
         Fut: Future<Output = Result<R, E>> + Send + 'static,
         R: Send + 'static,
@@ -250,7 +250,7 @@ impl From<ExecutableStatement> for BatchStatement {
 
 #[pymodule]
 pub(crate) fn session(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<Session>()?;
+    module.add_class::<PySession>()?;
 
     Ok(())
 }
