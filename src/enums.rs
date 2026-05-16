@@ -101,6 +101,15 @@ impl From<PyCompression> for Compression {
     }
 }
 
+impl From<Compression> for PyCompression {
+    fn from(value: Compression) -> Self {
+        match value {
+            Compression::Lz4 => Self::Lz4,
+            Compression::Snappy => Self::Snappy,
+        }
+    }
+}
+
 #[pyclass(name = "PoolSize", from_py_object, frozen)]
 #[derive(Clone, Copy, Debug)]
 pub struct PyPoolSize {
