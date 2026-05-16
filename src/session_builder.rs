@@ -110,6 +110,7 @@ impl SessionBuilder {
     }
 }
 
+#[derive(Clone)]
 enum ContactPoint {
     Host(String),
     SocketAddr(SocketAddr),
@@ -148,20 +149,15 @@ impl<'py> FromPyObject<'_, 'py> for ContactPoint {
     }
 }
 
-enum ContactPoints {
-    Single(ContactPoint),
-    Multiple(Vec<ContactPoint>),
+#[derive(Clone, Default)]
+struct ContactPoints {
+    inner: Vec<ContactPoint>,
 }
 
 impl ContactPoints {
     fn add_known_nodes(self, config: &mut SessionConfig) {
-        match self {
-            ContactPoints::Single(cp) => cp.add_known_node(config),
-            ContactPoints::Multiple(seq) => {
-                for cp in seq.into_iter() {
-                    cp.add_known_node(config);
-                }
-            }
+        for cp in self.inner.into_iter() {
+            cp.add_known_node(config);
         }
     }
 }
@@ -171,7 +167,7 @@ impl<'py> FromPyObject<'_, 'py> for ContactPoints {
 
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         if let Ok(s) = obj.extract::<ContactPoint>() {
-            return Ok(ContactPoints::Single(s));
+            return Ok(ContactPoints { inner: vec![s] });
         }
 
         if let Ok(seq) = obj.cast::<PySequence>() {
@@ -192,7 +188,7 @@ impl<'py> FromPyObject<'_, 'py> for ContactPoints {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            return Ok(ContactPoints::Multiple(list));
+            return Ok(ContactPoints { inner: list });
         }
 
         Err(DriverSessionConfigError::contact_point_type_error(obj))
