@@ -81,6 +81,16 @@ sdb -d test.db plot \
   series
 ```
 
+Plot all benchmarks for the `Python-Driver` backend:
+
+```sh
+sdb -d test.db plot \
+  -b config.yml \
+  -o python-driver-result.png \
+  --series Python-Driver@./ \
+  series
+```
+
 Plot a single benchmark:
 
 ```sh
@@ -112,6 +122,28 @@ At the moment, the benchmark suite contains:
 - concurrent-complex-insert
 - concurrent-complex-select
 - concurrent-paging
+
+## Backends
+
+The benchmark suite includes two driver implementations:
+
+- **Python-RS**: New async Python driver based on Rust
+- **Python-Driver**: Legacy Cassandra Python driver
+
+Each benchmark can be run against either backend. Use `--series Python-RS` or `--series Python-Driver` to plot results for a specific driver.
+
+Example plotting commands for comparing drivers:
+
+```sh
+# Plot all benchmarks for Python-RS
+sdb -d test.db plot -b config.yml -o python-rs-result.png --series Python-RS series
+
+# Plot all benchmarks for Python-Driver
+sdb -d test.db plot -b config.yml -o python-driver-result.png --series Python-Driver series
+
+# Compare both drivers for a specific benchmark
+sdb -d test.db plot select-small -b config.yml -o select-small-comparison.png --series Python-RS --series Python-Driver series
+```
 
 ## Configuration
 
