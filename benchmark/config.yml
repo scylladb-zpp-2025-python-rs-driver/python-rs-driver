@@ -77,58 +77,117 @@ backends:
     build-command: "env PYTHONPATH=. uv run python set-up/set_up_insert.py"
     run-command: env PYTHONPATH=. uv run python python-rs-driver/insert.py
 
+  - name: Python-Driver
+    benchmark-name: insert
+    build-command: "env PYTHONPATH=. uv run python set-up/set_up_insert.py"
+    run-command: env PYTHONPATH=. uv run python python-driver/insert.py
+
   - name: Python-RS
     benchmark-name: complex-insert
     build-command: "env PYTHONPATH=. uv run python set-up/set_up_complex_insert.py"
     run-command: env PYTHONPATH=. uv run python python-rs-driver/complex_insert.py
+
+  - name: Python-Driver
+    benchmark-name: complex-insert
+    build-command: "env PYTHONPATH=. uv run python set-up/set_up_complex_insert.py"
+    run-command: env PYTHONPATH=. uv run python python-driver/complex_insert.py
 
   - name: Python-RS
     benchmark-name: complex-select
     build-command: "env PYTHONPATH=. uv run python set-up/set_up_complex_select.py 10"
     run-command: env PYTHONPATH=. uv run python python-rs-driver/complex_select.py 10
 
+  - name: Python-Driver
+    benchmark-name: complex-select
+    build-command: "env PYTHONPATH=. uv run python set-up/set_up_complex_select.py 10"
+    run-command: env PYTHONPATH=. uv run python python-driver/complex_select.py 10
+
   - name: Python-RS
     benchmark-name: batch
     build-command: "env PYTHONPATH=. uv run python set-up/set_up_insert.py"
     run-command: env PYTHONPATH=. uv run python python-rs-driver/batch.py
+
+  - name: Python-Driver
+    benchmark-name: batch
+    build-command: "env PYTHONPATH=. uv run python set-up/set_up_insert.py"
+    run-command: env PYTHONPATH=. uv run python python-driver/batch.py
 
   - name: Python-RS
     benchmark-name: paging
     build-command: "env PYTHONPATH=. uv run python set-up/set_up_select.py 50"
     run-command: env PYTHONPATH=. uv run python python-rs-driver/paging.py 50
 
+  - name: Python-Driver
+    benchmark-name: paging
+    build-command: "env PYTHONPATH=. uv run python set-up/set_up_select.py 50"
+    run-command: env PYTHONPATH=. uv run python python-driver/paging.py 50
+
   - name: Python-RS
     benchmark-name: select-small
     build-command: "env PYTHONPATH=. uv run python set-up/set_up_select.py 10"
     run-command: env PYTHONPATH=. uv run python python-rs-driver/select.py 10
+
+  - name: Python-Driver
+    benchmark-name: select-small
+    build-command: "env PYTHONPATH=. uv run python set-up/set_up_select.py 10"
+    run-command: env PYTHONPATH=. uv run python python-driver/select.py 10
 
   - name: Python-RS
     benchmark-name: select-large
     build-command: "env PYTHONPATH=. uv run python set-up/set_up_select.py 5000"
     run-command: env PYTHONPATH=. uv run python python-rs-driver/select.py 5000
 
+  - name: Python-Driver
+    benchmark-name: select-large
+    build-command: "env PYTHONPATH=. uv run python set-up/set_up_select.py 5000"
+    run-command: env PYTHONPATH=. uv run python python-driver/select.py 5000
+
   - name: Python-RS-concurrent
     benchmark-name: concurrent-insert
     build-command: "env PYTHONPATH=. uv run python set-up/set_up_insert.py"
     run-command: env PYTHONPATH=. uv run python python-rs-driver/concurrent_insert.py 100
 
+  - name: Python-Driver-concurrent
+    benchmark-name: concurrent-insert
+    build-command: "env PYTHONPATH=. uv run python set-up/set_up_insert.py"
+    run-command: env PYTHONPATH=. uv run python python-driver/concurrent_insert.py 100
 
   - name: Python-RS-concurrent
     benchmark-name: concurrent-select
     build-command: "env PYTHONPATH=. uv run python set-up/set_up_select.py 10"
     run-command: env PYTHONPATH=. uv run python python-rs-driver/concurrent_select.py 100 10
 
+  - name: Python-Driver-concurrent
+    benchmark-name: concurrent-select
+    build-command: "env PYTHONPATH=. uv run python set-up/set_up_select.py 10"
+    run-command: env PYTHONPATH=. uv run python python-driver/concurrent_select.py 100 10
+
   - name: Python-RS-concurrent
     benchmark-name: concurrent-complex-insert
     build-command: "env PYTHONPATH=. uv run python set-up/set_up_complex_insert.py"
     run-command: env PYTHONPATH=. uv run python python-rs-driver/concurrent_complex_insert.py 100
+
+  - name: Python-Driver-concurrent
+    benchmark-name: concurrent-complex-insert
+    build-command: "env PYTHONPATH=. uv run python set-up/set_up_complex_insert.py"
+    run-command: env PYTHONPATH=. uv run python python-driver/concurrent_complex_insert.py 100
 
   - name: Python-RS-concurrent
     benchmark-name: concurrent-complex-select
     build-command: "env PYTHONPATH=. uv run python set-up/set_up_complex_select.py 10"
     run-command: env PYTHONPATH=. uv run python python-rs-driver/concurrent_complex_select.py 100 10
 
+  - name: Python-Driver-concurrent
+    benchmark-name: concurrent-complex-select
+    build-command: "env PYTHONPATH=. uv run python set-up/set_up_complex_select.py 10"
+    run-command: env PYTHONPATH=. uv run python python-driver/concurrent_complex_select.py 100 10
+
   - name: Python-RS-concurrent
     benchmark-name: concurrent-paging
     build-command: "env PYTHONPATH=. uv run python set-up/set_up_select.py 50"
     run-command: env PYTHONPATH=. uv run python python-rs-driver/concurrent_paging.py 100 50
+
+  - name: Python-Driver-concurrent
+    benchmark-name: concurrent-paging
+    build-command: "env PYTHONPATH=. uv run python set-up/set_up_select.py 50"
+    run-command: env PYTHONPATH=. uv run python python-driver/concurrent_paging.py 100 50
