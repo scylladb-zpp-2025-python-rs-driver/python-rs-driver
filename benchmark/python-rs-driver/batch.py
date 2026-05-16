@@ -1,11 +1,11 @@
-import sys
 import asyncio
+import sys
 import uuid
 
 from common import (
-    connect,
     SIMPLE_INSERT_QUERY,
 )
+from python_rs_helpers import connect
 from scylla.batch import Batch, BatchType
 from scylla.session import Session
 from scylla.statement import PreparedStatement, Statement

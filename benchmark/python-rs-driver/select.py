@@ -1,12 +1,11 @@
-import sys
 import asyncio
-
-from scylla.session import Session
+import sys
 
 from common import (
-    connect,
     SIMPLE_SELECT_QUERY,
 )
+from python_rs_helpers import connect
+from scylla.session import Session
 
 
 async def test(session: Session, cnt: int, num_of_rows: int):
