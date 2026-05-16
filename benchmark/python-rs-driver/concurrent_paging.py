@@ -1,13 +1,12 @@
 import asyncio
 import sys
 
-from scylla.session import Session
-from scylla.statement import PreparedStatement
-
 from common import (
-    connect,
     SIMPLE_SELECT_QUERY,
 )
+from python_rs_helpers import connect
+from scylla.session import Session
+from scylla.statement import PreparedStatement
 
 
 async def paging_worker(

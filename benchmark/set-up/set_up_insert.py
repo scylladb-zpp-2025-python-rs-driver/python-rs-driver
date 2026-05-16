@@ -1,8 +1,6 @@
 import asyncio
 
-from common import (
-    init_simple_table,
-)
+from python_rs_helpers import init_simple_table
 
 
 async def main():

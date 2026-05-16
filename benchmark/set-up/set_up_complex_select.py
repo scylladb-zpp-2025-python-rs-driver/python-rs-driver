@@ -1,13 +1,11 @@
-import sys
-
 import asyncio
+import sys
 
 from common import (
     COMPLEX_INSERT_QUERY,
-    init_with_inserts,
-    init_complex_table,
     get_complex_data,
 )
+from python_rs_helpers import init_complex_table, init_with_inserts
 
 
 async def main():

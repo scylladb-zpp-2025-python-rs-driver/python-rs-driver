@@ -1,12 +1,11 @@
-import sys
 import asyncio
+import sys
 
 from common import (
-    init_simple_table,
     SIMPLE_INSERT_QUERY,
-    init_with_inserts,
     get_simple_data,
 )
+from python_rs_helpers import init_simple_table, init_with_inserts
 
 
 async def main():

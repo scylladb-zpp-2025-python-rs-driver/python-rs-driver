@@ -1,16 +1,13 @@
+import asyncio
 import sys
 
-import asyncio
-
-from scylla.session import Session
-from scylla.statement import PreparedStatement
-from scylla.statement import Statement
-
 from common import (
-    connect,
     COMPLEX_INSERT_QUERY,
     get_complex_data,
 )
+from python_rs_helpers import connect
+from scylla.session import Session
+from scylla.statement import PreparedStatement, Statement
 
 
 async def test(session: Session, prepared: PreparedStatement, cnt: int):
