@@ -8,6 +8,7 @@ use crate::policies::{
 };
 use crate::session::PySession;
 use pyo3::prelude::*;
+use pyo3::sync::MutexExt;
 use pyo3::types::{PySequence, PyString};
 use scylla::authentication::PlainTextAuthenticator;
 use scylla::client::session::SessionConfig;
@@ -15,92 +16,136 @@ use scylla::routing::ShardAwarePortRange;
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::Arc;
+use std::ops::RangeInclusive;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-#[pyclass]
+#[pyclass(frozen)]
 struct SessionBuilder {
-    config: SessionConfig,
+    inner: Mutex<PySessionBuilderConfig>,
 }
 
 #[pymethods]
 impl SessionBuilder {
     #[new]
-    fn new() -> Self {
-        Self {
-            config: SessionConfig::new(),
-        }
+    fn new(py: Python) -> PyResult<Self> {
+        Ok(Self {
+            inner: Mutex::new(PySessionBuilderConfig::new(py)?),
+        })
     }
     fn contact_points<'py>(
-        mut slf: PyRefMut<'py, Self>,
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
         contact_points: ContactPoints,
-    ) -> PyRefMut<'py, Self> {
-        contact_points.add_known_nodes(&mut slf.config);
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+
+            contact_points.clone().add_known_nodes(&mut inner.config);
+            inner.contact_points.extend(contact_points.inner);
+        }
+
         slf
     }
 
     fn execution_profile<'py>(
-        mut slf: PyRefMut<'py, Self>,
-        execution_profile: ExecutionProfile,
-    ) -> PyRefMut<'py, Self> {
-        slf.config.default_execution_profile_handle = execution_profile._inner.into_handle();
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        execution_profile: Py<ExecutionProfile>,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.execution_profile = execution_profile.clone();
+            inner.config.default_execution_profile_handle =
+                execution_profile.get()._inner.clone().into_handle();
+        }
         slf
     }
 
     fn user<'py>(
-        mut slf: PyRefMut<'py, Self>,
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
         username: String,
         password: String,
-    ) -> PyRefMut<'py, Self> {
-        slf.config.authenticator = Some(Arc::new(PlainTextAuthenticator::new(username, password)));
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.authenticator =
+                Some(Arc::new(PlainTextAuthenticator::new(username, password)));
+        }
         slf
     }
 
     fn authenticator_provider<'py>(
-        mut slf: PyRefMut<'py, Self>,
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
         authenticator: Py<PyAuthenticatorProvider>,
-    ) -> PyRefMut<'py, Self> {
-        slf.config.authenticator = Some(Arc::new(InternalAuthenticatorProvider {
-            python_authenticator: authenticator,
-        }));
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.authenticator = Some(authenticator.clone().into());
+            inner.config.authenticator = Some(Arc::new(InternalAuthenticatorProvider {
+                python_authenticator: authenticator,
+            }));
+        }
 
         slf
     }
 
     fn address_translator<'py>(
-        mut slf: PyRefMut<'py, Self>,
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
         translator: Py<PyAddressTranslator>,
-    ) -> PyRefMut<'py, Self> {
-        slf.config.address_translator = Some(Arc::new(InternalAddressTranslator {
-            python_translator: translator,
-        }));
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.address_translator = Some(translator.clone().into());
+            inner.config.address_translator = Some(Arc::new(InternalAddressTranslator {
+                python_translator: translator,
+            }));
+        }
 
         slf
     }
 
     fn timestamp_generator<'py>(
-        mut slf: PyRefMut<'py, Self>,
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
         generator: Py<PyTimestampGenerator>,
-    ) -> PyRefMut<'py, Self> {
-        slf.config.timestamp_generator = Some(Arc::new(InternalTimestampGenerator {
-            py_timestamp_generator: generator,
-        }));
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.timestamp_generator = Some(generator.clone().into());
+            inner.config.timestamp_generator = Some(Arc::new(InternalTimestampGenerator {
+                py_timestamp_generator: generator,
+            }));
+        }
 
         slf
     }
 
     fn host_filter<'py>(
-        mut slf: PyRefMut<'py, Self>,
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
         host_filter: Py<PyHostFilter>,
-    ) -> PyRefMut<'py, Self> {
-        slf.config.host_filter = Some(Arc::new(InternalHostFilter {
-            py_host_filter: host_filter,
-        }));
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.host_filter = Some(host_filter.clone().into());
+            inner.config.host_filter = Some(Arc::new(InternalHostFilter {
+                py_host_filter: host_filter,
+            }));
+        }
 
         slf
     }
 
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
-        let config = self.config.clone();
+        let config = Python::attach(|py| {
+            let inner = self.inner.lock_py_attached(py).unwrap();
+            inner.config.clone()
+        });
+
         let session_result = RUNTIME
             .spawn(async move { scylla::client::session::Session::connect(config).await })
             .await?;
