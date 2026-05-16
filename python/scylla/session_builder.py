@@ -1,3 +1,3 @@
-from ._rust.session_builder import SessionBuilder  # pyright: ignore[reportMissingModuleSource]
+from ._rust.session_builder import SessionBuilder, SessionBuilderConfig  # pyright: ignore[reportMissingModuleSource]
 
-__all__ = ["SessionBuilder"]
+__all__ = ["SessionBuilder", "SessionBuilderConfig"]

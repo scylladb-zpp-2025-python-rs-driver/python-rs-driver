@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from ipaddress import IPv4Address, IPv6Address
+from typing import Any, Optional
 
 from .policies import AuthenticatorProvider, AddressTranslator, TimestampGenerator, HostFilter
 from .execution_profile import ExecutionProfile
@@ -9,6 +10,13 @@ from .session import Session
 
 ContactPoint = str | tuple[str | IPv4Address | IPv6Address, int]
 
+class SessionBuilderConfig:
+    """
+    A read-only snapshot of the current SessionBuilder configuration.
+
+    This object is frozen and represents the immutable state of the builder
+    at the moment it was generated.
+    """
 class SessionBuilder:
     """
     Builder for configuring and creating a :class:`Session`.

@@ -8,9 +8,11 @@ use crate::policies::{
 };
 use crate::session::PySession;
 use pyo3::prelude::*;
-use pyo3::types::PySequence;
+use pyo3::types::{PySequence, PyString};
 use scylla::authentication::PlainTextAuthenticator;
 use scylla::client::session::SessionConfig;
+use scylla::routing::ShardAwarePortRange;
+use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -110,6 +112,50 @@ impl SessionBuilder {
     }
 }
 
+
+#[derive(Clone)]
+#[pyclass(name = "SessionBuilderConfig", frozen, skip_from_py_object)]
+struct PySessionBuilderConfig {
+    config: SessionConfig,
+    #[pyo3(get)]
+    pub execution_profile: Py<ExecutionProfile>,
+    #[pyo3(get)]
+    pub contact_points: Vec<ContactPoint>,
+    #[pyo3(get)]
+    pub host_filter: Option<Py<PyAny>>,
+    #[pyo3(get)]
+    pub authenticator: Option<Py<PyAny>>,
+    #[pyo3(get)]
+    pub address_translator: Option<Py<PyAny>>,
+    #[pyo3(get)]
+    pub timestamp_generator: Option<Py<PyAny>>,
+    #[pyo3(get)]
+    pub shard_aware_local_port_range: (u16, u16),
+}
+
+impl PySessionBuilderConfig {
+    fn new(py: Python) -> PyResult<Self> {
+        let config = SessionConfig::new();
+
+        let execution_profile = Py::new(
+            py,
+            ExecutionProfile {
+                _inner: config.default_execution_profile_handle.to_profile(),
+            },
+        )?;
+
+        Ok(Self {
+            config,
+            execution_profile,
+            shard_aware_local_port_range: (49152, 65535),
+            contact_points: Vec::new(),
+            host_filter: None,
+            authenticator: None,
+            address_translator: None,
+            timestamp_generator: None,
+        })
+    }
+}
 #[derive(Clone)]
 enum ContactPoint {
     Host(String),
@@ -121,6 +167,19 @@ impl ContactPoint {
         match self {
             ContactPoint::Host(host) => config.add_known_node(host),
             ContactPoint::SocketAddr(addr) => config.add_known_node_addr(addr),
+        }
+    }
+}
+
+impl<'py> IntoPyObject<'py> for ContactPoint {
+    type Target = PyString;
+    type Output = Bound<'py, PyString>;
+    type Error = Infallible;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        match self {
+            ContactPoint::Host(host) => Ok(PyString::new(py, &host)),
+            ContactPoint::SocketAddr(addr) => Ok(PyString::new(py, &addr.to_string())),
         }
     }
 }
@@ -198,5 +257,6 @@ impl<'py> FromPyObject<'_, 'py> for ContactPoints {
 #[pymodule]
 pub(crate) fn session_builder(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<SessionBuilder>()?;
+    module.add_class::<PySessionBuilderConfig>()?;
     Ok(())
 }
