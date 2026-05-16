@@ -1,29 +1,28 @@
 import ipaddress
+from datetime import timedelta
+from typing import Any, Generator, Optional, Sequence
 
-from scylla.errors import SessionConfigError
 import pytest
-
-from typing import Optional, Any, Generator, Sequence
 from _pytest.logging import LogCaptureFixture
-from scylla.session_builder import SessionBuilder
+from scylla.enums import Compression, Consistency, PoolSize, SelfIdentity, SerialConsistency, WriteCoalescingDelay
+from scylla.errors import SessionConfigError
+from scylla.execution_profile import ExecutionProfile
 from scylla.policies import (
+    AddressTranslator,
     Authenticator,
     AuthenticatorProvider,
-    AddressTranslator,
-    UntranslatedPeer,
-    TimestampGenerator,
     HostFilter,
     Peer,
+    TimestampGenerator,
+    UntranslatedPeer,
 )
-
+from scylla.session_builder import SessionBuilder
 from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
     create_scylla_cluster,
     get_contact_points,
     start_cluster,
     stop_and_remove_cluster,
 )
-from datetime import timedelta
-from scylla.enums import PoolSize, WriteCoalescingDelay, SelfIdentity
 
 
 @pytest.mark.asyncio
@@ -523,3 +522,65 @@ def test_self_identity_constructor_values():
 
     builder = SessionBuilder().custom_identity(identity)
     assert isinstance(builder, SessionBuilder)
+
+
+@pytest.mark.asyncio
+async def test_session_builder_config_snapshot_matching():
+    target_keyspace = "production_data"
+    test_interval = timedelta(seconds=12)
+    test_timeout = timedelta(seconds=45)
+    test_fetch_keyspaces = ["ks1", "ks2", "system_auth"]
+
+    builder = (
+        SessionBuilder()
+        .tcp_nodelay(True)
+        .disallow_shard_aware_port(True)
+        .use_keyspace(target_keyspace, case_sensitive=False)
+        .schema_agreement_interval(test_interval)
+        .schema_agreement_timeout(test_timeout)
+        .keyspaces_to_fetch(test_fetch_keyspaces)
+        .fetch_schema_metadata(False)
+        .compression(Compression.Lz4)
+    )
+
+    config = builder.get_config()
+
+    assert config.tcp_nodelay is True
+    assert config.disallow_shard_aware_port is True
+    assert config.used_keyspace == target_keyspace
+    assert config.keyspace_case_sensitive is False
+    assert config.schema_agreement_interval == test_interval
+    assert config.schema_agreement_timeout == test_timeout
+    assert config.keyspaces_to_fetch == test_fetch_keyspaces
+    assert config.fetch_schema_metadata is False
+    assert config.compression == Compression.Lz4
+
+
+@pytest.mark.asyncio
+async def test_session_builder_complex_types_and_identity():
+    custom_profile = ExecutionProfile(
+        timeout=15.0, consistency=Consistency.All, serial_consistency=SerialConsistency.Serial
+    )
+
+    custom_identity = SelfIdentity(
+        custom_driver_name="Python-Test-Driver",
+        custom_driver_version="9.9.9",
+        application_name="Scylla-Validation-Suite",
+    )
+
+    auth_provider = SimpleProvider(MockPlainTextAuthenticator("admin", "secret"))
+
+    builder = (
+        SessionBuilder()
+        .execution_profile(custom_profile)
+        .custom_identity(custom_identity)
+        .authenticator_provider(auth_provider)
+    )
+    config = builder.get_config()
+
+    assert config.execution_profile is custom_profile
+
+    assert config.identity.custom_driver_name == "Python-Test-Driver"
+    assert config.identity.application_name == "Scylla-Validation-Suite"
+
+    assert config.authenticator is auth_provider

@@ -432,6 +432,11 @@ impl SessionBuilder {
         slf
     }
 
+    fn get_config<'py>(&self, py: Python<'py>) -> PyResult<Py<PySessionBuilderConfig>> {
+        let inner = self.inner.lock_py_attached(py).unwrap();
+        Py::new(py, inner.clone())
+    }
+
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
         let config = Python::attach(|py| {
             let inner = self.inner.lock_py_attached(py).unwrap();
@@ -490,6 +495,134 @@ impl PySessionBuilderConfig {
             address_translator: None,
             timestamp_generator: None,
         })
+    }
+}
+
+#[pymethods]
+impl PySessionBuilderConfig {
+    #[getter]
+    fn local_ip_address(&self) -> Option<IpAddr> {
+        self.config.local_ip_address
+    }
+
+    #[getter]
+    fn compression(&self) -> Option<PyCompression> {
+        self.config.compression.map(PyCompression::from)
+    }
+
+    #[getter]
+    fn tcp_nodelay(&self) -> bool {
+        self.config.tcp_nodelay
+    }
+
+    #[getter]
+    fn tcp_keepalive_interval(&self) -> Option<Duration> {
+        self.config.tcp_keepalive_interval
+    }
+
+    #[getter]
+    fn connect_timeout(&self) -> Duration {
+        self.config.connect_timeout
+    }
+
+    #[getter]
+    fn connection_pool_size(&self) -> PyPoolSize {
+        PyPoolSize {
+            inner: self.config.connection_pool_size,
+        }
+    }
+
+    #[getter]
+    fn disallow_shard_aware_port(&self) -> bool {
+        self.config.disallow_shard_aware_port
+    }
+
+    #[getter]
+    fn used_keyspace(&self) -> Option<String> {
+        self.config.used_keyspace.clone()
+    }
+
+    #[getter]
+    fn keyspace_case_sensitive(&self) -> bool {
+        self.config.keyspace_case_sensitive
+    }
+
+    #[getter]
+    fn keyspaces_to_fetch(&self) -> Vec<String> {
+        self.config.keyspaces_to_fetch.clone()
+    }
+
+    #[getter]
+    fn fetch_schema_metadata(&self) -> bool {
+        self.config.fetch_schema_metadata
+    }
+
+    #[getter]
+    fn metadata_request_serverside_timeout(&self) -> Option<Duration> {
+        self.config.metadata_request_serverside_timeout
+    }
+
+    #[getter]
+    fn schema_agreement_interval(&self) -> Duration {
+        self.config.schema_agreement_interval
+    }
+
+    #[getter]
+    fn schema_agreement_timeout(&self) -> Duration {
+        self.config.schema_agreement_timeout
+    }
+
+    #[getter]
+    fn schema_agreement_automatic_waiting(&self) -> bool {
+        self.config.schema_agreement_automatic_waiting
+    }
+
+    #[getter]
+    fn refresh_metadata_on_auto_schema_agreement(&self) -> bool {
+        self.config.refresh_metadata_on_auto_schema_agreement
+    }
+
+    #[getter]
+    fn cluster_metadata_refresh_interval(&self) -> Duration {
+        self.config.cluster_metadata_refresh_interval
+    }
+
+    #[getter]
+    fn keepalive_interval(&self) -> Option<Duration> {
+        self.config.keepalive_interval
+    }
+
+    #[getter]
+    fn keepalive_timeout(&self) -> Option<Duration> {
+        self.config.keepalive_timeout
+    }
+
+    #[getter]
+    fn hostname_resolution_timeout(&self) -> Option<Duration> {
+        self.config.hostname_resolution_timeout
+    }
+
+    #[getter]
+    fn enable_write_coalescing(&self) -> bool {
+        self.config.enable_write_coalescing
+    }
+
+    #[getter]
+    fn write_coalescing(&self) -> Option<PyWriteCoalescingDelay> {
+        if self.config.enable_write_coalescing {
+            Some(PyWriteCoalescingDelay {
+                inner: self.config.write_coalescing_delay.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
+    #[getter]
+    fn identity(&self) -> PySelfIdentity {
+        PySelfIdentity {
+            inner: self.config.identity.clone(),
+        }
     }
 }
 
