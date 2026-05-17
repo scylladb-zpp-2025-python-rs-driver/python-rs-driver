@@ -82,6 +82,33 @@ class Table:
         ...
     def __repr__(self) -> str: ...
 
+class MaterializedView:
+    @property
+    def base_table_name(self) -> str:
+        """
+        Access the name of the base table of this materialized view.
+        """
+        ...
+    @property
+    def partition_key(self) -> Mapping[str, Column]:
+        """
+        Access the partition key of this view as a read-only dictionary of name to column.
+        """
+        ...
+    @property
+    def clustering_key(self) -> Mapping[str, Column]:
+        """
+        Access the clustering key of this view as a read-only dictionary of name to column.
+        """
+        ...
+    @property
+    def partitioner(self) -> str | None:
+        """
+        Access the name of partitioner used by this materialized view or None.
+        """
+        ...
+    def __repr__(self) -> str: ...
+
 class Keyspace:
     @property
     def strategy(self) -> Strategy:
@@ -93,6 +120,12 @@ class Keyspace:
     def tables(self) -> Mapping[str, Table]:
         """
         Access the tables of this keyspace as a read-only dictionary of name to table.
+        """
+        ...
+    @property
+    def views(self) -> Mapping[str, MaterializedView]:
+        """
+        Access the materialized views of this keyspace as a read-only dictionary of name to view.
         """
         ...
     def __repr__(self) -> str: ...

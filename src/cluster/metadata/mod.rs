@@ -6,7 +6,7 @@ use pyo3::{
     sync::OnceLockExt,
     types::{IntoPyDict, PyDict, PyMappingProxy, PyString},
 };
-use scylla::cluster::metadata::{Column, ColumnKind, Keyspace, Strategy, Table};
+use scylla::cluster::metadata::{Column, ColumnKind, Keyspace, MaterializedView, Strategy, Table};
 
 use crate::cache::Cache;
 
@@ -238,12 +238,113 @@ impl PyTable {
     }
 }
 
+#[pyclass(name = "MaterializedView", frozen, skip_from_py_object)]
+pub(crate) struct PyMaterializedView {
+    _inner: MaterializedView,
+    base_table_name: OnceLock<Py<PyString>>,
+    partitioner: OnceLock<Option<Py<PyString>>>,
+    /// Invariant: Holds all known `PyColumn`s of the table.
+    columns: Py<PyDict>,
+    /// Partition key columns of this table.
+    ///
+    /// Invariant: Always has partition key `PyColumn`s.
+    partition_key: Py<PyDict>,
+    /// Clustering key columns of this table.
+    ///
+    /// Invariant: Always has clustering key `PyColumn`s.
+    clustering_key: Py<PyDict>,
+}
+
+impl TryFrom<MaterializedView> for PyMaterializedView {
+    type Error = PyErr;
+
+    fn try_from(inner: MaterializedView) -> Result<Self, Self::Error> {
+        Python::attach(|py| {
+            let py_cols = PyDict::new(py);
+            let py_partition_key = PyDict::new(py);
+            let py_clustering_key = PyDict::new(py);
+
+            // Initialize columns dictionary
+            for (name, column) in inner.view_metadata.columns.iter() {
+                py_cols.set_item(name, PyColumn::try_from(column)?)?;
+            }
+
+            // Reuse the same columns for partition and clustering keys
+            for name in &inner.view_metadata.partition_key {
+                py_partition_key.set_item(name, py_cols.get_item(name)?)?;
+            }
+
+            for name in &inner.view_metadata.clustering_key {
+                py_clustering_key.set_item(name, py_cols.get_item(name)?)?;
+            }
+
+            Ok(Self {
+                _inner: inner,
+                partitioner: OnceLock::new(),
+                base_table_name: OnceLock::new(),
+                columns: py_cols.unbind(),
+                partition_key: py_partition_key.unbind(),
+                clustering_key: py_clustering_key.unbind(),
+            })
+        })
+    }
+}
+
+#[pymethods]
+impl PyMaterializedView {
+    #[getter]
+    fn columns<'py>(&self, py: Python<'py>) -> Bound<'py, PyMappingProxy> {
+        PyMappingProxy::new(py, self.columns.bind(py).as_mapping())
+    }
+
+    #[getter]
+    fn partition_key<'py>(&self, py: Python<'py>) -> Bound<'py, PyMappingProxy> {
+        PyMappingProxy::new(py, self.partition_key.bind(py).as_mapping())
+    }
+
+    #[getter]
+    fn clustering_key<'py>(&self, py: Python<'py>) -> Bound<'py, PyMappingProxy> {
+        PyMappingProxy::new(py, self.clustering_key.bind(py).as_mapping())
+    }
+
+    #[getter]
+    fn partitioner<'py>(&self, py: Python<'py>) -> &Option<Py<PyString>> {
+        self.partitioner.get_or_init_py_attached(py, || {
+            self._inner
+                .view_metadata
+                .partitioner
+                .as_ref()
+                .map(|p| PyString::new(py, p).unbind())
+        })
+    }
+
+    #[getter]
+    fn base_table_name<'py>(&self, py: Python<'py>) -> &Py<PyString> {
+        self.base_table_name.get_or_init_py_attached(py, || {
+            PyString::new(py, self._inner.base_table_name.as_str()).unbind()
+        })
+    }
+
+    fn __repr__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyString>> {
+        PyString::from_fmt(
+            py,
+            format_args!(
+                "MaterializedView(base_table='{}', columns={})",
+                self._inner.base_table_name,
+                self._inner.view_metadata.columns.len(),
+            ),
+        )
+    }
+}
+
 #[pyclass(name = "Keyspace", frozen)]
 pub(crate) struct PyKeyspace {
     pub(crate) _inner: Keyspace,
     pub(crate) strategy: OnceLock<Py<PyStrategy>>,
     /// Tables in this keyspace.
     pub(crate) tables: Cache<String, PyTable>,
+    /// Materialized views in this keyspace.
+    pub(crate) views: Cache<String, PyMaterializedView>,
 }
 
 #[pymethods]
@@ -274,6 +375,20 @@ impl PyKeyspace {
         })
     }
 
+    #[getter]
+    fn views<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyMappingProxy>> {
+        self.views.get_or_init_python_mapping(py, || {
+            self._inner
+                .views
+                .iter()
+                .map(|(name, view)| {
+                    let py_view = PyMaterializedView::try_from(view.clone());
+                    (name.clone(), py_view.and_then(|t| Py::new(py, t)))
+                })
+                .collect()
+        })
+    }
+
     fn __repr__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyString>> {
         PyString::from_fmt(
             py,
@@ -294,6 +409,7 @@ pub(crate) fn metadata(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResul
     module.add_class::<PyColumn>()?;
     module.add_class::<PyColumnKind>()?;
     module.add_class::<PyTable>()?;
+    module.add_class::<PyMaterializedView>()?;
     module.add_class::<PyKeyspace>()?;
     module.add_class::<PyStrategy>()?;
     module.add_class::<PyStrategyKind>()?;
