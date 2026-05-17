@@ -8,7 +8,9 @@ use pyo3::{
 };
 use scylla::cluster::metadata::{Column, ColumnKind, Keyspace, MaterializedView, Strategy, Table};
 
-use crate::cache::Cache;
+use crate::{cache::Cache, cluster::metadata::column_type::*};
+
+mod column_type;
 
 #[pyclass(name = "StrategyKind", eq, eq_int, frozen, skip_from_py_object)]
 #[derive(Clone, Copy, PartialEq)]
@@ -120,6 +122,8 @@ impl From<&ColumnKind> for PyColumnKind {
 pub(crate) struct PyColumn {
     _inner: Column,
     #[pyo3(get)]
+    typ: Py<PyCqlColumnType>,
+    #[pyo3(get)]
     kind: Py<PyColumnKind>,
 }
 
@@ -128,6 +132,7 @@ impl TryFrom<&Column> for PyColumn {
     fn try_from(value: &Column) -> Result<Self, Self::Error> {
         Python::attach(|py| {
             Ok(Self {
+                typ: extract_column_type(py, &value.typ)?,
                 kind: Py::new(py, PyColumnKind::from(&value.kind))?,
                 _inner: value.clone(),
             })
@@ -405,6 +410,43 @@ impl PyKeyspace {
 
 #[pymodule]
 pub(crate) fn metadata(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Base column type classes
+    module.add_class::<PyCqlColumnType>()?;
+    module.add_class::<PyCqlNativeType>()?;
+    module.add_class::<PyCqlCollectionType>()?;
+
+    // Native types (20 total)
+    module.add_class::<PyCqlAscii>()?;
+    module.add_class::<PyCqlBigInt>()?;
+    module.add_class::<PyCqlBlob>()?;
+    module.add_class::<PyCqlBoolean>()?;
+    module.add_class::<PyCqlCounter>()?;
+    module.add_class::<PyCqlDate>()?;
+    module.add_class::<PyCqlDecimal>()?;
+    module.add_class::<PyCqlDouble>()?;
+    module.add_class::<PyCqlDuration>()?;
+    module.add_class::<PyCqlFloat>()?;
+    module.add_class::<PyCqlInet>()?;
+    module.add_class::<PyCqlInt>()?;
+    module.add_class::<PyCqlSmallInt>()?;
+    module.add_class::<PyCqlText>()?;
+    module.add_class::<PyCqlTime>()?;
+    module.add_class::<PyCqlTimestamp>()?;
+    module.add_class::<PyCqlTimeuuid>()?;
+    module.add_class::<PyCqlTinyInt>()?;
+    module.add_class::<PyCqlUuid>()?;
+    module.add_class::<PyCqlVarint>()?;
+
+    // Collection types
+    module.add_class::<PyCqlList>()?;
+    module.add_class::<PyCqlMap>()?;
+    module.add_class::<PyCqlSet>()?;
+
+    // Complex types
+    module.add_class::<PyCqlTuple>()?;
+    module.add_class::<PyCqlVector>()?;
+    module.add_class::<PyCqlUserDefinedType>()?;
+
     // Metadata classes
     module.add_class::<PyColumn>()?;
     module.add_class::<PyColumnKind>()?;
