@@ -111,3 +111,16 @@ clean: down
 	cargo clean
 	uv clean
 	rm -rf docs/book
+	$(MAKE) docs-clean
+
+.PHONY: docs
+docs:
+	$(MAKE) -C docs html
+
+.PHONY: docs-preview
+docs-preview:
+	$(MAKE) -C docs preview
+
+.PHONY: docs-clean
+docs-clean:
+	$(MAKE) -C docs clean
