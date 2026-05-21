@@ -6,8 +6,11 @@ from ipaddress import IPv4Address, IPv6Address
 from .policies import AuthenticatorProvider, AddressTranslator, TimestampGenerator, HostFilter
 from .execution_profile import ExecutionProfile
 from .session import Session
+from typing import Any
 
-ContactPoint = str | tuple[str | IPv4Address | IPv6Address, int]
+Address = str | tuple[str | IPv4Address | IPv6Address, int]
+
+TranslationMap = dict[Any, Any]
 
 class SessionBuilder:
     """
@@ -32,7 +35,7 @@ class SessionBuilder:
         """
         ...
 
-    def contact_points(self, contact_points: ContactPoint | Sequence[ContactPoint]) -> SessionBuilder:
+    def contact_points(self, contact_points: Address | Sequence[Address]) -> SessionBuilder:
         """
         Set the contact points used to bootstrap the connection.
 
@@ -111,14 +114,22 @@ class SessionBuilder:
         """
         ...
 
-    def address_translator(self, translator: AddressTranslator) -> SessionBuilder:
+    def address_translator(self, translator: AddressTranslator | TranslationMap) -> SessionBuilder:
         """
-        Registers a custom Python-defined address translator.
+        Registers an address translator for the session.
+
+        The translator can be either a custom Python object implementing the
+        :class:`AddressTranslator` protocol or a static translation mapping.
 
         Parameters
         ----------
-        translator : AddressTranslator
-            An instance of a class inheriting from :class:`AddressTranslator`.
+        translator : AddressTranslator | dict
+            The translation logic to apply. Can be:
+
+            Addresses in the dictionary can be provided as:
+
+            * A string: ``"127.0.0.1:9042"``
+            * A tuple: ``("127.0.0.1", 9042)``, ``(IPv4Address("127.0.0.1"), 9042)``, etc.
 
         Returns
         -------
@@ -137,7 +148,8 @@ class SessionBuilder:
         Parameters
         ----------
         generator : TimestampGenerator
-            An instance of a class inheriting from :class:`TimestampGenerator`.
+            A custom Python object implementing the :class:`TimestampGenerator`
+            protocol.
 
         Returns
         -------
@@ -145,17 +157,23 @@ class SessionBuilder:
         """
         ...
 
-    def host_filter(self, host_filter: HostFilter) -> SessionBuilder:
+    def host_filter(self, host_filter: HostFilter | Sequence[Address]) -> SessionBuilder:
         """
-        Registers a custom Python-defined host filter.
+        Registers a host filter or a list of allowed addresses.
 
-        The filter is consulted to decide whether a discovered node should be
-        accepted by the driver.
+        This decides whether a discovered node should be accepted by the driver.
+        You can provide a custom filter object for complex logic, or a simple
+        sequence of addresses to act as an allow-list.
 
         Parameters
         ----------
-        host_filter : HostFilter
-            An instance of a class inheriting from :class:`HostFilter`.
+        host_filter : HostFilter | Sequence[Address]
+            If a object implements :class:`HostFilter` protocol, the driver calls
+            its ``accept`` method for each node.
+            If a sequence of addresses, only nodes matching those addresses
+            will be accepted.
+
+            Address = str | tuple[str | IPv4Address | IPv6Address, int]
 
         Returns
         -------

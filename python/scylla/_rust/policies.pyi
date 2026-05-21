@@ -1,7 +1,7 @@
-import ipaddress
 import uuid
-from typing import Optional, Tuple, Any
+from typing import Optional, Any, Protocol, runtime_checkable
 from ipaddress import IPv4Address, IPv6Address
+from datetime import timedelta
 
 class Authenticator:
     """
@@ -42,45 +42,79 @@ class UntranslatedPeer:
     @property
     def host_id(self) -> uuid.UUID: ...
     @property
-    def untranslated_address(self) -> Tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, int]: ...
+    def untranslated_address(self) -> tuple[IPv4Address | IPv6Address, int]: ...
     @property
     def datacenter(self) -> Optional[str]: ...
     @property
     def rack(self) -> Optional[str]: ...
     def __repr__(self) -> str: ...
 
-class AddressTranslator:
+@runtime_checkable
+class AddressTranslator(Protocol):
     """
-    Base class for implementing custom address translation.
-    Subclass this to provide your own translation logic.
+    Protocol for custom address translation.
     """
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-    def translate(self, info: UntranslatedPeer) -> Tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, int]:
+    def translate(self, info: UntranslatedPeer) -> str | tuple[str | IPv4Address | IPv6Address, int]:
         """
         Translates a node's address.
-        Must return a tuple of (ip_address, port_integer).
+        Must return a tuple of (ip_address | str, port_integer) or string with valid address and port.
+
+        When returning a string, it should therefore be a numeric IP address
+        plus port (for example ``"127.0.0.1:9042"`` or ``"[::1]:9042"``).
         """
         ...
 
-class TimestampGenerator:
+@runtime_checkable
+class TimestampGenerator(Protocol):
     """
-    Base class for implementing custom client-side timestamp generation.
-
-    Subclass this and override :meth:`next_timestamp` to provide custom logic for generating timestamps for requests.
+    Protocol for custom client-side timestamp generation.
     """
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
     def next_timestamp(self) -> int:
         """
         Generate the next timestamp for a request.
 
         This method should return an integer representing the timestamp.
 
-        If this method is not overridden or raises an exception, the
+        If this method is not implemented or raises an exception, the
         driver will log the error and fallback to the current system timestamp.
 
         """
         ...
+
+class SimpleTimestampGenerator:
+    """
+    A simple client-side timestamp generator based on the system clock.
+
+    This generator returns the current system time in microseconds since
+    the Unix Epoch (1970-01-01)
+    """
+    def __init__(self) -> None: ...
+    def next_timestamp(self) -> int: ...
+
+class MonotonicTimestampGenerator:
+    """
+    Timestamp generator that guarantees monotonically increasing timestamps.
+
+    Parameters
+    ----------
+    warn_on_drift : bool, default True
+        Whether to log warnings when generated timestamps drift too far from
+        the system clock.
+
+    warning_threshold : float | timedelta, default 1
+        Drift threshold in seconds after which warnings may be emitted.
+
+    warning_interval : float | timedelta, default 1
+        Minimum interval in seconds between drift warnings.
+    """
+
+    def __init__(
+        self,
+        warn_on_drift: bool = True,
+        warning_threshold: float | timedelta = 1,
+        warning_interval: float | timedelta = 1,
+    ) -> None: ...
+    def next_timestamp(self) -> int: ...
 
 class Peer:
     """
@@ -99,15 +133,11 @@ class Peer:
     def rack(self) -> Optional[str]: ...
     def __repr__(self) -> str: ...
 
-class HostFilter:
+@runtime_checkable
+class HostFilter(Protocol):
     """
-    Base class for implementing custom host filtering.
-
-    Subclass this and override :meth:`accept` to decide whether a given
-    node should be considered by the driver.
+    Protocol for implementing custom host filtering.
     """
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
     def accept(self, peer: Peer) -> bool:
         """
         Decide whether the given peer should be accepted.
@@ -127,3 +157,17 @@ class HostFilter:
         accepting the host.
         """
         ...
+
+class AcceptAllHostFilter:
+    """
+    A host filter that accepts every node in the cluster.
+    """
+    def __init__(self) -> None: ...
+    def accept(self, peer: Peer) -> bool: ...
+
+class DcHostFilter:
+    """
+    A host filter that accepts nodes only from the specified datacenter.
+    """
+    def __init__(self, local_dc: str) -> None: ...
+    def accept(self, peer: Peer) -> bool: ...

@@ -738,7 +738,7 @@ dependencies = [
 [[package]]
 name = "scylla"
 version = "1.4.1"
-source = "git+https://github.com/scylladb-zpp-2025-python-rs-driver/scylla-rust-driver#71111dd07cd8f940f0e5ce1b35e8b098f2602ee2"
+source = "git+https://github.com/scylladb-zpp-2025-python-rs-driver/scylla-rust-driver#7756568aa3ef405614228e376ccfe7c0f05cb0d9"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -762,7 +762,7 @@ dependencies = [
 [[package]]
 name = "scylla-cql"
 version = "1.4.0"
-source = "git+https://github.com/scylladb-zpp-2025-python-rs-driver/scylla-rust-driver#71111dd07cd8f940f0e5ce1b35e8b098f2602ee2"
+source = "git+https://github.com/scylladb-zpp-2025-python-rs-driver/scylla-rust-driver#7756568aa3ef405614228e376ccfe7c0f05cb0d9"
 dependencies = [
  "bigdecimal",
  "byteorder",
@@ -783,7 +783,7 @@ dependencies = [
 [[package]]
 name = "scylla-macros"
 version = "1.4.0"
-source = "git+https://github.com/scylladb-zpp-2025-python-rs-driver/scylla-rust-driver#71111dd07cd8f940f0e5ce1b35e8b098f2602ee2"
+source = "git+https://github.com/scylladb-zpp-2025-python-rs-driver/scylla-rust-driver#7756568aa3ef405614228e376ccfe7c0f05cb0d9"
 dependencies = [
  "darling",
  "proc-macro2",

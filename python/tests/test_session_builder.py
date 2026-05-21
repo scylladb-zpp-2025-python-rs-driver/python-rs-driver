@@ -11,9 +11,13 @@ from scylla.policies import (
     AuthenticatorProvider,
     AddressTranslator,
     UntranslatedPeer,
-    TimestampGenerator,
-    HostFilter,
     Peer,
+    TimestampGenerator,
+    MonotonicTimestampGenerator,
+    SimpleTimestampGenerator,
+    AcceptAllHostFilter,
+    DcHostFilter,
+    HostFilter,
 )
 
 from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
@@ -22,6 +26,8 @@ from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
     start_cluster,
     stop_and_remove_cluster,
 )
+
+import time
 
 
 @pytest.mark.asyncio
@@ -50,9 +56,8 @@ async def test_contact_points_invalid_types(item: Any):
     with pytest.raises(SessionConfigError) as excinfo:
         builder.contact_points(item)  # type: ignore[arg-type]
 
-    assert (
-        "Invalid contact points type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these"
-        in str(excinfo.value.__cause__)
+    assert "Invalid address type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these" in str(
+        excinfo.value.__cause__
     )
 
 
@@ -153,7 +158,7 @@ async def test_builtin_user_credentials(ccm_contact_points: list[tuple[str, int]
 Address = ipaddress.IPv4Address | ipaddress.IPv6Address
 
 
-class MockAddressTranslator(AddressTranslator):
+class MockAddressTranslator:
     default_ip: Address
     default_port: int
     call_log: list[UntranslatedPeer]
@@ -169,7 +174,7 @@ class MockAddressTranslator(AddressTranslator):
         return self.default_ip, self.default_port
 
 
-class FailingTranslator(AddressTranslator):
+class FailingTranslator:
     def translate(self, info: UntranslatedPeer) -> tuple[Address, int]:
         raise RuntimeError("Translation Exploded!")
 
@@ -178,6 +183,7 @@ class FailingTranslator(AddressTranslator):
 @pytest.mark.requires_db
 async def test_custom_address_translator_discovery():
     translator = MockAddressTranslator(ipaddress.IPv4Address("127.0.0.2"), 9042)
+    assert isinstance(translator, AddressTranslator)
 
     builder = (
         SessionBuilder()
@@ -202,6 +208,7 @@ async def test_custom_address_translator_discovery():
 @pytest.mark.xfail(reason="Currently, Python exceptions in the translator do not propagate to the driver")
 async def test_address_translator_failing_python_side():
     translator = FailingTranslator()
+    assert isinstance(translator, AddressTranslator)
 
     builder = (
         SessionBuilder()
@@ -216,7 +223,46 @@ async def test_address_translator_failing_python_side():
     assert "Translation Exploded" in str(excinfo.value)
 
 
-class MockTimestampGenerator(TimestampGenerator):
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_address_translator_dict_discovery():
+    translator = {
+        (ipaddress.IPv4Address("127.0.0.2"), 9042): (ipaddress.IPv4Address("127.0.0.2"), 9042),
+        ("127.0.0.3", 9042): ("127.0.0.2", 9042),
+        ("127.0.0.4", 9042): ("127.0.0.2", 9042),
+    }
+
+    builder = (
+        SessionBuilder()
+        .contact_points([("127.0.0.2", 9042)])
+        .address_translator(translator)
+        .user("cassandra", "cassandra")
+    )
+
+    session = await builder.connect()
+
+    assert session is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_address_translator_dict_invalid():
+    translator = {
+        ("127.0.0.3.3", 9042): ("127.0.0.2.5", 9042),
+    }
+
+    with pytest.raises(SessionConfigError) as excinfo:
+        _ = (
+            SessionBuilder()
+            .contact_points([("127.0.0.2", 9042)])
+            .address_translator(translator)
+            .user("cassandra", "cassandra")
+        )
+
+    assert "invalid socket address syntax" in str(excinfo.value.__cause__)
+
+
+class MockTimestampGenerator:
     fixed_ts: int
     called: bool
 
@@ -230,7 +276,7 @@ class MockTimestampGenerator(TimestampGenerator):
         return self.fixed_ts
 
 
-class FailingTimestampGenerator(TimestampGenerator):
+class FailingTimestampGenerator:
     def next_timestamp(self) -> int:
         raise RuntimeError("Timestamp Generation Exploded!")
 
@@ -240,6 +286,7 @@ class FailingTimestampGenerator(TimestampGenerator):
 async def test_custom_timestamp_generator_success() -> None:
     my_custom_ts = 1122334455
     ts_gen = MockTimestampGenerator(my_custom_ts)
+    assert isinstance(ts_gen, TimestampGenerator)
 
     builder = (
         SessionBuilder()
@@ -269,10 +316,45 @@ async def test_custom_timestamp_generator_success() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.requires_db
+async def test_simple_timestamp_generator_success() -> None:
+    ts_gen = SimpleTimestampGenerator()
+
+    builder = (
+        SessionBuilder()
+        .contact_points([("127.0.0.2", 9042)])
+        .user("cassandra", "cassandra")
+        .timestamp_generator(ts_gen)
+    )
+
+    session = await builder.connect()
+
+    await session.execute(
+        "CREATE KEYSPACE IF NOT EXISTS ks WITH REPLICATION = "
+        "{'class': 'NetworkTopologyStrategy', 'replication_factor': 1}"
+    )
+    await session.execute("CREATE TABLE IF NOT EXISTS ks.verify_simple_ts (id int PRIMARY KEY, val text)")
+
+    now_micros = int(time.time() * 1_000_000)
+
+    await session.execute("INSERT INTO ks.verify_simple_ts (id, val) VALUES (1, 'rust-ts')")
+
+    result = await session.execute("SELECT WRITETIME(val) FROM ks.verify_simple_ts WHERE id = 1")
+    row = await result.first_row()
+
+    assert row is not None
+    db_timestamp = row["writetime(val)"]
+
+    assert db_timestamp >= now_micros
+    assert db_timestamp < now_micros + 5_000_000
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
 async def test_custom_timestamp_generator_fallback_on_failure(
     caplog: LogCaptureFixture,
 ) -> None:
     ts_gen = FailingTimestampGenerator()
+    assert isinstance(ts_gen, TimestampGenerator)
 
     builder = (
         SessionBuilder()
@@ -289,7 +371,33 @@ async def test_custom_timestamp_generator_fallback_on_failure(
     assert "Timestamp Generation Exploded!" in caplog.text
 
 
-class AcceptAllHostFilter(HostFilter):
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_monotonic_timestamp_generator_works_with_session() -> None:
+    ts_gen = MonotonicTimestampGenerator()
+
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).timestamp_generator(ts_gen)
+
+    session = await builder.connect()
+
+    await session.execute(
+        "CREATE KEYSPACE IF NOT EXISTS ks WITH REPLICATION = "
+        "{'class': 'NetworkTopologyStrategy', 'replication_factor': 1}"
+    )
+    await session.execute("CREATE TABLE IF NOT EXISTS ks.verify_monotonic_ts (id int PRIMARY KEY, val text)")
+
+    await session.execute("INSERT INTO ks.verify_monotonic_ts (id, val) VALUES (1, 'a')")
+    await session.execute("UPDATE ks.verify_monotonic_ts SET val = 'b' WHERE id = 1")
+
+    result = await session.execute("SELECT WRITETIME(val) FROM ks.verify_monotonic_ts WHERE id = 1")
+    row = await result.first_row()
+
+    assert row is not None
+    assert isinstance(row["writetime(val)"], int)
+    assert row["writetime(val)"] > 0
+
+
+class CustomAcceptAllHostFilter:
     def __init__(self) -> None:
         super().__init__()
         self.called = False
@@ -303,7 +411,7 @@ class AcceptAllHostFilter(HostFilter):
         return True
 
 
-class FailingHostFilter(HostFilter):
+class FailingHostFilter:
     def accept(self, peer: Peer) -> bool:
         raise RuntimeError("Host Filter Exploded!")
 
@@ -311,7 +419,8 @@ class FailingHostFilter(HostFilter):
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_custom_host_filter_success() -> None:
-    host_filter = AcceptAllHostFilter()
+    host_filter = CustomAcceptAllHostFilter()
+    assert isinstance(host_filter, HostFilter)
 
     builder = (
         SessionBuilder().contact_points([("127.0.0.2", 9042)]).user("cassandra", "cassandra").host_filter(host_filter)
@@ -334,6 +443,7 @@ async def test_custom_host_filter_fallback_on_failure(
     caplog: LogCaptureFixture,
 ) -> None:
     host_filter = FailingHostFilter()
+    assert isinstance(host_filter, HostFilter)
 
     builder = (
         SessionBuilder().contact_points([("127.0.0.2", 9042)]).user("cassandra", "cassandra").host_filter(host_filter)
@@ -347,3 +457,59 @@ async def test_custom_host_filter_fallback_on_failure(
     assert row is not None
     assert "Failed to evaluate custom host filter from Python" in caplog.text
     assert "Host Filter Exploded!" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_accept_all_host_filter() -> None:
+    host_filter = AcceptAllHostFilter()
+
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(host_filter)
+
+    session = await builder.connect()
+
+    result = await session.execute("SELECT release_version FROM system.local")
+    row = await result.first_row()
+
+    assert row is not None
+    assert len(row) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_dc_host_filter_matches() -> None:
+    host_filter = DcHostFilter("datacenter1")
+
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(host_filter)
+
+    session = await builder.connect()
+
+    result = await session.execute("SELECT data_center FROM system.local")
+    row = await result.first_row()
+
+    assert row is not None
+    assert row["data_center"] == "datacenter1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_host_filter_list_with_resolvable_dns() -> None:
+    accepted_list = ["127.0.0.1:9042", ("127.0.0.2", 9042), "localhost:9042"]
+
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(accepted_list)
+
+    session = await builder.connect()
+    assert session is not None
+
+    await session.execute("SELECT * FROM system.local")
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_host_filter_list_with_garbage_string_fails() -> None:
+    garbage_list = ["this-is-not-an-address-and-has-no-port", ("127.0.0.1", 9042)]
+
+    with pytest.raises(SessionConfigError) as excinfo:
+        _ = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(garbage_list)
+
+    assert "invalid socket address" in str(excinfo.value).lower()
