@@ -9,3 +9,9 @@ def test_imports():
     from scylla import session_builder as X  # pyright: ignore[reportUnusedImport]
     from scylla.session import Session as X  # pyright: ignore[reportUnusedImport]
     from scylla.session_builder import SessionBuilder as X  # pyright: ignore[reportUnusedImport]
+
+
+def test_nested_module_imports():
+    import scylla.cluster.metadata as X  # pyright: ignore[reportUnusedImport]
+    from scylla.cluster.metadata import CqlDate, CqlTinyInt  # pyright: ignore[reportUnusedImport]
+    from scylla.cluster.metadata import Keyspace as X  # pyright: ignore[reportUnusedImport]
