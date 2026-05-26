@@ -12,11 +12,13 @@ use tokio::runtime::Runtime;
 
 mod batch;
 mod cache;
+mod cluster;
 mod deserialize;
 mod enums;
 mod errors;
 mod execution_profile;
 mod policies;
+mod routing;
 mod serialize;
 mod session;
 mod session_builder;
@@ -65,5 +67,7 @@ fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(py, module, "value", value::value)?;
     add_submodule(py, module, "batch", batch::batch)?;
     add_submodule(py, module, "policies", policies::policies)?;
+    add_submodule(py, module, "cluster", cluster::cluster)?;
+    add_submodule(py, module, "routing", routing::routing)?;
     Ok(())
 }

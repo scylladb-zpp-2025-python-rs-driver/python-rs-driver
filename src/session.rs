@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::RUNTIME;
 use crate::batch::PyBatch;
+use crate::cluster::state::PyClusterState;
 use crate::deserialize::results::{Pager, PyPagingState, RequestResult, RowFactory};
 use crate::errors::{
     DriverExecuteError, DriverPrepareError, DriverSchemaAgreementError,
@@ -11,8 +12,9 @@ use crate::serialize::value_list::PyValueList;
 use crate::statement::PyPreparedStatement;
 use crate::statement::PyStatement;
 use pyo3::prelude::*;
+use pyo3::sync::MutexExt;
 use pyo3::types::PyString;
-use scylla::client::session::Session as ScyllaSession;
+use scylla::client::session::Session;
 use scylla::response::query_result::QueryResult;
 use scylla::statement::batch::BatchStatement;
 use scylla::statement::prepared::PreparedStatement;
@@ -20,14 +22,28 @@ use scylla::statement::unprepared::Statement;
 use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 use std::future::Future;
 
-#[pyclass(frozen, skip_from_py_object)]
+#[pyclass(name = "Session", frozen, skip_from_py_object)]
 #[derive(Clone)]
-pub(crate) struct Session {
-    pub(crate) _inner: Arc<ScyllaSession>,
+pub(crate) struct PySession {
+    pub(crate) _inner: Arc<Session>,
+    pub(crate) cluster_state: Arc<Mutex<Py<PyClusterState>>>,
+}
+
+impl TryFrom<Arc<Session>> for PySession {
+    type Error = PyErr;
+    fn try_from(_inner: Arc<Session>) -> Result<Self, Self::Error> {
+        let cluster_state = Python::attach(|py| {
+            Py::new(py, PyClusterState::try_from(_inner.get_cluster_state())?)
+        })?;
+        Ok(Self {
+            cluster_state: Arc::new(Mutex::new(cluster_state)),
+            _inner,
+        })
+    }
 }
 
 #[pymethods]
-impl Session {
+impl PySession {
     #[pyo3(signature = (statement, values=None, /, *, factory=None, paging_state=None, paged=true))]
     async fn execute(
         &self,
@@ -110,9 +126,31 @@ impl Session {
 
         Ok(schema_version)
     }
+
+    #[getter]
+    fn get_cluster_state<'py>(&self, py: Python<'py>) -> PyResult<Py<PyClusterState>> {
+        // PyClusterState holds `Arc<ClusterState>` preventing Rust driver from replacing
+        // inner Rust `Session`'s `ClusterState` with a new object in the same memory.
+        //
+        // This means by comparing current Rust `Session` `ClusterState` pointer
+        // and `PyClusterState`'s internal `ClusterState` pointer
+        // we can determine if the `PyClusterState`'s snapshot is stale
+        // and needs to be replaced with a fresh snapshot.
+        let mut py_cluster_state = self.cluster_state.lock_py_attached(py).unwrap();
+        let rust_current_cluster_state = self._inner.get_cluster_state();
+        let python_snapshot_cluster_state = &py_cluster_state.get()._inner;
+        if !Arc::ptr_eq(&rust_current_cluster_state, python_snapshot_cluster_state) {
+            *py_cluster_state = Py::new(
+                py,
+                PyClusterState::try_from(self._inner.get_cluster_state())?,
+            )?;
+        }
+
+        Ok(py_cluster_state.clone_ref(py))
+    }
 }
 
-impl Session {
+impl PySession {
     async fn execute_unpaged(
         &self,
         statement: ExecutableStatement,
@@ -159,7 +197,7 @@ impl Session {
     async fn session_spawn_on_runtime<F, Fut, R, E>(&self, f: F) -> Result<R, E>
     where
         // closure: takes Arc<ScyllaSession> and returns a future
-        F: FnOnce(Arc<ScyllaSession>) -> Fut + Send + 'static,
+        F: FnOnce(Arc<Session>) -> Fut + Send + 'static,
         // for spawn we need Send + 'static
         Fut: Future<Output = Result<R, E>> + Send + 'static,
         R: Send + 'static,
@@ -250,7 +288,7 @@ impl From<ExecutableStatement> for BatchStatement {
 
 #[pymodule]
 pub(crate) fn session(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<Session>()?;
+    module.add_class::<PySession>()?;
 
     Ok(())
 }

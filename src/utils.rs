@@ -3,7 +3,6 @@ use pyo3::{
     types::{PyAnyMethods, PyModule, PyModuleMethods},
 };
 
-/// COPIED FROM SCYLLAPY
 /// Add submodule.
 ///
 /// This function is required,
@@ -13,8 +12,13 @@ use pyo3::{
 /// of all available modules.
 ///
 /// To surpass this issue, we
-/// maually update `sys.modules` attribute,
+/// manually update `sys.modules` attribute,
 /// adding all submodules.
+///
+/// It's important to register submodules with
+/// parent's full name in order to allow for
+/// nested imports. Namely registering submodules
+/// inside other submodules.
 ///
 /// # Errors
 ///
@@ -25,13 +29,14 @@ pub(crate) fn add_submodule(
     py: Python<'_>,
     parent_mod: &Bound<'_, PyModule>,
     name: &'static str,
-    module_constuctor: impl FnOnce(Python<'_>, &Bound<'_, PyModule>) -> PyResult<()>,
+    module_constructor: impl FnOnce(Python<'_>, &Bound<'_, PyModule>) -> PyResult<()>,
 ) -> PyResult<()> {
-    let sub_module = PyModule::new(py, name)?;
-    module_constuctor(py, &sub_module)?;
+    let full_name = format!("{}.{name}", parent_mod.name()?);
+    let sub_module = PyModule::new(py, &full_name)?;
+    module_constructor(py, &sub_module)?;
     parent_mod.add_submodule(&sub_module)?;
     py.import("sys")?
         .getattr("modules")?
-        .set_item(format!("{}.{name}", parent_mod.name()?), sub_module)?;
+        .set_item(&full_name, sub_module)?;
     Ok(())
 }
