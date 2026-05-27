@@ -60,9 +60,50 @@ impl From<&scylla::frame::response::result::PartitionKeyIndex> for PyPartitionKe
     }
 }
 
+/// Metadata for a prepared statement, including column specifications and partition key indexes.
+#[pyclass(name = "PreparedMetadata", skip_from_py_object, frozen, get_all)]
+#[derive(Clone)]
+pub(crate) struct PyPreparedMetadata {
+    /// The specifications of the columns in the prepared statement.
+    columns: Vec<PyColumnSpec>,
+    /// The indexes of the partition keys in the prepared statement.
+    partition_key_indexes: Vec<PyPartitionKeyIndex>,
+}
+
+// Convert from Scylla's `PreparedStatement` to our `PyPreparedMetadata`.
+impl<'a> TryFrom<(Python<'a>, &scylla::statement::prepared::PreparedStatement)>
+    for PyPreparedMetadata
+{
+    type Error = DriverQueryMetadataError;
+
+    fn try_from(
+        (py, prepared): (Python<'a>, &scylla::statement::prepared::PreparedStatement),
+    ) -> Result<Self, Self::Error> {
+        // Uses PyColumnSpec::try_from via the tuple syntax
+        let columns = prepared
+            .get_variable_col_specs()
+            .iter()
+            .map(|spec| PyColumnSpec::try_from((py, spec)))
+            .collect::<Result<Vec<PyColumnSpec>, DriverQueryMetadataError>>()?;
+
+        // Uses PyPartitionKeyIndex::from
+        let partition_key_indexes = prepared
+            .get_variable_pk_indexes()
+            .iter()
+            .map(PyPartitionKeyIndex::from)
+            .collect();
+
+        Ok(PyPreparedMetadata {
+            columns,
+            partition_key_indexes,
+        })
+    }
+}
+
 pub(crate) fn query_metadata(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyColumnSpec>()?;
     module.add_class::<PyPartitionKeyIndex>()?;
+    module.add_class::<PyPreparedMetadata>()?;
 
     Ok(())
 }
