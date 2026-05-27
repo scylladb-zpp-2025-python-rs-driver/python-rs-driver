@@ -40,8 +40,29 @@ impl<'a> TryFrom<(Python<'a>, &scylla::frame::response::result::ColumnSpec<'a>)>
     }
 }
 
+/// Specification of a partition key index in prepared statement metadata.
+#[pyclass(name = "PartitionKeyIndex", skip_from_py_object, frozen, get_all)]
+#[derive(Clone)]
+pub(crate) struct PyPartitionKeyIndex {
+    /// The index of the partition key.
+    index: u16,
+    /// The sequence number of the partition key, used for multi-column partition keys.
+    sequence_number: u16,
+}
+
+// Convert from Scylla's `PartitionKeyIndex` to our `PyPartitionKeyIndex`.
+impl From<&scylla::frame::response::result::PartitionKeyIndex> for PyPartitionKeyIndex {
+    fn from(pk: &scylla::frame::response::result::PartitionKeyIndex) -> Self {
+        PyPartitionKeyIndex {
+            index: pk.index,
+            sequence_number: pk.sequence,
+        }
+    }
+}
+
 pub(crate) fn query_metadata(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyColumnSpec>()?;
+    module.add_class::<PyPartitionKeyIndex>()?;
 
     Ok(())
 }
