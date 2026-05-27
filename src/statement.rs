@@ -7,8 +7,9 @@ use scylla::statement::unprepared::Statement;
 use std::time::Duration;
 
 use crate::enums::{PyConsistency, PySerialConsistency};
-use crate::errors::DriverStatementConfigError;
+use crate::errors::{DriverQueryMetadataError, DriverStatementConfigError};
 use crate::execution_profile::ExecutionProfile;
+use crate::query_metadata::{PyPreparedMetadata, PyResultMetadata};
 use crate::types::UnsetType;
 
 #[pyclass(name = "PreparedStatement", frozen)]
@@ -138,6 +139,22 @@ impl PyPreparedStatement {
     #[getter]
     fn get_page_size(&self) -> i32 {
         self._inner.get_page_size()
+    }
+
+    #[getter]
+    fn get_prepared_metadata(
+        &self,
+        py: Python<'_>,
+    ) -> Result<PyPreparedMetadata, DriverQueryMetadataError> {
+        PyPreparedMetadata::try_from((py, &self._inner))
+    }
+
+    #[getter]
+    fn get_result_metadata(
+        &self,
+        py: Python<'_>,
+    ) -> Result<PyResultMetadata, DriverQueryMetadataError> {
+        PyResultMetadata::try_from((py, &self._inner))
     }
 }
 

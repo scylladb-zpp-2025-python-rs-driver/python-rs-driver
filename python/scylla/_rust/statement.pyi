@@ -1,6 +1,7 @@
 from .enums import Consistency, SerialConsistency
 from .execution_profile import ExecutionProfile
 from .types import UnsetType
+from .query_metadata import ResultMetadata, PreparedMetadata
 
 class PreparedStatement:
     """
@@ -29,6 +30,10 @@ class PreparedStatement:
     def with_page_size(self, page_size: int) -> PreparedStatement: ...
     @property
     def page_size(self) -> int: ...
+    @property
+    def prepared_metadata(self) -> PreparedMetadata: ...
+    @property
+    def result_metadata(self) -> ResultMetadata: ...
 
 class Statement:
     """

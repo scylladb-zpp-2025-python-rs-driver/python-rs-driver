@@ -1,6 +1,7 @@
 from typing import Any, cast
 
 import pytest
+from scylla.cluster.metadata import CqlColumnType, CqlText
 from scylla.enums import SerialConsistency
 from scylla.errors import PrepareError, StatementConfigError, StatementConversionError
 from scylla.session_builder import SessionBuilder
@@ -80,6 +81,56 @@ def test_statement_with_page_size():
 
     assert isinstance(actual_page_size, int)
     assert actual_page_size == expected_page_size
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_statement_prepared_metadata():
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)])
+    session = await builder.connect()
+
+    prepared = await session.prepare("SELECT cluster_name FROM system.local WHERE key = ?")
+
+    metadata = prepared.prepared_metadata
+
+    assert metadata is not None
+    assert len(metadata.columns) == 1
+    assert len(metadata.partition_key_indexes) == 1
+
+    bind_col = metadata.columns[0]
+    pk_index = metadata.partition_key_indexes[0]
+
+    assert bind_col.name == "key"
+    assert bind_col.table_name == "local"
+    assert bind_col.keyspace_name == "system"
+    assert isinstance(bind_col.cql_type, CqlColumnType)
+    assert isinstance(bind_col.cql_type, CqlText)
+
+    assert pk_index.index == 0
+    assert pk_index.sequence_number == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_statement_result_metadata():
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)])
+    session = await builder.connect()
+
+    prepared = await session.prepare("SELECT cluster_name FROM system.local WHERE key = ?")
+
+    metadata = prepared.result_metadata
+
+    assert metadata is not None
+    assert metadata.column_count == 1
+    assert len(metadata.columns) == 1
+
+    result_col = metadata.columns[0]
+
+    assert result_col.name == "cluster_name"
+    assert result_col.table_name == "local"
+    assert result_col.keyspace_name == "system"
+    assert isinstance(result_col.cql_type, CqlColumnType)
+    assert isinstance(result_col.cql_type, CqlText)
 
 
 @pytest.mark.asyncio
