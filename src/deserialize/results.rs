@@ -1,5 +1,9 @@
 use crate::deserialize::value::{PyDeserializeValue, PyDeserializedValue};
-use crate::errors::{DriverDeserializationError, DriverExecuteError, DriverRowIterationError};
+use crate::errors::{
+    DriverDeserializationError, DriverExecuteError, DriverQueryMetadataError,
+    DriverRowIterationError,
+};
+use crate::query_metadata::PyResultMetadata;
 use crate::serialize::value_list::PyValueList;
 use crate::session::{ExecutableStatement, PySession};
 use pyo3::exceptions::{PyRuntimeError, PyStopAsyncIteration, PyStopIteration};
@@ -199,6 +203,15 @@ impl RequestResult {
         }
 
         Ok(list)
+    }
+
+    /// Returns metadata about the query result.
+    #[getter]
+    fn get_result_metadata(
+        &self,
+        py: Python<'_>,
+    ) -> Result<PyResultMetadata, DriverQueryMetadataError> {
+        PyResultMetadata::try_from((py, self.query_result.as_ref()))
     }
 }
 

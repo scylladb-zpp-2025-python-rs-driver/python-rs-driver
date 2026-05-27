@@ -11,6 +11,7 @@ from decimal import Decimal
 from datetime import time
 from dateutil.relativedelta import relativedelta
 import pytest_asyncio
+from scylla._rust.cluster.metadata import CqlColumnType, CqlText  # pyright: ignore[reportMissingModuleSource]
 from scylla._rust.errors import DeserializationError, RowIterationError  # pyright: ignore[reportMissingModuleSource]
 from scylla._rust.session import Session  # pyright: ignore[reportMissingModuleSource]
 from scylla._rust.session_builder import SessionBuilder  # pyright: ignore[reportMissingModuleSource]
@@ -1177,6 +1178,43 @@ async def test_timestamp_overflow(
     )
 
     assert isinstance(row["value"], datetime.datetime)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_request_result_result_metadata_for_rows(session: Session):
+    result = await session.execute("SELECT cluster_name FROM system.local")
+
+    metadata = result.result_metadata
+
+    assert metadata is not None
+    assert metadata.column_count == 1
+    assert len(metadata.columns) == 1
+
+    column = metadata.columns[0]
+
+    assert column.name == "cluster_name"
+    assert column.table_name == "local"
+    assert column.keyspace_name == "system"
+    assert isinstance(column.cql_type, CqlColumnType)
+    assert isinstance(column.cql_type, CqlText)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_request_result_result_metadata_for_non_rows(session: Session, table_factory: TableFactory):
+    table = await table_factory(
+        "id int PRIMARY KEY, value text",
+        "result_metadata_non_rows_table",
+    )
+
+    result = await session.execute(f"INSERT INTO {table} (id, value) VALUES (1, 'hello')")
+
+    metadata = result.result_metadata
+
+    assert metadata is not None
+    assert metadata.column_count == 0
+    assert metadata.columns == []
 
 
 @pytest.mark.asyncio
