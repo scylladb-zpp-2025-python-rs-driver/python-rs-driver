@@ -1234,6 +1234,8 @@ impl From<DriverClusterStateTokenError> for PyErr {
 pub(crate) enum DriverQueryMetadataError {
     /// An error occurred in Python code or during PyO3 conversion while extracting a column type.
     ColumnTypeExtractionFailed { source: Box<PyErr> },
+    /// The rows metadata is missing from the query result.
+    MissingRowsMetadata,
 }
 
 impl DriverQueryMetadataError {
@@ -1242,6 +1244,10 @@ impl DriverQueryMetadataError {
         Self::ColumnTypeExtractionFailed {
             source: Box::new(source),
         }
+    }
+
+    pub fn missing_rows_metadata() -> Self {
+        Self::MissingRowsMetadata
     }
 }
 
@@ -1254,6 +1260,9 @@ impl From<DriverQueryMetadataError> for PyErr {
 
                 err.set_cause(py, Some(*source));
                 err
+            }
+            DriverQueryMetadataError::MissingRowsMetadata => {
+                QueryMetadataError::new_err("Rows metadata is missing from the query result")
             }
         })
     }

@@ -35,3 +35,13 @@ class PreparedMetadata:
     def columns(self) -> list[ColumnSpec]: ...
     @property
     def partition_key_indexes(self) -> list[PartitionKeyIndex]: ...
+
+class ResultMetadata:
+    """
+    Metadata for a query result, including column specifications and column count.
+    """
+
+    @property
+    def column_count(self) -> int: ...
+    @property
+    def columns(self) -> list[ColumnSpec]: ...

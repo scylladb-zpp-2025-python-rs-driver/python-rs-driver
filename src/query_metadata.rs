@@ -100,10 +100,77 @@ impl<'a> TryFrom<(Python<'a>, &scylla::statement::prepared::PreparedStatement)>
     }
 }
 
+/// Metadata for a query result, including column specifications and column count.
+#[pyclass(name = "ResultMetadata", skip_from_py_object, frozen, get_all)]
+#[derive(Clone)]
+pub(crate) struct PyResultMetadata {
+    /// The number of columns in the query result.
+    column_count: usize,
+    /// The specifications of the columns in the query result.
+    columns: Vec<PyColumnSpec>,
+}
+
+// Convert from Scylla's `PreparedStatement` to our `PyResultMetadata`.
+impl<'a> TryFrom<(Python<'a>, &scylla::statement::prepared::PreparedStatement)>
+    for PyResultMetadata
+{
+    type Error = DriverQueryMetadataError;
+
+    fn try_from(
+        (py, prepared): (Python<'a>, &scylla::statement::prepared::PreparedStatement),
+    ) -> Result<Self, Self::Error> {
+        let guard = prepared.get_current_result_set_col_specs();
+
+        let columns = guard
+            .get()
+            .iter()
+            .map(|spec| PyColumnSpec::try_from((py, spec)))
+            .collect::<Result<Vec<PyColumnSpec>, DriverQueryMetadataError>>()?;
+
+        Ok(PyResultMetadata {
+            column_count: columns.len(),
+            columns,
+        })
+    }
+}
+
+// Convert from Scylla's `QueryResult` to our `PyResultMetadata`.
+impl<'a> TryFrom<(Python<'a>, &scylla::response::query_result::QueryResult)> for PyResultMetadata {
+    type Error = DriverQueryMetadataError;
+
+    fn try_from(
+        (py, query_result): (Python<'a>, &scylla::response::query_result::QueryResult),
+    ) -> Result<Self, Self::Error> {
+        if !query_result.is_rows() {
+            return Ok(PyResultMetadata {
+                column_count: 0,
+                columns: Vec::new(),
+            });
+        }
+
+        let raw_rows_with_metadata = query_result
+            .deserialized_metadata_and_rows()
+            .ok_or_else(DriverQueryMetadataError::missing_rows_metadata)?;
+
+        let columns = raw_rows_with_metadata
+            .metadata()
+            .col_specs()
+            .iter()
+            .map(|spec| PyColumnSpec::try_from((py, spec)))
+            .collect::<Result<Vec<PyColumnSpec>, DriverQueryMetadataError>>()?;
+
+        Ok(PyResultMetadata {
+            column_count: columns.len(),
+            columns,
+        })
+    }
+}
+
 pub(crate) fn query_metadata(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyColumnSpec>()?;
     module.add_class::<PyPartitionKeyIndex>()?;
     module.add_class::<PyPreparedMetadata>()?;
+    module.add_class::<PyResultMetadata>()?;
 
     Ok(())
 }
