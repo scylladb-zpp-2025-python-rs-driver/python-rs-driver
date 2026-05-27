@@ -20,6 +20,8 @@ from ._rust.errors import (  # pyright: ignore[reportMissingModuleSource]
     ValueOverflowSerializationError,
     SerializeFailedError,
     PySerializationFailedError,
+    ClusterStateTokenError,
+    QueryMetadataError,
 )
 
 __all__ = [
@@ -43,4 +45,6 @@ __all__ = [
     "ValueOverflowSerializationError",
     "SerializeFailedError",
     "PySerializationFailedError",
+    "ClusterStateTokenError",
+    "QueryMetadataError",
 ]

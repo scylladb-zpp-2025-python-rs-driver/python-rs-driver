@@ -10,7 +10,7 @@ use scylla::cluster::metadata::{Column, ColumnKind, Keyspace, MaterializedView, 
 
 use crate::{cache::Cache, cluster::metadata::column_type::*};
 
-mod column_type;
+pub(crate) mod column_type;
 
 #[pyclass(name = "StrategyKind", eq, eq_int, frozen, skip_from_py_object)]
 #[derive(Clone, Copy, PartialEq)]
