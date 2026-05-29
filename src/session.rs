@@ -6,7 +6,7 @@ use crate::cluster::state::PyClusterState;
 use crate::deserialize::results::{Pager, PyPagingState, RequestResult, RowFactory};
 use crate::errors::{
     DriverExecuteError, DriverPrepareError, DriverSchemaAgreementError,
-    DriverStatementConversionError,
+    DriverStatementConversionError, DriverUseKeyspaceError,
 };
 use crate::serialize::value_list::PyValueList;
 use crate::statement::PyPreparedStatement;
@@ -44,6 +44,20 @@ impl TryFrom<Arc<Session>> for PySession {
 
 #[pymethods]
 impl PySession {
+    #[pyo3(signature = (keyspace, case_sensitive=false))]
+    async fn use_keyspace(
+        &self,
+        keyspace: String,
+        case_sensitive: bool,
+    ) -> Result<(), DriverUseKeyspaceError> {
+        self.session_spawn_on_runtime(async move |s| {
+            s.use_keyspace(keyspace, case_sensitive)
+                .await
+                .map_err(DriverUseKeyspaceError::from)
+        })
+        .await
+    }
+
     #[pyo3(signature = (statement, values=None, /, *, factory=None, paging_state=None, paged=true))]
     async fn execute(
         &self,

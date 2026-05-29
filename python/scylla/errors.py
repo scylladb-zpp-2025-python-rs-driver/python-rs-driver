@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from ._rust.errors import (  # pyright: ignore[reportMissingModuleSource]
+    BadKeyspaceNameError,
     BatchError,
     ClusterStateTokenError,
     DecodeFailedError,
     DeserializationError,
     ExecuteError,
+    KeyspaceNameMismatchError,
     PrepareError,
     PyConversionFailedError,
     PySerializationFailedError,
+    RequestError,
+    RequestTimeoutError,
     RowIterationError,
+    RuntimeTaskJoinFailedError,
     SchemaAgreementError,
     ScyllaError,
     SerializationError,
@@ -21,6 +26,7 @@ from ._rust.errors import (  # pyright: ignore[reportMissingModuleSource]
     TypeMismatchSerializationError,
     UnsupportedTypeDeserializationError,
     UnsupportedTypeSerializationError,
+    UseKeyspaceError,
     ValueOverflowSerializationError,
 )
 
@@ -45,5 +51,11 @@ __all__ = [
     "ValueOverflowSerializationError",
     "SerializeFailedError",
     "PySerializationFailedError",
+    "UseKeyspaceError",
     "ClusterStateTokenError",
+    "BadKeyspaceNameError",
+    "RequestError",
+    "KeyspaceNameMismatchError",
+    "RequestTimeoutError",
+    "RuntimeTaskJoinFailedError",
 ]
