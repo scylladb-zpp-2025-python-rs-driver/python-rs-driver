@@ -8,6 +8,7 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyNone};
 use scylla::errors::ClusterStateTokenError as RustClusterStateTokenError;
+use scylla::errors::UseKeyspaceError as RustUseKeyspaceError;
 
 /* Python exception classes */
 
@@ -51,6 +52,7 @@ create_exception!(errors, SerializeFailedError, SerializationError);
 create_exception!(errors, PySerializationFailedError, SerializationError);
 
 create_exception!(errors, ClusterStateTokenError, ScyllaError);
+create_exception!(errors, UseKeyspaceError, ScyllaError);
 
 // Policy: DriverError types are pure Rust and contain PyErr only as source
 // in cases where the error originated from Python code (e.g. during extraction or user callbacks).
@@ -1173,6 +1175,64 @@ impl From<DriverSerializationError> for scylla::serialize::SerializationError {
     }
 }
 
+#[derive(Debug)]
+pub(crate) enum DriverUseKeyspaceError {
+    BadKeyspaceName { message: String },
+    RequestError { message: String },
+    KeyspaceNameMismatch { message: String },
+    RequestTimeout { message: String },
+    RuntimeTaskJoinFailed { message: String },
+}
+
+impl From<RustUseKeyspaceError> for DriverUseKeyspaceError {
+    fn from(e: RustUseKeyspaceError) -> Self {
+        #[deny(clippy::wildcard_enum_match_arm)]
+        match e {
+            RustUseKeyspaceError::BadKeyspaceName(_) => Self::BadKeyspaceName {
+                message: e.to_string(),
+            },
+            RustUseKeyspaceError::RequestError(_) => Self::RequestError {
+                message: e.to_string(),
+            },
+            RustUseKeyspaceError::KeyspaceNameMismatch { .. } => Self::KeyspaceNameMismatch {
+                message: e.to_string(),
+            },
+            RustUseKeyspaceError::RequestTimeout(_) => Self::RequestTimeout {
+                message: e.to_string(),
+            },
+            _ => unreachable!("clippy testifies that the match is exhaustive"),
+        }
+    }
+}
+
+impl From<tokio::task::JoinError> for DriverUseKeyspaceError {
+    fn from(e: tokio::task::JoinError) -> Self {
+        Self::RuntimeTaskJoinFailed {
+            message: e.to_string(),
+        }
+    }
+}
+
+impl From<DriverUseKeyspaceError> for PyErr {
+    fn from(e: DriverUseKeyspaceError) -> Self {
+        match e {
+            DriverUseKeyspaceError::BadKeyspaceName { message } => {
+                UseKeyspaceError::new_err(message)
+            }
+            DriverUseKeyspaceError::RequestError { message } => UseKeyspaceError::new_err(message),
+            DriverUseKeyspaceError::KeyspaceNameMismatch { message } => {
+                UseKeyspaceError::new_err(message)
+            }
+            DriverUseKeyspaceError::RequestTimeout { message } => {
+                UseKeyspaceError::new_err(message)
+            }
+            DriverUseKeyspaceError::RuntimeTaskJoinFailed { message } => UseKeyspaceError::new_err(
+                format!("Internal driver error: runtime error while using keyspace: {message}"),
+            ),
+        }
+    }
+}
+
 /// Errors that can occur during cluster state operations.
 #[derive(Debug)]
 pub(crate) enum DriverClusterStateTokenError {
@@ -1289,5 +1349,6 @@ pub(crate) fn errors(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<(
         "ClusterStateTokenError",
         py.get_type::<ClusterStateTokenError>(),
     )?;
+    module.add("UseKeyspaceError", py.get_type::<UseKeyspaceError>())?;
     Ok(())
 }
