@@ -1,8 +1,7 @@
-import pytest
-import pytest_asyncio
-
 import uuid
 
+import pytest
+import pytest_asyncio
 from scylla.session import Session
 from scylla.session_builder import SessionBuilder
 
@@ -15,7 +14,7 @@ async def set_up() -> Session:
             WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1};
         """)
 
-    await session.execute("USE testks")
+    await session.use_keyspace("testks")
 
     return session
 

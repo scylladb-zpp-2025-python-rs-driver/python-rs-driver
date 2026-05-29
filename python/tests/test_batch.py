@@ -20,7 +20,7 @@ async def set_up() -> Session:
             WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1};
         """)
 
-    await session.execute("USE testks")
+    await session.use_keyspace("testks")
 
     return session
 
@@ -59,7 +59,7 @@ async def set_up_without_tablets() -> Session:
             AND tablets = {'enabled': false};
         """)
 
-    await session.execute("USE testks_without_tablets")
+    await session.use_keyspace("testks_without_tablets")
 
     return session
 

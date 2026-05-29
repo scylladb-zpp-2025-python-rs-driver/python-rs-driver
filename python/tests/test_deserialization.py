@@ -1,21 +1,19 @@
-from typing import Any, Callable, Awaitable, AsyncGenerator, Dict, Tuple, Set, List
-
-from scylla._rust.value import CqlEmpty  # pyright: ignore[reportMissingModuleSource]
+import datetime
+import ipaddress
+import math
+import uuid
+from datetime import time
+from decimal import Decimal
+from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, List, Set, Tuple
 
 import pytest
-import uuid
-import ipaddress
-import datetime
-import math
-from decimal import Decimal
-from datetime import time
-from dateutil.relativedelta import relativedelta
 import pytest_asyncio
+from dateutil.relativedelta import relativedelta
 from scylla._rust.errors import DeserializationError, RowIterationError  # pyright: ignore[reportMissingModuleSource]
+from scylla._rust.results import ColumnIterator, RowFactory  # pyright: ignore[reportMissingModuleSource]
 from scylla._rust.session import Session  # pyright: ignore[reportMissingModuleSource]
 from scylla._rust.session_builder import SessionBuilder  # pyright: ignore[reportMissingModuleSource]
-
-from scylla._rust.results import RowFactory, ColumnIterator  # pyright: ignore[reportMissingModuleSource]
+from scylla._rust.value import CqlEmpty  # pyright: ignore[reportMissingModuleSource]
 
 
 async def set_up() -> Session:
@@ -27,7 +25,7 @@ async def set_up() -> Session:
             WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1};
         """)
 
-    await session.execute("USE testks")
+    await session.use_keyspace("testks")
 
     return session
 
