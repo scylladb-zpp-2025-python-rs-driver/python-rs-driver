@@ -18,6 +18,7 @@ mod enums;
 mod errors;
 mod execution_profile;
 mod other_policies;
+mod policies;
 mod routing;
 mod serialize;
 mod session;
@@ -69,5 +70,6 @@ fn scylla(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     add_submodule(py, module, "other_policies", other_policies::other_policies)?;
     add_submodule(py, module, "cluster", cluster::cluster)?;
     add_submodule(py, module, "routing", routing::routing)?;
+    add_submodule(py, module, "retry_policy", policies::retry::retry_policy)?;
     Ok(())
 }
