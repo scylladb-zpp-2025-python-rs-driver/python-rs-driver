@@ -1,21 +1,19 @@
 import ipaddress
+from typing import Any, Generator, Optional
 
-from scylla.errors import SessionConfigError
 import pytest
-
-from typing import Optional, Any, Generator
 from _pytest.logging import LogCaptureFixture
-from scylla.session_builder import SessionBuilder
-from scylla.policies import (
+from scylla.errors import SessionConfigError
+from scylla.other_policies import (
+    AddressTranslator,
     Authenticator,
     AuthenticatorProvider,
-    AddressTranslator,
-    UntranslatedPeer,
-    TimestampGenerator,
     HostFilter,
     Peer,
+    TimestampGenerator,
+    UntranslatedPeer,
 )
-
+from scylla.session_builder import SessionBuilder
 from tests.helpers.ccm import (  # pyright: ignore[reportMissingTypeStubs]
     create_scylla_cluster,
     get_contact_points,

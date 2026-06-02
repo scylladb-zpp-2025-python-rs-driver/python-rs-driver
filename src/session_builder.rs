@@ -1,7 +1,7 @@
 use crate::RUNTIME;
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
-use crate::policies::{
+use crate::other_policies::{
     InternalAddressTranslator, InternalAuthenticatorProvider, InternalHostFilter,
     InternalTimestampGenerator, PyAddressTranslator, PyAuthenticatorProvider, PyHostFilter,
     PyTimestampGenerator,
