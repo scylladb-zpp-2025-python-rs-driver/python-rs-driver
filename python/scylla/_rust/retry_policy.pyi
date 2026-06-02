@@ -470,3 +470,24 @@ class RequestAttemptError:
         """Prepared statement id changed after repreparation."""
 
         def __init__(self, statement: str, expected_id: bytes, reprepared_id: bytes) -> None: ...
+
+class RequestInfo:
+    """
+    Information about a failed request.
+
+    Attributes:
+        error (`RequestAttemptError`): The error with which the request failed
+
+        is_idempotent (`bool`): A request is idempotent if it can be applied multiple times
+        without changing the result of the initial application.
+        If set to `true` we can be sure that it is idempotent.
+        If set to `false` it is unknown whether it is idempotent.
+
+        consistency (`Consistency`): Consistency with which the request failed.
+    """
+
+    error: RequestAttemptError
+    is_idempotent: bool
+    consistency: Consistency
+
+    def __init__(self, error: RequestAttemptError, is_idempotent: bool, consistency: Consistency) -> None: ...

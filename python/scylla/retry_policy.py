@@ -3,6 +3,7 @@ from ._rust.retry_policy import (  # pyright: ignore[reportMissingModuleSource]
     DbError,
     OperationType,
     RequestAttemptError,
+    RequestInfo,
     RetryDecision,
     WriteType,
 )
@@ -12,6 +13,7 @@ __all__ = [
     "DbError",
     "OperationType",
     "RequestAttemptError",
+    "RequestInfo",
     "RetryDecision",
     "WriteType",
 ]
