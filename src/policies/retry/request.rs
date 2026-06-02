@@ -13,7 +13,6 @@ pub(crate) struct PyRequestInfo {
     pub(crate) is_idempotent: bool,
     #[pyo3(get)]
     pub(crate) consistency: PyConsistency,
-    #[allow(dead_code)]
     rust_error: RequestAttemptError,
 }
 
@@ -29,7 +28,6 @@ impl From<&RequestInfo<'_>> for PyRequestInfo {
 }
 
 impl PyRequestInfo {
-    #[allow(dead_code)]
     pub fn to_request_info<'a>(&'a self) -> RequestInfo<'a> {
         RequestInfo::new(
             &self.rust_error,
