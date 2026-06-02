@@ -31,3 +31,4 @@ async-trait = "0.1.89"
 log = "0.4.29"
 tracing = { version = "0.1", features = ["log"] }
 pyo3-log = "0.13.3"
+bytes = "1.11.1"
