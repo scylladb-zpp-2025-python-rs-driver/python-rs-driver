@@ -505,3 +505,27 @@ class RequestAttemptError:
         @property
         def reprepared_id(self) -> bytes: ...
         def __init__(self, statement: str, expected_id: bytes, reprepared_id: bytes) -> None: ...
+
+class RequestInfo:
+    """
+    Information about a failed request.
+
+    Attributes:
+        error (`RequestAttemptError`): The error with which the request failed
+
+        is_idempotent (`bool`): A request is idempotent if it can be applied multiple times
+        without changing the result of the initial application.
+        If set to `true` we can be sure that it is idempotent.
+        If set to `false` it is unknown whether it is idempotent.
+
+        consistency (`Consistency`): Consistency with which the request failed.
+    """
+
+    @property
+    def error(self) -> RequestAttemptError: ...
+    @property
+    def is_idempotent(self) -> bool: ...
+    @property
+    def consistency(self) -> Consistency: ...
+    def __str__(self) -> str: ...
+    def __repr__(self) -> str: ...
