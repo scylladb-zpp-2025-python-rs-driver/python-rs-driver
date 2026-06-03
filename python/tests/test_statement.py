@@ -1,8 +1,9 @@
 from typing import Any, cast
 
 import pytest
-from scylla.enums import SerialConsistency
+from scylla.enums import Consistency, SerialConsistency
 from scylla.errors import PrepareError, StatementConfigError, StatementConversionError
+from scylla.execution_profile import ExecutionProfile
 from scylla.session_builder import SessionBuilder
 from scylla.statement import PreparedStatement, Statement
 from scylla.types import Unset
@@ -209,3 +210,37 @@ async def test_prepared_serial_consistency():
 
     prepared = prepared.without_serial_consistency()
     assert prepared.serial_consistency is Unset
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_statement_preserves_execution_profile_after_prepare():
+    builder = SessionBuilder().contact_points(("127.0.0.2", 9042))
+    session = await builder.connect()
+
+    query_stmt = Statement("SELECT cluster_name FROM system.local").with_execution_profile(
+        ExecutionProfile(timeout=12.234)
+    )
+    prepared = await session.prepare(query_stmt)
+
+    prepared_ep = prepared.execution_profile
+    assert prepared_ep is not None
+    assert prepared_ep.request_timeout == 12.234
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_statement_preserves_settings_after_prepare():
+    builder = SessionBuilder().contact_points(("127.0.0.2", 9042))
+    session = await builder.connect()
+
+    query_stmt = (
+        Statement("SELECT cluster_name FROM system.local").with_page_size(500).with_consistency(Consistency.EachQuorum)
+    )
+    prepared = await session.prepare(query_stmt)
+
+    prepared_ps = prepared.page_size
+    assert prepared_ps == 500
+
+    prepared_c = prepared.consistency
+    assert prepared_c == Consistency.EachQuorum
