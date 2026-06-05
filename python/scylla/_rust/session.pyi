@@ -17,6 +17,20 @@ class Session:
         Access information about the cluster topology or schema through ClusterState object.
         """
         ...
+    async def use_keyspace(self, keyspace: str, case_sensitive: bool = False) -> None:
+        """
+        Sends `USE <keyspace>` request on all connections
+        This allows to write `SELECT * FROM table` instead of `SELECT * FROM keyspace.table`
+
+        Note that even failed `use_keyspace` can change currently used keyspace - the request is sent on all connections and
+        can overwrite previously used keyspace.
+
+        Raises
+        ------
+        UseKeyspaceError
+            If an error occured when trying to use the provided keyspace.
+        """
+        ...
     async def prepare(self, statement: Statement | str) -> PreparedStatement:
         """
         Prepare a statement for repeated execution.

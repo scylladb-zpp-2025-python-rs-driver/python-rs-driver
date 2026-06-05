@@ -8,12 +8,12 @@ from typing import AsyncGenerator, Awaitable, Callable, List, Optional, Tuple
 import pytest
 import pytest_asyncio
 from dateutil.relativedelta import relativedelta
-from scylla.session import Session
-from scylla.session_builder import SessionBuilder
 
 # SerializationError is never raised directly, but it shapes the error message.
 # We import ExecuteError which is raised for serialization issues during query execution.
 from scylla.errors import ExecuteError
+from scylla.session import Session
+from scylla.session_builder import SessionBuilder
 
 
 async def set_up() -> Session:
@@ -24,7 +24,7 @@ async def set_up() -> Session:
             WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1};
         """)
 
-    await session.execute("USE testks")
+    await session.use_keyspace("testks")
 
     return session
 
