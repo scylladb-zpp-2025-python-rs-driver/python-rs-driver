@@ -45,7 +45,7 @@ class CqlColumnType:
 
     ...
 
-class CqlNativeType:
+class CqlNativeType(CqlColumnType):
     """Base class for native Cassandra scalar types."""
 
     ...
@@ -71,7 +71,7 @@ class CqlTinyInt(CqlNativeType): ...
 class CqlUuid(CqlNativeType): ...
 class CqlVarint(CqlNativeType): ...
 
-class CqlCollectionType:
+class CqlCollectionType(CqlColumnType):
     """Base class for CQL collection types (List, Map, Set)."""
 
     frozen: bool
