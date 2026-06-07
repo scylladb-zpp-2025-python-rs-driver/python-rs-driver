@@ -13,3 +13,4 @@
    topics/configuration/index
    topics/security/index
    topics/observability/index
+   topics/data-types
