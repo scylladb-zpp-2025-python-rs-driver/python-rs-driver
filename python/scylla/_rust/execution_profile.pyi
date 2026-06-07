@@ -1,4 +1,5 @@
 from .enums import Consistency, SerialConsistency
+from .policies.retry_policy import RetryPolicy
 
 class ExecutionProfile:
     def __init__(
@@ -6,6 +7,7 @@ class ExecutionProfile:
         timeout: float | None = 30.0,
         consistency: Consistency = Consistency.LocalQuorum,
         serial_consistency: SerialConsistency | None = SerialConsistency.LocalSerial,
+        retry_policy: RetryPolicy | None = None,
     ) -> None: ...
     @property
     def request_timeout(self) -> float | None: ...
@@ -13,3 +15,5 @@ class ExecutionProfile:
     def consistency(self) -> Consistency: ...
     @property
     def serial_consistency(self) -> SerialConsistency | None: ...
+    @property
+    def retry_policy(self) -> RetryPolicy | None: ...

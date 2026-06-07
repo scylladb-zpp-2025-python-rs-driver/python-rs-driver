@@ -658,6 +658,7 @@ impl RowsIteratorKind {
 /// Responsible for handling pagination state transitions and retrieving
 /// subsequent pages from paginated query results.
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum Pager {
     Unpaged,
     Paged {

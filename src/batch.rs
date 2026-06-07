@@ -1,6 +1,7 @@
 use crate::enums::{PyConsistency, PySerialConsistency};
 use crate::errors::DriverBatchError;
-use crate::execution_profile::ExecutionProfile;
+use crate::execution_profile::PyExecutionProfile;
+use crate::policies::retry::policies::py_any_to_arc_retry_policy;
 use crate::serialize::value_list::PyValueList;
 use crate::session::ExecutableStatement;
 use crate::types::UnsetType;
@@ -48,6 +49,8 @@ pub(crate) struct PyBatch {
     // between `Unset` and `None` in a different way. To preserve this distinction, an additional
     // flag `is_serial_consistency_set` is required.
     is_serial_consistency_set: bool,
+    pub(crate) _retry_policy: Option<Py<PyAny>>,
+    pub(crate) _execution_profile: Option<Py<PyExecutionProfile>>,
 }
 
 impl PyBatch {
@@ -55,11 +58,15 @@ impl PyBatch {
         _inner: Batch,
         values: Vec<PyValueList>,
         is_serial_consistency_set: bool,
+        _retry_policy: Option<Py<PyAny>>,
+        _execution_profile: Option<Py<PyExecutionProfile>>,
     ) -> Self {
         Self {
             _inner,
             values,
             is_serial_consistency_set,
+            _retry_policy,
+            _execution_profile,
         }
     }
 }
@@ -69,7 +76,7 @@ impl PyBatch {
     #[new]
     #[pyo3(signature = (batch_type=PyBatchType::Logged))]
     fn py_new(batch_type: PyBatchType) -> Self {
-        Self::new(Batch::new(batch_type.into()), vec![], false)
+        Self::new(Batch::new(batch_type.into()), vec![], false, None, None)
     }
 
     #[pyo3(signature = (statement, values=None))]
@@ -90,37 +97,62 @@ impl PyBatch {
         self._inner.get_type().into()
     }
 
-    fn with_execution_profile(&self, profile: ExecutionProfile) -> Self {
+    fn with_execution_profile(&self, profile: Py<PyExecutionProfile>) -> Self {
         let mut batch = self._inner.clone();
-        batch.set_execution_profile_handle(Some(profile._inner.into_handle()));
-        Self::new(batch, self.values.clone(), self.is_serial_consistency_set)
+        let inner = profile.get()._inner.clone();
+        batch.set_execution_profile_handle(Some(inner.into_handle()));
+
+        Self::new(
+            batch,
+            self.values.clone(),
+            self.is_serial_consistency_set,
+            self._retry_policy.clone(),
+            Some(profile),
+        )
     }
 
     fn without_execution_profile(&self) -> Self {
         let mut batch = self._inner.clone();
         batch.set_execution_profile_handle(None);
-        Self::new(batch, self.values.clone(), self.is_serial_consistency_set)
+
+        Self::new(
+            batch,
+            self.values.clone(),
+            self.is_serial_consistency_set,
+            self._retry_policy.clone(),
+            None,
+        )
     }
 
     #[getter]
-    fn get_execution_profile(&self) -> Option<ExecutionProfile> {
-        self._inner
-            .get_execution_profile_handle()
-            .map(|h| ExecutionProfile {
-                _inner: h.to_profile(),
-            })
+    fn get_execution_profile(&self) -> Option<Py<PyExecutionProfile>> {
+        self._execution_profile.clone()
     }
 
     fn with_consistency(&self, c: PyConsistency) -> Self {
         let mut batch = self._inner.clone();
         batch.set_consistency(c.into());
-        Self::new(batch, self.values.clone(), self.is_serial_consistency_set)
+
+        Self::new(
+            batch,
+            self.values.clone(),
+            self.is_serial_consistency_set,
+            self._retry_policy.clone(),
+            self._execution_profile.clone(),
+        )
     }
 
     fn without_consistency(&self) -> Self {
         let mut batch = self._inner.clone();
         batch.unset_consistency();
-        Self::new(batch, self.values.clone(), self.is_serial_consistency_set)
+
+        Self::new(
+            batch,
+            self.values.clone(),
+            self.is_serial_consistency_set,
+            self._retry_policy.clone(),
+            self._execution_profile.clone(),
+        )
     }
 
     #[getter]
@@ -131,13 +163,27 @@ impl PyBatch {
     fn with_serial_consistency(&self, sc: Option<PySerialConsistency>) -> Self {
         let mut batch = self._inner.clone();
         batch.set_serial_consistency(sc.map(SerialConsistency::from));
-        Self::new(batch, self.values.clone(), true)
+
+        Self::new(
+            batch,
+            self.values.clone(),
+            true,
+            self._retry_policy.clone(),
+            self._execution_profile.clone(),
+        )
     }
 
     fn without_serial_consistency(&self) -> Self {
         let mut batch = self._inner.clone();
         batch.unset_serial_consistency();
-        Self::new(batch, self.values.clone(), false)
+
+        Self::new(
+            batch,
+            self.values.clone(),
+            false,
+            self._retry_policy.clone(),
+            self._execution_profile.clone(),
+        )
     }
 
     #[getter]
@@ -164,17 +210,27 @@ impl PyBatch {
 
         let mut batch = self._inner.clone();
         batch.set_request_timeout(Some(timeout));
+
         Ok(Self::new(
             batch,
             self.values.clone(),
             self.is_serial_consistency_set,
+            self._retry_policy.clone(),
+            self._execution_profile.clone(),
         ))
     }
 
     fn without_request_timeout(&self) -> Self {
         let mut batch = self._inner.clone();
         batch.set_request_timeout(None);
-        Self::new(batch, self.values.clone(), self.is_serial_consistency_set)
+
+        Self::new(
+            batch,
+            self.values.clone(),
+            self.is_serial_consistency_set,
+            self._retry_policy.clone(),
+            self._execution_profile.clone(),
+        )
     }
 
     #[getter]
@@ -184,6 +240,56 @@ impl PyBatch {
             Some(t) => PyFloat::new(py, t.as_secs_f64()).into(),
             None => UnsetType::get_instance(py).into(),
         }
+    }
+
+    fn with_retry_policy(&self, retry_policy: Py<PyAny>, py: Python<'_>) -> Self {
+        let mut batch = self._inner.clone();
+        let arc = py_any_to_arc_retry_policy(&retry_policy, py);
+        batch.set_retry_policy(Some(arc));
+
+        Self::new(
+            batch,
+            self.values.clone(),
+            self.is_serial_consistency_set,
+            Some(retry_policy),
+            self._execution_profile.clone(),
+        )
+    }
+
+    fn without_retry_policy(&self) -> Self {
+        let mut batch = self._inner.clone();
+        batch.set_retry_policy(None);
+
+        Self::new(
+            batch,
+            self.values.clone(),
+            self.is_serial_consistency_set,
+            None,
+            self._execution_profile.clone(),
+        )
+    }
+
+    #[getter]
+    fn get_retry_policy(&self, py: Python<'_>) -> Option<Py<PyAny>> {
+        self._retry_policy.as_ref().map(|rp| rp.clone_ref(py))
+    }
+
+    fn set_is_idempotent(&self, is_idempotent: bool) -> Self {
+        let mut batch = self._inner.clone();
+        batch.set_is_idempotent(is_idempotent);
+
+        Self::new(
+            batch,
+            self.values.clone(),
+            self.is_serial_consistency_set,
+            self._retry_policy.clone(),
+            self._execution_profile.clone(),
+        )
+    }
+
+    #[getter]
+    fn get_is_idempotent(&self) -> bool {
+        self._inner.get_is_idempotent()
     }
 }
 
