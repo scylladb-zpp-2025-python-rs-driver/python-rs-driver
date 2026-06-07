@@ -2,6 +2,7 @@ import pytest
 from scylla.enums import Consistency, SerialConsistency
 from scylla.errors import ExecuteError, StatementConfigError
 from scylla.execution_profile import ExecutionProfile
+from scylla.retry_policy import DefaultRetryPolicy
 from scylla.session_builder import SessionBuilder
 from scylla.statement import PreparedStatement, Statement
 from scylla.types import Unset
@@ -416,3 +417,10 @@ async def test_prepared_with_and_without_serial_consistency():
 
     actual_serial_consistency = prepared.serial_consistency
     assert actual_serial_consistency is Unset
+
+
+def test_retry_policy_returns_same_object():
+    policy = DefaultRetryPolicy()
+    profile = ExecutionProfile(retry_policy=policy)
+
+    assert profile.retry_policy is policy
