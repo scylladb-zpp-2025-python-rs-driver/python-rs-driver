@@ -12,7 +12,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tracing::error;
 
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(crate) struct PyCustomRetrySession {
     pub(crate) _inner: Py<PyAny>,
@@ -142,7 +141,6 @@ impl PyFallthroughRetrySession {
     fn reset(&self) {}
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub(crate) struct PyCustomRetryPolicy {
     pub(crate) _inner: Py<PyAny>,
@@ -236,7 +234,6 @@ impl PyFallthroughRetryPolicy {
     }
 }
 
-#[allow(dead_code)]
 pub(crate) fn py_any_to_arc_retry_policy(rp: &Py<PyAny>, py: Python<'_>) -> Arc<dyn RetryPolicy> {
     let obj = rp.bind(py);
     if let Ok(policy) = obj.cast::<PyDefaultRetryPolicy>() {
