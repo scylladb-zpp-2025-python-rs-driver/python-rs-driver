@@ -6,6 +6,7 @@ from ipaddress import IPv4Address, IPv6Address
 from .policies import AuthenticatorProvider, AddressTranslator, TimestampGenerator, HostFilter
 from .execution_profile import ExecutionProfile
 from .session import Session
+from .tls import TlsContext
 
 ContactPoint = str | tuple[str | IPv4Address | IPv6Address, int]
 
@@ -156,6 +157,22 @@ class SessionBuilder:
         ----------
         host_filter : HostFilter
             An instance of a class inheriting from :class:`HostFilter`.
+
+        Returns
+        -------
+        SessionBuilder
+        """
+        ...
+
+    def tls_context(self, tls_context: TlsContext | None) -> SessionBuilder:
+        """
+        Configures the session to use the provided TLS/SSL context.
+        Passing `None` explicitly disables TLS, which is the default behavior.
+
+        Parameters
+        ----------
+        tls_context : TlsContext | None
+                An instance of :class:`TlsContext` or ``None`` to disable TLS.
 
         Returns
         -------
