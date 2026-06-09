@@ -10,10 +10,14 @@ use crate::session::PySession;
 use pyo3::prelude::*;
 use pyo3::types::PySequence;
 use scylla::authentication::PlainTextAuthenticator;
+use scylla::client::SelfIdentity;
 use scylla::client::session::SessionConfig;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
+
+const DEFAULT_DRIVER_NAME: &str = "ScyllaDB Python RS Driver";
+const DEFAULT_DRIVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[pyclass]
 struct SessionBuilder {
@@ -98,7 +102,11 @@ impl SessionBuilder {
     }
 
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
-        let config = self.config.clone();
+        let mut config = self.config.clone();
+        config.identity = SelfIdentity::new()
+            .with_custom_driver_name(DEFAULT_DRIVER_NAME)
+            .with_custom_driver_version(DEFAULT_DRIVER_VERSION);
+
         let session_result = RUNTIME
             .spawn(async move { scylla::client::session::Session::connect(config).await })
             .await?;
