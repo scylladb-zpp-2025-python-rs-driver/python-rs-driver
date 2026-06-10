@@ -477,7 +477,6 @@ impl From<tokio::task::JoinError> for DriverSessionConnectionError {
 /* Session configuration errors */
 
 /// Errors related to invalid session configuration.
-#[allow(clippy::enum_variant_names)]
 #[derive(Debug)]
 #[must_use]
 pub enum DriverSessionConfigError {
@@ -494,6 +493,14 @@ pub enum DriverSessionConfigError {
         index: usize,
         source: Box<PyErr>,
     },
+
+    InvalidPortRange,
+
+    InvalidDuration {
+        type_name: String,
+    },
+
+    ZeroDurationNotAllowed,
 }
 
 impl DriverSessionConfigError {
@@ -519,6 +526,16 @@ impl DriverSessionConfigError {
             index,
             source: Box::new(source),
         }
+    }
+
+    pub fn invalid_duration(obj: Borrowed<PyAny>) -> Self {
+        let type_name = obj
+            .get_type()
+            .name()
+            .map(|n| n.to_string())
+            .unwrap_or_else(|_| "UnknownType".to_string());
+
+        Self::InvalidDuration { type_name }
     }
 }
 
@@ -563,6 +580,23 @@ impl From<DriverSessionConfigError> for PyErr {
             DriverSessionConfigError::InvalidContactPointItem { index, source } => {
                 let message = format!("Error processing contact point at index {index}");
                 build_session_config_pyerr(py, message, Some(*source), Some(index))
+            }
+
+            DriverSessionConfigError::InvalidPortRange => {
+                let message = "Invalid port range: start port must be less than or equal to end port, and both ports must be greater than or equal to 1024";
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidDuration { type_name } => {
+                let message = format!(
+                    "Expected a datetime.timedelta or a non-negative finite float (seconds), got: {type_name}"
+                );
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::ZeroDurationNotAllowed => {
+                let message = "Duration must be greater than zero.";
+                build_session_config_pyerr(py, message, None, None)
             }
         })
     }

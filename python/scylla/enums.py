@@ -1,3 +1,3 @@
-from ._rust.enums import Consistency, SerialConsistency  # pyright: ignore[reportMissingModuleSource]
+from ._rust.enums import Consistency, SerialConsistency, Compression, PoolSize, WriteCoalescingDelay, SelfIdentity  # pyright: ignore[reportMissingModuleSource]
 
-__all__ = ["Consistency", "SerialConsistency"]
+__all__ = ["Consistency", "SerialConsistency", "Compression", "PoolSize", "WriteCoalescingDelay", "SelfIdentity"]
