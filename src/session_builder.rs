@@ -1,7 +1,7 @@
 use crate::RUNTIME;
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
-use crate::execution_profile::ExecutionProfile;
-use crate::policies::{
+use crate::execution_profile::PyExecutionProfile;
+use crate::other_policies::{
     InternalAddressTranslator, InternalAuthenticatorProvider, InternalHostFilter,
     InternalTimestampGenerator, PyAddressTranslator, PyAuthenticatorProvider, PyHostFilter,
     PyTimestampGenerator,
@@ -38,7 +38,7 @@ impl SessionBuilder {
 
     fn execution_profile<'py>(
         mut slf: PyRefMut<'py, Self>,
-        execution_profile: ExecutionProfile,
+        execution_profile: PyExecutionProfile,
     ) -> PyRefMut<'py, Self> {
         slf.config.default_execution_profile_handle = execution_profile._inner.into_handle();
         slf

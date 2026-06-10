@@ -6,6 +6,7 @@ from scylla.batch import Batch, BatchType
 from scylla.enums import Consistency, SerialConsistency
 from scylla.errors import BatchError, ExecuteError
 from scylla.execution_profile import ExecutionProfile
+from scylla.retry_policy import DefaultRetryPolicy
 from scylla.session import Session
 from scylla.session_builder import SessionBuilder
 from scylla.statement import Statement
@@ -443,3 +444,67 @@ def test_batch_timeout_not_finite():
         batch.with_request_timeout(float("inf"))
 
     assert "timeout must be a non-negative, finite number" in str(exc_info.value).lower()
+
+
+def test_batch_retry_policy_default():
+    batch = Batch()
+
+    assert batch.retry_policy is None
+
+
+def test_batch_with_retry_policy():
+    batch = Batch()
+    policy = DefaultRetryPolicy()
+
+    new_batch = batch.with_retry_policy(policy)
+
+    assert batch.retry_policy is None
+    assert new_batch.retry_policy is policy
+
+
+def test_batch_without_retry_policy():
+    policy = DefaultRetryPolicy()
+
+    batch = Batch().with_retry_policy(policy)
+    new_batch = batch.without_retry_policy()
+
+    assert batch.retry_policy is policy
+    assert new_batch.retry_policy is None
+
+
+def test_batch_retry_policy_returns_same_object():
+    policy = DefaultRetryPolicy()
+    batch = Batch().with_retry_policy(policy)
+
+    assert batch.retry_policy is policy
+
+
+def test_batch_is_idempotent_default():
+    batch = Batch()
+
+    assert batch.is_idempotent is False
+
+
+def test_batch_set_is_idempotent_true():
+    batch = Batch()
+
+    new_batch = batch.set_is_idempotent(True)
+
+    assert batch.is_idempotent is False
+    assert new_batch.is_idempotent is True
+
+
+def test_batch_set_is_idempotent_false():
+    batch = Batch().set_is_idempotent(True)
+
+    new_batch = batch.set_is_idempotent(False)
+
+    assert batch.is_idempotent is True
+    assert new_batch.is_idempotent is False
+
+
+def test_batch_set_is_idempotent_returns_new_instance():
+    batch = Batch()
+    new_batch = batch.set_is_idempotent(True)
+
+    assert batch is not new_batch

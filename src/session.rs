@@ -18,7 +18,6 @@ use scylla::client::session::Session;
 use scylla::response::query_result::QueryResult;
 use scylla::statement::batch::BatchStatement;
 use scylla::statement::prepared::PreparedStatement;
-use scylla::statement::unprepared::Statement;
 use scylla_cql::frame::request::query::{PagingState, PagingStateResponse};
 use std::future::Future;
 
@@ -161,7 +160,7 @@ impl PySession {
             .session_spawn_on_runtime(async move |s| {
                 match statement {
                     ExecutableStatement::Prepared(p) => s.execute_unpaged(&p, values).await,
-                    ExecutableStatement::Unprepared(q) => s.query_unpaged(q, values).await,
+                    ExecutableStatement::Unprepared(q) => s.query_unpaged(q._inner, values).await,
                 }
                 .map_err(DriverExecuteError::rust_driver_execution_error)
             })
@@ -211,10 +210,15 @@ impl PySession {
 
     async fn scylla_prepare(
         &self,
-        statement: impl Into<Statement>,
+        statement: PyStatement,
     ) -> Result<PyPreparedStatement, DriverPrepareError> {
-        match self._inner.prepare(statement).await {
-            Ok(prepared) => Ok(PyPreparedStatement::new(prepared, false)),
+        match self._inner.prepare(statement._inner).await {
+            Ok(prepared) => Ok(PyPreparedStatement::new(
+                prepared,
+                statement.is_serial_consistency_set,
+                statement._retry_policy,
+                statement._execution_profile,
+            )),
             Err(err) => Err(DriverPrepareError::rust_driver_prepare_error(err)),
         }
     }
@@ -231,7 +235,7 @@ impl PySession {
                     s.execute_single_page(&p, values, paging_state).await
                 }
                 ExecutableStatement::Unprepared(q) => {
-                    s.query_single_page(q, values, paging_state).await
+                    s.query_single_page(q._inner, values, paging_state).await
                 }
             }
             .map_err(DriverExecuteError::rust_driver_execution_error)
@@ -243,7 +247,7 @@ impl PySession {
 #[derive(Clone)]
 pub(crate) enum ExecutableStatement {
     Prepared(PreparedStatement),
-    Unprepared(Statement),
+    Unprepared(PyStatement),
 }
 
 impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
@@ -258,13 +262,16 @@ impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
             let text = text
                 .to_str()
                 .map_err(DriverStatementConversionError::statement_string_conversion_failed)?;
-            return Ok(ExecutableStatement::Unprepared(text.into()));
+            return Ok(ExecutableStatement::Unprepared(PyStatement::new(
+                text.into(),
+                false,
+                None,
+                None,
+            )));
         }
 
         if let Ok(statement) = obj.cast::<PyStatement>() {
-            return Ok(ExecutableStatement::Unprepared(
-                statement.get()._inner.clone(),
-            ));
+            return Ok(ExecutableStatement::Unprepared(statement.get().clone()));
         }
 
         let got = obj
@@ -281,7 +288,7 @@ impl From<ExecutableStatement> for BatchStatement {
     fn from(s: ExecutableStatement) -> Self {
         match s {
             ExecutableStatement::Prepared(p) => BatchStatement::PreparedStatement(p),
-            ExecutableStatement::Unprepared(u) => BatchStatement::Query(u),
+            ExecutableStatement::Unprepared(u) => BatchStatement::Query(u._inner),
         }
     }
 }
