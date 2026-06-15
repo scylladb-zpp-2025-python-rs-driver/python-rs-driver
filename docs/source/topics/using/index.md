@@ -4,12 +4,12 @@ Basic concepts and features of the driver are described in the following section
 
 TBD.
 
-
 ```{eval-rst}
 .. toctree::
    :hidden:
    :glob:
 
    statement-values
+   batches
 
 ```
