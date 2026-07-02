@@ -584,6 +584,11 @@ pub enum DriverSessionConfigError {
         type_name: String,
     },
 
+    /// The object is not AuthenticatorProvider subclass.
+    InvalidAuthenticatorProvider {
+        type_name: String,
+    },
+
     /// The object does not have a `next_timestamp` method and is not a built-in timestamp generator.
     InvalidTimestampGenerator {
         type_name: String,
@@ -599,6 +604,12 @@ impl DriverSessionConfigError {
     /* Constructors */
     pub fn invalid_duration(obj: Borrowed<PyAny>) -> Self {
         Self::InvalidDuration {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_authenticator_provider(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidAuthenticatorProvider {
             type_name: get_type_name(obj),
         }
     }
@@ -673,6 +684,12 @@ impl From<DriverSessionConfigError> for PyErr {
 
             DriverSessionConfigError::ZeroDurationNotAllowed => {
                 let message = "Duration must be greater than zero.";
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidAuthenticatorProvider { type_name } => {
+                let message =
+                    format!("Expected an AuthenticatorProvider subclass, got {type_name}");
                 build_session_config_pyerr(py, message, None, None)
             }
 

@@ -30,51 +30,53 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[derive(Clone)]
-#[pyclass(subclass, skip_from_py_object, name = "AuthenticatorProvider")]
-pub(crate) struct PyAuthenticatorProvider {}
+/// Python-side base class that users subclass to provide a custom authenticator provider.
+/// Exposed to Python as `AuthenticatorProvider`.
+#[pyclass(subclass, skip_from_py_object, name = "AuthenticatorProvider", frozen)]
+pub(crate) struct PyAuthenticatorProviderClass {}
 
 #[pymethods]
-impl PyAuthenticatorProvider {
+impl PyAuthenticatorProviderClass {
     #[expect(unused_variables)]
     #[new]
     #[pyo3(signature = (*args, **kwargs))]
     pub fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Self {
-        PyAuthenticatorProvider {}
+        PyAuthenticatorProviderClass {}
     }
 
-    fn new_authenticator(&self, _authenticator_name: &str) -> PyResult<Py<PyAuthenticator>> {
+    fn new_authenticator(&self, _authenticator_name: &str) -> PyResult<Py<PyAuthenticatorClass>> {
         Err(PyNotImplementedError::new_err("Method is not implemented"))
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct InternalAuthenticatorProvider {
-    pub(crate) python_authenticator: Py<PyAuthenticatorProvider>,
+/// Holds a Python object (subclass of `AuthenticatorProvider`) and implements the Rust
+/// `AuthenticatorProvider` trait by delegating to the Python object's methods.
+struct CustomAuthenticatorProvider {
+    python_authenticator: Py<PyAuthenticatorProviderClass>,
 }
 
 #[async_trait]
-impl AuthenticatorProvider for InternalAuthenticatorProvider {
+impl AuthenticatorProvider for CustomAuthenticatorProvider {
     async fn start_authentication_session(
         &self,
         authenticator_name: &str,
     ) -> Result<(Option<Vec<u8>>, Box<dyn AuthenticatorSession>), AuthError> {
         let (result, py_auth) = Python::attach(
-            |py| -> PyResult<(Option<Vec<u8>>, Box<InternalAuthenticator>)> {
+            |py| -> PyResult<(Option<Vec<u8>>, Box<CustomAuthenticator>)> {
                 let py_auth_provider = self.python_authenticator.bind(py);
 
-                let py_auth_any =
-                    py_auth_provider.call_method1("new_authenticator", (authenticator_name,))?;
+                let py_auth_any = py_auth_provider
+                    .call_method1(intern!(py, "new_authenticator"), (authenticator_name,))?;
 
-                let py_auth = py_auth_any.cast::<PyAuthenticator>()?;
+                let py_auth = py_auth_any.cast::<PyAuthenticatorClass>()?;
 
                 let response = py_auth
-                    .call_method0("initial_response")?
+                    .call_method0(intern!(py, "initial_response"))?
                     .extract::<Option<Vec<u8>>>()?;
 
                 Ok((
                     response,
-                    Box::new(InternalAuthenticator {
+                    Box::new(CustomAuthenticator {
                         python_authenticator: py_auth.to_owned().unbind(),
                     }),
                 ))
@@ -86,16 +88,18 @@ impl AuthenticatorProvider for InternalAuthenticatorProvider {
     }
 }
 
-#[pyclass(subclass, name = "Authenticator")]
-pub(crate) struct PyAuthenticator {}
+/// Python-side base class that users subclass to implement authentication logic for a single session.
+/// Exposed to Python as `Authenticator`.
+#[pyclass(subclass, name = "Authenticator", frozen)]
+pub(crate) struct PyAuthenticatorClass {}
 
 #[pymethods]
-impl PyAuthenticator {
+impl PyAuthenticatorClass {
     #[expect(unused_variables)]
     #[new]
     #[pyo3(signature = (*args, **kwargs))]
     pub fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Self {
-        PyAuthenticator {}
+        PyAuthenticatorClass {}
     }
 
     fn initial_response(&self) -> PyResult<Option<Vec<u8>>> {
@@ -111,12 +115,14 @@ impl PyAuthenticator {
     }
 }
 
-pub(crate) struct InternalAuthenticator {
-    pub(crate) python_authenticator: Py<PyAuthenticator>,
+/// Holds a Python object (subclass of `Authenticator`) and implements the Rust
+/// `AuthenticatorSession` trait by delegating to the Python object's methods.
+struct CustomAuthenticator {
+    python_authenticator: Py<PyAuthenticatorClass>,
 }
 
 #[async_trait]
-impl AuthenticatorSession for InternalAuthenticator {
+impl AuthenticatorSession for CustomAuthenticator {
     async fn evaluate_challenge(
         &mut self,
         token: Option<&[u8]>,
@@ -125,7 +131,7 @@ impl AuthenticatorSession for InternalAuthenticator {
             let py_auth = self.python_authenticator.bind(py);
 
             py_auth
-                .call_method1("evaluate_challenge", (token,))?
+                .call_method1(intern!(py, "evaluate_challenge"), (token,))?
                 .extract::<Option<Vec<u8>>>()
         })
         .map_err(|e| format!("Python evaluate_challenge failed: {:?}", e))?;
@@ -137,7 +143,7 @@ impl AuthenticatorSession for InternalAuthenticator {
         let result = Python::attach(|py| -> PyResult<()> {
             let py_auth = self.python_authenticator.bind(py);
 
-            py_auth.call_method1("success", (token,))?;
+            py_auth.call_method1(intern!(py, "success"), (token,))?;
 
             Ok(())
         })
@@ -147,9 +153,32 @@ impl AuthenticatorSession for InternalAuthenticator {
     }
 }
 
+/// Python-facing input type that extracts an `Arc<dyn AuthenticatorProvider>` from a Python object.
+pub(crate) struct PyAuthenticatorProvider {
+    inner: Arc<dyn AuthenticatorProvider>,
+}
 
+impl PyAuthenticatorProvider {
+    pub(crate) fn into_inner(self) -> Arc<dyn AuthenticatorProvider> {
+        self.inner
     }
+}
 
+impl<'py> FromPyObject<'_, 'py> for PyAuthenticatorProvider {
+    type Error = DriverSessionConfigError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(python_authenticator) = obj.extract::<Py<PyAuthenticatorProviderClass>>() {
+            return Ok(Self {
+                inner: Arc::new(CustomAuthenticatorProvider {
+                    python_authenticator,
+                }),
+            });
+        }
+
+        Err(DriverSessionConfigError::invalid_authenticator_provider(
+            obj,
+        ))
     }
 }
 
@@ -754,8 +783,8 @@ impl From<Peer> for PyPeer {
 
 #[pymodule]
 pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<PyAuthenticatorProvider>()?;
-    module.add_class::<PyAuthenticator>()?;
+    module.add_class::<PyAuthenticatorProviderClass>()?;
+    module.add_class::<PyAuthenticatorClass>()?;
     module.add_class::<PyDictAddressTranslator>()?;
     module.add_class::<PyUntranslatedPeer>()?;
     module.add_class::<PyMonotonicTimestampGenerator>()?;
