@@ -546,6 +546,12 @@ impl<'py> FromPyObject<'_, 'py> for PyHostFilter {
             });
         }
 
+        if let Ok(filter) = obj.cast::<PyDcHostFilter>() {
+            return Ok(Self {
+                inner: Arc::clone(&filter.get().inner) as Arc<dyn HostFilter>,
+            });
+        }
+
         if !obj.hasattr(intern!(obj.py(), "accept")).unwrap_or(false) {
             return Err(DriverSessionConfigError::invalid_host_filter(obj));
         }
@@ -575,6 +581,27 @@ impl PyAcceptAllHostFilter {
 
     pub fn accept(&self, _peer: Py<PyPeer>) -> bool {
         true
+    }
+}
+
+/// Built-in host filter that accepts only peers in a given datacenter.
+/// Exposed to Python as `DcHostFilter`.
+#[pyclass(name = "DcHostFilter", frozen)]
+struct PyDcHostFilter {
+    inner: Arc<DcHostFilter>,
+}
+
+#[pymethods]
+impl PyDcHostFilter {
+    #[new]
+    pub fn new(local_dc: String) -> Self {
+        PyDcHostFilter {
+            inner: Arc::new(DcHostFilter::new(local_dc)),
+        }
+    }
+
+    pub fn accept(&self, peer: Py<PyPeer>) -> bool {
+        self.inner.accept(&peer.get().inner)
     }
 }
 
@@ -702,6 +729,7 @@ pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResul
     module.add_class::<PyMonotonicTimestampGenerator>()?;
     module.add_class::<PySimpleTimestampGenerator>()?;
     module.add_class::<PyAcceptAllHostFilter>()?;
+    module.add_class::<PyDcHostFilter>()?;
     module.add_class::<PyPeer>()?;
     Ok(())
 }

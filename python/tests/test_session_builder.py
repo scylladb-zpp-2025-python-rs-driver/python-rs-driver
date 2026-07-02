@@ -13,6 +13,7 @@ from scylla.policies import (
     AddressTranslator,
     Authenticator,
     AuthenticatorProvider,
+    DcHostFilter,
     DictAddressTranslator,
     HostFilter,
     MonotonicTimestampGenerator,
@@ -715,3 +716,19 @@ async def test_accept_all_host_filter() -> None:
 
     assert row is not None
     assert len(row) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_dc_host_filter_matches() -> None:
+    host_filter = DcHostFilter("datacenter1")
+
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(host_filter)
+
+    session = await builder.connect()
+
+    result = await session.execute("SELECT data_center FROM system.local")
+    row = await result.first_row()
+
+    assert row is not None
+    assert row["data_center"] == "datacenter1"
