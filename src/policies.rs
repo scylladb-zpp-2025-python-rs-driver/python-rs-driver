@@ -424,6 +424,12 @@ impl<'py> FromPyObject<'_, 'py> for PyTimestampGenerator {
             });
         }
 
+        if let Ok(simple) = obj.cast::<PySimpleTimestampGenerator>() {
+            return Ok(Self {
+                inner: Arc::clone(&simple.get().inner) as Arc<dyn TimestampGenerator>,
+            });
+        }
+
         if !obj
             .hasattr(intern!(obj.py(), "next_timestamp"))
             .unwrap_or(false)
@@ -464,6 +470,27 @@ impl PyMonotonicTimestampGenerator {
 
         PyMonotonicTimestampGenerator {
             inner: Arc::new(monotonic_timestamp_generator),
+        }
+    }
+
+    pub fn next_timestamp(&self) -> i64 {
+        self.inner.next_timestamp()
+    }
+}
+
+/// Built-in timestamp generator returning `SystemTime`-based microsecond timestamps.
+/// Exposed to Python as `SimpleTimestampGenerator`.
+#[pyclass(name = "SimpleTimestampGenerator", frozen)]
+struct PySimpleTimestampGenerator {
+    inner: Arc<SimpleTimestampGenerator>,
+}
+
+#[pymethods]
+impl PySimpleTimestampGenerator {
+    #[new]
+    pub fn new() -> Self {
+        PySimpleTimestampGenerator {
+            inner: Arc::new(SimpleTimestampGenerator {}),
         }
     }
 
@@ -555,6 +582,7 @@ pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResul
     module.add_class::<PyDictAddressTranslator>()?;
     module.add_class::<PyUntranslatedPeer>()?;
     module.add_class::<PyMonotonicTimestampGenerator>()?;
+    module.add_class::<PySimpleTimestampGenerator>()?;
     module.add_class::<PyHostFilter>()?;
     module.add_class::<PyPeer>()?;
     Ok(())

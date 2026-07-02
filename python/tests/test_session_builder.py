@@ -16,6 +16,7 @@ from scylla.policies import (
     HostFilter,
     MonotonicTimestampGenerator,
     Peer,
+    SimpleTimestampGenerator,
     TimestampGenerator,
     UntranslatedPeer,
 )
@@ -316,6 +317,40 @@ async def test_custom_timestamp_generator_success() -> None:
     db_timestamp = row["writetime(val)"]
     assert db_timestamp == my_custom_ts
     assert ts_gen.called is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_simple_timestamp_generator_success() -> None:
+    ts_gen = SimpleTimestampGenerator()
+
+    builder = (
+        SessionBuilder()
+        .contact_points([("127.0.0.2", 9042)])
+        .user("cassandra", "cassandra")
+        .timestamp_generator(ts_gen)
+    )
+
+    session = await builder.connect()
+
+    await session.execute(
+        "CREATE KEYSPACE IF NOT EXISTS ks WITH REPLICATION = "
+        "{'class': 'NetworkTopologyStrategy', 'replication_factor': 1}"
+    )
+    await session.execute("CREATE TABLE IF NOT EXISTS ks.verify_simple_ts (id int PRIMARY KEY, val text)")
+
+    now_micros = int(time.time() * 1_000_000)
+
+    await session.execute("INSERT INTO ks.verify_simple_ts (id, val) VALUES (1, 'rust-ts')")
+
+    result = await session.execute("SELECT WRITETIME(val) FROM ks.verify_simple_ts WHERE id = 1")
+    row = await result.first_row()
+
+    assert row is not None
+    db_timestamp = row["writetime(val)"]
+
+    assert db_timestamp >= now_micros
+    assert db_timestamp < now_micros + 5_000_000
 
 
 @pytest.mark.asyncio

@@ -109,6 +109,16 @@ class TimestampGenerator(Protocol):
         """
         ...
 
+class SimpleTimestampGenerator:
+    """
+    A simple client-side timestamp generator based on the system clock.
+
+    This generator returns the current system time in microseconds since
+    the Unix Epoch (1970-01-01)
+    """
+    def __init__(self) -> None: ...
+    def next_timestamp(self) -> int: ...
+
 class MonotonicTimestampGenerator:
     """
     Timestamp generator that guarantees monotonically increasing timestamps.
