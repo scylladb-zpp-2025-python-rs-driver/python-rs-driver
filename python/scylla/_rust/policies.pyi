@@ -109,6 +109,31 @@ class TimestampGenerator(Protocol):
         """
         ...
 
+class MonotonicTimestampGenerator:
+    """
+    Timestamp generator that guarantees monotonically increasing timestamps.
+
+    Parameters
+    ----------
+    warn_on_drift : bool, default True
+        Whether to log warnings when generated timestamps drift too far from
+        the system clock.
+
+    warning_threshold : float | timedelta, default 1
+        Drift threshold in seconds after which warnings may be emitted.
+
+    warning_interval : float | timedelta, default 1
+        Minimum interval in seconds between drift warnings.
+    """
+
+    def __init__(
+        self,
+        warn_on_drift: bool = True,
+        warning_threshold: float | timedelta = 1,
+        warning_interval: float | timedelta = 1,
+    ) -> None: ...
+    def next_timestamp(self) -> int: ...
+
 class Peer:
     """
     Information about a ScyllaDB node discovered by the driver.

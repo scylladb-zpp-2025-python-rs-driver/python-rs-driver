@@ -1,5 +1,6 @@
 use crate::errors::{DriverAddressTranslationError, DriverSessionConfigError};
 use crate::routing::PyToken;
+use crate::session_builder::PyDuration;
 use crate::utils::{ParsedAddress, ParsedAddressList, PyValueOrError};
 use async_trait::async_trait;
 use pyo3::IntoPyObject;
@@ -17,11 +18,13 @@ use scylla::cluster::metadata::Peer;
 use scylla::errors::{CustomTranslationError, TranslationError};
 use scylla::policies::address_translator::{AddressTranslator, UntranslatedPeer};
 use scylla::policies::host_filter::HostFilter;
-use scylla::policies::timestamp_generator::TimestampGenerator;
+use scylla::policies::timestamp_generator::{
+    MonotonicTimestampGenerator, SimpleTimestampGenerator, TimestampGenerator,
+};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
 #[pyclass(subclass, skip_from_py_object, name = "AuthenticatorProvider")]
@@ -404,6 +407,7 @@ impl TimestampGenerator for CustomTimestampGenerator {
 pub(crate) struct PyTimestampGenerator {
     inner: Arc<dyn TimestampGenerator>,
 }
+
 impl PyTimestampGenerator {
     pub(crate) fn into_inner(self) -> Arc<dyn TimestampGenerator> {
         self.inner
@@ -414,6 +418,11 @@ impl<'py> FromPyObject<'_, 'py> for PyTimestampGenerator {
     type Error = DriverSessionConfigError;
 
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(monotonic) = obj.cast::<PyMonotonicTimestampGenerator>() {
+            return Ok(Self {
+                inner: Arc::clone(&monotonic.get().inner) as Arc<dyn TimestampGenerator>,
+            });
+        }
 
         if !obj
             .hasattr(intern!(obj.py(), "next_timestamp"))
@@ -428,6 +437,41 @@ impl<'py> FromPyObject<'_, 'py> for PyTimestampGenerator {
             }),
         })
     }
+}
+
+/// Built-in timestamp generator that guarantees monotonically increasing timestamps.
+/// Exposed to Python as `MonotonicTimestampGenerator`.
+#[pyclass(name = "MonotonicTimestampGenerator", frozen)]
+struct PyMonotonicTimestampGenerator {
+    inner: Arc<MonotonicTimestampGenerator>,
+}
+
+#[pymethods]
+impl PyMonotonicTimestampGenerator {
+    #[new]
+    #[pyo3(signature = (warn_on_drift=true, warning_threshold=PyDuration(Duration::from_secs(1)), warning_interval=PyDuration(Duration::from_secs(1))))]
+    pub fn new(
+        warn_on_drift: bool,
+        warning_threshold: PyDuration,
+        warning_interval: PyDuration,
+    ) -> Self {
+        let mut monotonic_timestamp_generator = MonotonicTimestampGenerator::new()
+            .with_warning_times(warning_threshold.0, warning_interval.0);
+
+        if !warn_on_drift {
+            monotonic_timestamp_generator = monotonic_timestamp_generator.without_warnings();
+        }
+
+        PyMonotonicTimestampGenerator {
+            inner: Arc::new(monotonic_timestamp_generator),
+        }
+    }
+
+    pub fn next_timestamp(&self) -> i64 {
+        self.inner.next_timestamp()
+    }
+}
+
 #[pyclass(subclass, skip_from_py_object, name = "HostFilter")]
 pub(crate) struct PyHostFilter {}
 
@@ -510,6 +554,7 @@ pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResul
     module.add_class::<PyAuthenticator>()?;
     module.add_class::<PyDictAddressTranslator>()?;
     module.add_class::<PyUntranslatedPeer>()?;
+    module.add_class::<PyMonotonicTimestampGenerator>()?;
     module.add_class::<PyHostFilter>()?;
     module.add_class::<PyPeer>()?;
     Ok(())
