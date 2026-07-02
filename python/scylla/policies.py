@@ -2,6 +2,7 @@ from ipaddress import IPv4Address, IPv6Address
 from typing import Protocol, runtime_checkable
 
 from ._rust.policies import (  # pyright: ignore[reportMissingModuleSource]
+    AcceptAllHostFilter,
     Authenticator,
     AuthenticatorProvider,
     DictAddressTranslator,
@@ -32,6 +33,7 @@ __all__ = [
     "AuthenticatorProvider",
     "AddressTranslator",
     "UntranslatedPeer",
+    "AcceptAllHostFilter",
     "HostFilter",
     "DictAddressTranslator",
     "TimestampGenerator",

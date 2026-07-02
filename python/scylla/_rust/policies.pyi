@@ -186,3 +186,11 @@ class HostFilter(Protocol):
         accepting the host.
         """
         ...
+
+class AcceptAllHostFilter:
+    """
+    A host filter that accepts every node in the cluster.
+    """
+    def __init__(self) -> None: ...
+    def accept(self, peer: Peer) -> bool: ...
+

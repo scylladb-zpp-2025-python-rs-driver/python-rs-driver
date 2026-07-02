@@ -17,7 +17,9 @@ use scylla::authentication::{AuthError, AuthenticatorProvider, AuthenticatorSess
 use scylla::cluster::metadata::Peer;
 use scylla::errors::{CustomTranslationError, TranslationError};
 use scylla::policies::address_translator::{AddressTranslator, UntranslatedPeer};
-use scylla::policies::host_filter::HostFilter;
+use scylla::policies::host_filter::{
+    AcceptAllHostFilter, AllowListHostFilter, DcHostFilter, HostFilter,
+};
 use scylla::policies::timestamp_generator::{
     MonotonicTimestampGenerator, SimpleTimestampGenerator, TimestampGenerator,
 };
@@ -538,6 +540,11 @@ impl<'py> FromPyObject<'_, 'py> for PyHostFilter {
     type Error = DriverSessionConfigError;
 
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(filter) = obj.cast::<PyAcceptAllHostFilter>() {
+            return Ok(Self {
+                inner: Arc::clone(&filter.get().inner) as Arc<dyn HostFilter>,
+            });
+        }
 
         if !obj.hasattr(intern!(obj.py(), "accept")).unwrap_or(false) {
             return Err(DriverSessionConfigError::invalid_host_filter(obj));
@@ -550,6 +557,27 @@ impl<'py> FromPyObject<'_, 'py> for PyHostFilter {
         })
     }
 }
+
+/// Built-in host filter that accepts all peers. Exposed to Python as `AcceptAllHostFilter`.
+#[pyclass(name = "AcceptAllHostFilter", frozen)]
+struct PyAcceptAllHostFilter {
+    inner: Arc<AcceptAllHostFilter>,
+}
+
+#[pymethods]
+impl PyAcceptAllHostFilter {
+    #[new]
+    pub fn new() -> Self {
+        PyAcceptAllHostFilter {
+            inner: Arc::new(AcceptAllHostFilter {}),
+        }
+    }
+
+    pub fn accept(&self, _peer: Py<PyPeer>) -> bool {
+        true
+    }
+}
+
 /// Python representation of a cluster peer node, exposing host_id, address, tokens, datacenter, and rack.
 /// Exposed to Python as `Peer`.
 #[pyclass(frozen, name = "Peer")]
@@ -673,6 +701,7 @@ pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResul
     module.add_class::<PyUntranslatedPeer>()?;
     module.add_class::<PyMonotonicTimestampGenerator>()?;
     module.add_class::<PySimpleTimestampGenerator>()?;
+    module.add_class::<PyAcceptAllHostFilter>()?;
     module.add_class::<PyPeer>()?;
     Ok(())
 }

@@ -9,6 +9,7 @@ from scylla.enums import Compression, Consistency, PoolSize, SelfIdentity, Seria
 from scylla.errors import AddressTranslationError, SessionConfigError
 from scylla.execution_profile import ExecutionProfile
 from scylla.policies import (
+    AcceptAllHostFilter,
     AddressTranslator,
     Authenticator,
     AuthenticatorProvider,
@@ -698,3 +699,19 @@ async def test_session_builder_complex_types_and_identity():
     assert config.identity.application_name == "Scylla-Validation-Suite"
 
     assert config.authenticator is auth_provider
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_accept_all_host_filter() -> None:
+    host_filter = AcceptAllHostFilter()
+
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(host_filter)
+
+    session = await builder.connect()
+
+    result = await session.execute("SELECT release_version FROM system.local")
+    row = await result.first_row()
+
+    assert row is not None
+    assert len(row) == 1
