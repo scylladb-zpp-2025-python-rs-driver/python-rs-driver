@@ -566,10 +566,6 @@ impl From<AddressParseError> for PyErr {
 pub enum DriverSessionConfigError {
     InvalidPortRange,
 
-    InvalidDuration {
-        type_name: String,
-    },
-
     ZeroDurationNotAllowed,
 
     /// The address object is not a valid type (str, tuple, or IpAddr tuple).
@@ -581,18 +577,19 @@ pub enum DriverSessionConfigError {
     InvalidAddressTranslator {
         type_name: String,
     },
+
+    /// The duration/timedelta object is neither a datetime.timedelta nor a non-negative finite float.
+    InvalidDuration {
+        type_name: String,
+    },
 }
 
 impl DriverSessionConfigError {
     /* Constructors */
     pub fn invalid_duration(obj: Borrowed<PyAny>) -> Self {
-        let type_name = obj
-            .get_type()
-            .name()
-            .map(|n| n.to_string())
-            .unwrap_or_else(|_| "UnknownType".to_string());
-
-        Self::InvalidDuration { type_name }
+        Self::InvalidDuration {
+            type_name: get_type_name(obj),
+        }
     }
 
     pub fn invalid_address_translator(obj: Borrowed<PyAny>) -> Self {
