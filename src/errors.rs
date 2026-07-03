@@ -8,9 +8,10 @@ use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyNone};
 use scylla::errors::{
-    BadQuery, ClusterStateTokenError as RustClusterStateTokenError,
+    BadQuery, ClusterStateTokenError as RustClusterStateTokenError, CqlRequestSerializationError,
     ExecutionError as RustExecutionError, PrepareError as RustPrepareError, RequestAttemptError,
 };
+use scylla::frame::frame_errors::{BatchSerializationError, BatchStatementSerializationError};
 use scylla::serialize::SerializationError as RustSerializationError;
 
 /* Python exception classes */
@@ -1139,12 +1140,56 @@ struct ResolvedSerializationError<'a> {
 fn extract_serialization_error(error: &RustExecutionError) -> Option<&RustSerializationError> {
     match error {
         RustExecutionError::BadQuery(BadQuery::SerializationError(error)) => Some(error),
+
         RustExecutionError::PrepareError(RustPrepareError::AllAttemptsFailed {
             first_attempt: RequestAttemptError::SerializationError(error),
         }) => Some(error),
+
         RustExecutionError::LastAttemptError(RequestAttemptError::SerializationError(error)) => {
             Some(error)
         }
+
+        RustExecutionError::LastAttemptError(RequestAttemptError::CqlRequestSerialization(
+            error,
+        )) => extract_cql_request_serialization_error(error),
+
+        _ => None,
+    }
+}
+
+/// Extracts serialization failures from the Rust driver's CQL request serialization error tree.
+fn extract_cql_request_serialization_error(
+    error: &CqlRequestSerializationError,
+) -> Option<&RustSerializationError> {
+    match error {
+        CqlRequestSerializationError::BatchSerialization(error) => {
+            extract_batch_serialization_error(error)
+        }
+
+        _ => None,
+    }
+}
+
+/// Extracts serialization failures from the Rust driver's batch serialization error tree.
+fn extract_batch_serialization_error(
+    error: &BatchSerializationError,
+) -> Option<&RustSerializationError> {
+    match error {
+        BatchSerializationError::StatementSerialization { error, .. } => {
+            extract_batch_statement_serialization_error(error)
+        }
+
+        _ => None,
+    }
+}
+
+/// Extracts serialization failures from the Rust driver's batch statement serialization error tree.
+fn extract_batch_statement_serialization_error(
+    error: &BatchStatementSerializationError,
+) -> Option<&RustSerializationError> {
+    match error {
+        BatchStatementSerializationError::ValuesSerialiation(error) => Some(error),
+
         _ => None,
     }
 }

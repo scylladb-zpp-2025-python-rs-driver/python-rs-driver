@@ -4,7 +4,12 @@ import pytest
 import pytest_asyncio
 from scylla.batch import Batch, BatchType
 from scylla.enums import Consistency, SerialConsistency
-from scylla.errors import BatchError, ExecuteError
+from scylla.errors import (
+    BatchError,
+    ExecuteError,
+    TypeMismatchSerializationError,
+    ValueOverflowSerializationError,
+)
 from scylla.execution_profile import ExecutionProfile
 from scylla.session import Session
 from scylla.session_builder import SessionBuilder
@@ -443,3 +448,76 @@ def test_batch_timeout_not_finite():
         batch.with_request_timeout(float("inf"))
 
     assert "timeout must be a non-negative, finite number" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_batch_with_values_serialization_overflow(
+    session: Session,
+    table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, col int",
+        "batch_int_overflow_table",
+    )
+
+    batch = Batch()
+    batch.add(
+        f"INSERT INTO {table} (id, col) VALUES (?, ?)",
+        (1, 9999999999999999999999999),
+    )
+
+    with pytest.raises(ValueOverflowSerializationError) as exc_info:
+        await session.batch(batch)
+
+    assert exc_info.value.parameter == 1
+    assert "value overflow" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_batch_with_prepared_statement_serialization_overflow(
+    session: Session,
+    table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, col int",
+        "batch_prepared_int_overflow_table",
+    )
+
+    prepared = await session.prepare(f"INSERT INTO {table} (id, col) VALUES (?, ?)")
+
+    batch = Batch()
+    batch.add(prepared, (1, 9999999999999999999999999))
+
+    with pytest.raises(ValueOverflowSerializationError) as exc_info:
+        await session.batch(batch)
+
+    assert exc_info.value.parameter == 1
+    assert "value overflow" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_batch_with_mapping_type_mismatch_preserves_parameter_name(
+    session: Session,
+    table_factory: TableFactory,
+):
+    table = await table_factory(
+        "id int PRIMARY KEY, tags set<text>",
+        "batch_set_type_mismatch_table",
+    )
+
+    invalid_values = {"brand": "Ford", "model": "Mustang"}
+
+    batch = Batch()
+    batch.add(
+        f"INSERT INTO {table} (id, tags) VALUES (?, ?)",
+        {"id": 1, "tags": invalid_values},
+    )
+
+    with pytest.raises(TypeMismatchSerializationError) as exc_info:
+        await session.batch(batch)
+
+    assert exc_info.value.parameter == "tags"
+    assert "type mismatch" in str(exc_info.value).lower()
