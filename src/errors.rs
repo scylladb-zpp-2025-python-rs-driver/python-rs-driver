@@ -7,7 +7,11 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyNone};
-use scylla::errors::ClusterStateTokenError as RustClusterStateTokenError;
+use scylla::errors::{
+    BadQuery, ClusterStateTokenError as RustClusterStateTokenError,
+    ExecutionError as RustExecutionError, PrepareError as RustPrepareError, RequestAttemptError,
+};
+use scylla::serialize::SerializationError as RustSerializationError;
 
 /* Python exception classes */
 
@@ -655,9 +659,7 @@ pub enum DriverExecuteError {
     /// paging_state parameter in session.execute must be None.
     PagingStateMustBeNoneForUnpagedExecution,
     /// The Rust driver failed while executing a query.
-    RustDriverExecutionError {
-        source: Box<scylla::errors::ExecutionError>,
-    },
+    RustDriverExecutionError { source: Box<RustExecutionError> },
     /// The Tokio runtime task responsible for executing the query failed to join.
     RuntimeTaskJoinFailed { message: Box<str> },
 }
@@ -669,7 +671,7 @@ impl DriverExecuteError {
         Self::PagingStateMustBeNoneForUnpagedExecution
     }
 
-    pub fn rust_driver_execution_error(source: scylla::errors::ExecutionError) -> Self {
+    pub fn rust_driver_execution_error(source: RustExecutionError) -> Self {
         Self::RustDriverExecutionError {
             source: Box::new(source),
         }
@@ -690,9 +692,15 @@ impl From<DriverExecuteError> for PyErr {
             }
 
             DriverExecuteError::RustDriverExecutionError { source } => {
-                let message = format!("Failed to execute statement: {source}");
+                Python::attach(|py| {
+                    // If the error was caused by a serialization error during execution,
+                    // extract the underlying serialization error information.
+                    if let Some(serialization_error) = extract_serialization_error(&source) {
+                        return rust_serialization_error_to_pyerr(py, serialization_error);
+                    }
 
-                ExecuteError::new_err(message)
+                    ExecuteError::new_err(format!("Failed to execute statement: {source}"))
+                })
             }
 
             DriverExecuteError::RuntimeTaskJoinFailed { message } => ExecuteError::new_err(
@@ -717,9 +725,7 @@ impl From<tokio::task::JoinError> for DriverExecuteError {
 pub enum DriverPrepareError {
     /// The Rust driver failed while preparing a statement.
     #[allow(clippy::enum_variant_names)]
-    RustDriverPrepareError {
-        source: Box<scylla::errors::PrepareError>,
-    },
+    RustDriverPrepareError { source: Box<RustPrepareError> },
     /// Attempted to prepare an already prepared statement.
     CannotPreparePreparedStatement,
 }
@@ -727,7 +733,7 @@ pub enum DriverPrepareError {
 impl DriverPrepareError {
     /* Constructors */
 
-    pub fn rust_driver_prepare_error(source: scylla::errors::PrepareError) -> Self {
+    pub fn rust_driver_prepare_error(source: RustPrepareError) -> Self {
         Self::RustDriverPrepareError {
             source: Box::new(source),
         }
@@ -916,9 +922,7 @@ pub enum SerializationErrorKind {
     /// An error occurred while interacting with Python objects during serialization.
     PythonInteropFailed { source: Box<PyErr> },
     /// An error occurred in the Rust driver's serialization layer.
-    ScyllaSerializeFailed {
-        source: scylla::serialize::SerializationError,
-    },
+    ScyllaSerializeFailed { source: RustSerializationError },
 }
 
 /// References a parameter that failed to serialize, either by index or by name.
@@ -959,7 +963,7 @@ impl fmt::Display for TypeExpected {
 
 impl fmt::Display for DriverSerializationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let location = format_serialization_location(&self.location);
+        let location = format_serialization_location(self.location.as_ref());
 
         match &self.kind {
             SerializationErrorKind::UnsupportedType { cql } => {
@@ -1035,7 +1039,7 @@ impl DriverSerializationError {
         }
     }
 
-    pub fn scylla_serialize_failed(source: scylla::serialize::SerializationError) -> Self {
+    pub fn scylla_serialize_failed(source: RustSerializationError) -> Self {
         Self {
             kind: SerializationErrorKind::ScyllaSerializeFailed { source },
             location: None,
@@ -1065,7 +1069,7 @@ impl DriverSerializationError {
 }
 
 /// Helper function to format serialization location information into a readable string.
-fn format_serialization_location(loc: &Option<ParameterReference>) -> String {
+fn format_serialization_location(loc: Option<&ParameterReference>) -> String {
     let mut parts: Vec<String> = Vec::new();
 
     if let Some(parameter) = &loc {
@@ -1086,9 +1090,9 @@ fn format_serialization_location(loc: &Option<ParameterReference>) -> String {
 fn attach_serialization_location_attrs(
     py: Python<'_>,
     err: &Bound<'_, pyo3::exceptions::PyBaseException>,
-    loc: &Option<ParameterReference>,
+    loc: Option<&ParameterReference>,
 ) {
-    match &loc {
+    match loc {
         Some(ParameterReference::Index(i)) => {
             let _ = err.setattr("parameter", *i);
         }
@@ -1101,10 +1105,11 @@ fn attach_serialization_location_attrs(
     }
 }
 
+/// Helper function to build a serialization error PyErr.
 fn build_serialization_pyerr(
     py: Python<'_>,
     err: PyErr,
-    location: &Option<ParameterReference>,
+    location: Option<&ParameterReference>,
     cause: Option<PyErr>,
 ) -> PyErr {
     if let Some(cause) = cause {
@@ -1115,95 +1120,191 @@ fn build_serialization_pyerr(
     err
 }
 
+/// A serialization error recovered from the Rust driver's type-erased error.
+///
+/// The location may come from an outer wrapper added by `PyValueList`, while
+/// the kind may come from the innermost `DriverSerializationError`.
+struct ResolvedSerializationError<'a> {
+    kind: &'a SerializationErrorKind,
+    location: Option<&'a ParameterReference>,
+}
+
+/// Extracts serialization failures from the Rust driver's execution error tree.
+///
+/// Prepared statements typically use `BadQuery::SerializationError`. For
+/// unprepared statements, serialization can fail while the Rust driver prepares
+/// the statement internally and can therefore be nested in `PrepareError`.
+/// `LastAttemptError` is handled as well because it is another execution path
+/// through which `RequestAttemptError::SerializationError` can be propagated.
+fn extract_serialization_error(error: &RustExecutionError) -> Option<&RustSerializationError> {
+    match error {
+        RustExecutionError::BadQuery(BadQuery::SerializationError(error)) => Some(error),
+        RustExecutionError::PrepareError(RustPrepareError::AllAttemptsFailed {
+            first_attempt: RequestAttemptError::SerializationError(error),
+        }) => Some(error),
+        RustExecutionError::LastAttemptError(RequestAttemptError::SerializationError(error)) => {
+            Some(error)
+        }
+        _ => None,
+    }
+}
+
+/// Recovers a `DriverSerializationError` from the Rust driver's type-erased
+/// serialization error and resolves any nested wrappers.
+fn resolve_driver_serialization_error<'a>(
+    error: &'a RustSerializationError,
+    inherited_location: Option<&'a ParameterReference>,
+) -> Option<ResolvedSerializationError<'a>> {
+    let driver_error = error.downcast_ref::<DriverSerializationError>()?;
+
+    Some(resolve_driver_serialization_error_inner(
+        driver_error,
+        inherited_location,
+    ))
+}
+
+/// Resolves nested `ScyllaSerializeFailed` wrappers while preserving the first
+/// available parameter location.
+///
+/// `value_list.rs` currently wraps an individual value serialization error in
+/// another `DriverSerializationError` to attach the parameter index or name.
+/// This helper keeps that outer location but returns the innermost meaningful
+/// serialization error kind.
+fn resolve_driver_serialization_error_inner<'a>(
+    error: &'a DriverSerializationError,
+    inherited_location: Option<&'a ParameterReference>,
+) -> ResolvedSerializationError<'a> {
+    let location = inherited_location.or(error.location.as_ref());
+
+    match &error.kind {
+        SerializationErrorKind::ScyllaSerializeFailed { source } => {
+            resolve_driver_serialization_error(source, location).unwrap_or(
+                ResolvedSerializationError {
+                    kind: &error.kind,
+                    location,
+                },
+            )
+        }
+        kind => ResolvedSerializationError { kind, location },
+    }
+}
+
+/// Converts a resolved serialization error into the most specific Python exception available.
+fn resolved_serialization_error_to_pyerr(
+    py: Python<'_>,
+    error: ResolvedSerializationError<'_>,
+) -> PyErr {
+    let location_as_string = format_serialization_location(error.location);
+
+    match error.kind {
+        SerializationErrorKind::UnsupportedType { cql } => {
+            let message = if location_as_string.is_empty() {
+                format!("Unsupported CQL type: {cql}")
+            } else {
+                format!("Unsupported CQL type: {cql}{location_as_string}")
+            };
+
+            build_serialization_pyerr(
+                py,
+                UnsupportedTypeSerializationError::new_err(message),
+                error.location,
+                None,
+            )
+        }
+
+        SerializationErrorKind::TypeMismatch { expected } => {
+            let message = if location_as_string.is_empty() {
+                format!("Type mismatch: expected {expected}")
+            } else {
+                format!("Type mismatch: expected {expected}{location_as_string}")
+            };
+
+            build_serialization_pyerr(
+                py,
+                TypeMismatchSerializationError::new_err(message),
+                error.location,
+                None,
+            )
+        }
+
+        SerializationErrorKind::ValueOverflow => {
+            let message = if location_as_string.is_empty() {
+                "Value overflow during serialization".to_string()
+            } else {
+                format!("Value overflow during serialization{location_as_string}")
+            };
+
+            build_serialization_pyerr(
+                py,
+                ValueOverflowSerializationError::new_err(message),
+                error.location,
+                None,
+            )
+        }
+
+        SerializationErrorKind::PythonInteropFailed { source } => {
+            let message = if location_as_string.is_empty() {
+                "Python interop failed".to_string()
+            } else {
+                format!("Python interop failed{location_as_string}")
+            };
+
+            build_serialization_pyerr(
+                py,
+                PySerializationFailedError::new_err(message),
+                error.location,
+                Some(source.as_ref().clone_ref(py)),
+            )
+        }
+
+        SerializationErrorKind::ScyllaSerializeFailed { source } => {
+            let base = source.to_string();
+            let message = if location_as_string.is_empty() {
+                base
+            } else {
+                format!("{base}{location_as_string}")
+            };
+
+            build_serialization_pyerr(
+                py,
+                SerializeFailedError::new_err(message),
+                error.location,
+                None,
+            )
+        }
+    }
+}
+
+/// Converts a type-erased Rust-driver serialization error into the most
+/// specific Python exception available.
+///
+/// If the error was not created from `DriverSerializationError`, it is still a
+/// known serialization failure and is exposed as `SerializeFailedError`
+/// rather than being collapsed into `ExecuteError`.
+fn rust_serialization_error_to_pyerr(py: Python<'_>, error: &RustSerializationError) -> PyErr {
+    match resolve_driver_serialization_error(error, None) {
+        Some(error) => resolved_serialization_error_to_pyerr(py, error),
+        None => build_serialization_pyerr(
+            py,
+            SerializeFailedError::new_err(error.to_string()),
+            None,
+            None,
+        ),
+    }
+}
+
 impl From<DriverSerializationError> for PyErr {
-    fn from(e: DriverSerializationError) -> PyErr {
+    fn from(error: DriverSerializationError) -> PyErr {
         Python::attach(|py| {
-            let location_as_string = format_serialization_location(&e.location);
-
-            match e.kind {
-                SerializationErrorKind::UnsupportedType { cql } => {
-                    let message = if location_as_string.is_empty() {
-                        format!("Unsupported CQL type: {cql}")
-                    } else {
-                        format!("Unsupported CQL type: {cql}{location_as_string}")
-                    };
-
-                    build_serialization_pyerr(
-                        py,
-                        UnsupportedTypeSerializationError::new_err(message),
-                        &e.location,
-                        None,
-                    )
-                }
-
-                SerializationErrorKind::TypeMismatch { expected } => {
-                    let message = if location_as_string.is_empty() {
-                        format!("Type mismatch: expected {expected}")
-                    } else {
-                        format!("Type mismatch: expected {expected}{location_as_string}")
-                    };
-
-                    build_serialization_pyerr(
-                        py,
-                        TypeMismatchSerializationError::new_err(message),
-                        &e.location,
-                        None,
-                    )
-                }
-
-                SerializationErrorKind::ValueOverflow => {
-                    let message = if location_as_string.is_empty() {
-                        "Value overflow during serialization".to_string()
-                    } else {
-                        format!("Value overflow during serialization{location_as_string}")
-                    };
-
-                    build_serialization_pyerr(
-                        py,
-                        ValueOverflowSerializationError::new_err(message),
-                        &e.location,
-                        None,
-                    )
-                }
-
-                SerializationErrorKind::PythonInteropFailed { source } => {
-                    let message = if location_as_string.is_empty() {
-                        "Python interop failed".to_string()
-                    } else {
-                        format!("Python interop failed{location_as_string}")
-                    };
-
-                    build_serialization_pyerr(
-                        py,
-                        PySerializationFailedError::new_err(message),
-                        &e.location,
-                        Some(*source),
-                    )
-                }
-
-                SerializationErrorKind::ScyllaSerializeFailed { source } => {
-                    let base = source.to_string();
-                    let message = if location_as_string.is_empty() {
-                        base
-                    } else {
-                        format!("{base}{location_as_string}")
-                    };
-
-                    build_serialization_pyerr(
-                        py,
-                        SerializeFailedError::new_err(message),
-                        &e.location,
-                        None,
-                    )
-                }
-            }
+            let resolved = resolve_driver_serialization_error_inner(&error, None);
+            resolved_serialization_error_to_pyerr(py, resolved)
         })
     }
 }
 
-impl From<DriverSerializationError> for scylla::serialize::SerializationError {
+impl From<DriverSerializationError> for RustSerializationError {
     fn from(err: DriverSerializationError) -> Self {
-        scylla::serialize::SerializationError::new(err)
+        RustSerializationError::new(err)
     }
 }
 
