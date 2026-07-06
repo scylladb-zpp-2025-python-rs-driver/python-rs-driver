@@ -171,15 +171,75 @@ impl AddressTranslator for InternalAddressTranslator {
 }
 
 #[pyclass(get_all, name = "UntranslatedPeer", frozen)]
+/// Python representation of an untranslated peer address, exposing host_id, untranslated_address,
+/// datacenter, and rack. Exposed to Python as `UntranslatedPeer`.
+#[pyclass(name = "UntranslatedPeer", frozen)]
 pub struct PyUntranslatedPeer {
-    pub host_id: uuid::Uuid,
-    pub untranslated_address: (IpAddr, u16),
-    pub datacenter: Option<String>,
-    pub rack: Option<String>,
+    host_id: uuid::Uuid,
+    untranslated_address: (IpAddr, u16),
+    datacenter: Option<String>,
+    rack: Option<String>,
+
+    // Cached Python-side representations used by the getters.
+    pub py_host_id: PyOnceLock<Py<PyAny>>,
+    pub py_untranslated_address: PyOnceLock<Py<PyTuple>>,
+    pub py_datacenter: PyOnceLock<Py<PyString>>,
+    pub py_rack: PyOnceLock<Py<PyString>>,
 }
 
 #[pymethods]
 impl PyUntranslatedPeer {
+    #[getter]
+    fn host_id(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        Ok(self
+            .py_host_id
+            .get_or_try_init(py, || {
+                Ok::<_, PyErr>(self.host_id.into_pyobject(py)?.unbind())
+            })?
+            .clone_ref(py))
+    }
+
+    #[getter]
+    fn untranslated_address(&self, py: Python<'_>) -> PyResult<Py<PyTuple>> {
+        Ok(self
+            .py_untranslated_address
+            .get_or_try_init(py, || {
+                let (ip, port) = self.untranslated_address;
+
+                Ok::<_, PyErr>(
+                    (ip, port)
+                        .into_pyobject(py)?
+                        .cast_into::<PyTuple>()?
+                        .unbind(),
+                )
+            })?
+            .clone_ref(py))
+    }
+
+    #[getter]
+    fn datacenter(&self, py: Python<'_>) -> Py<PyAny> {
+        match &self.datacenter {
+            None => py.None(),
+            Some(datacenter) => self
+                .py_datacenter
+                .get_or_init(py, || PyString::new(py, datacenter).unbind())
+                .clone_ref(py)
+                .into_any(),
+        }
+    }
+
+    #[getter]
+    fn rack(&self, py: Python<'_>) -> Py<PyAny> {
+        match &self.rack {
+            None => py.None(),
+            Some(rack) => self
+                .py_rack
+                .get_or_init(py, || PyString::new(py, rack).unbind())
+                .clone_ref(py)
+                .into_any(),
+        }
+    }
+
     fn __repr__(&self, py: Python<'_>) -> PyResult<Py<PyString>> {
         let (ip, port) = self.untranslated_address;
 
@@ -205,7 +265,25 @@ impl From<&UntranslatedPeer<'_>> for PyUntranslatedPeer {
             ),
             datacenter: peer.datacenter().map(|s| s.to_string()),
             rack: peer.rack().map(|s| s.to_string()),
+
+            py_host_id: PyOnceLock::new(),
+            py_untranslated_address: PyOnceLock::new(),
+            py_datacenter: PyOnceLock::new(),
+            py_rack: PyOnceLock::new(),
         }
+    }
+}
+
+impl<'a> From<&'a PyUntranslatedPeer> for UntranslatedPeer<'a> {
+    fn from(peer: &'a PyUntranslatedPeer) -> UntranslatedPeer<'a> {
+        let (ip, port) = peer.untranslated_address;
+
+        UntranslatedPeer::from_fields(
+            peer.host_id,
+            SocketAddr::new(ip, port),
+            peer.datacenter.as_deref(),
+            peer.rack.as_deref(),
+        )
     }
 }
 

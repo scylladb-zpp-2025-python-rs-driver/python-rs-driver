@@ -1,7 +1,6 @@
-import ipaddress
 import uuid
-from typing import Optional, Tuple, Any
 from ipaddress import IPv4Address, IPv6Address
+from typing import Any, Optional, Protocol, runtime_checkable
 
 class Authenticator:
     """
@@ -42,7 +41,7 @@ class UntranslatedPeer:
     @property
     def host_id(self) -> uuid.UUID: ...
     @property
-    def untranslated_address(self) -> Tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, int]: ...
+    def untranslated_address(self) -> tuple[IPv4Address | IPv6Address, int]: ...
     @property
     def datacenter(self) -> Optional[str]: ...
     @property
