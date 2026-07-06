@@ -1,8 +1,12 @@
 use async_trait::async_trait;
 use pyo3::exceptions::PyNotImplementedError;
 use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
+use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyDict, PyString, PyTuple};
-use pyo3::{Bound, Py, PyResult, Python, pyclass, pymethods, pymodule};
+use pyo3::{
+    Borrowed, Bound, BoundObject, FromPyObject, Py, PyAny, PyResult, Python, intern, pyclass,
+    pymethods, pymodule,
+};
 use scylla::authentication::{AuthError, AuthenticatorProvider, AuthenticatorSession};
 use scylla::cluster::metadata::Peer;
 use scylla::errors::{CustomTranslationError, TranslationError};
@@ -129,48 +133,65 @@ impl AuthenticatorSession for InternalAuthenticator {
     }
 }
 
-#[pyclass(subclass, skip_from_py_object, name = "AddressTranslator")]
-pub(crate) struct PyAddressTranslator {}
 
-#[pymethods]
-impl PyAddressTranslator {
-    #[expect(unused_variables)]
-    #[new]
-    #[pyo3(signature = (*args, **kwargs))]
-    pub fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Self {
-        PyAddressTranslator {}
     }
 
-    fn translate(&self, _addr: Py<PyUntranslatedPeer>) -> PyResult<(IpAddr, u16)> {
-        Err(PyNotImplementedError::new_err("Method is not implemented"))
     }
 }
 
-pub(crate) struct InternalAddressTranslator {
-    pub(crate) python_translator: Py<PyAddressTranslator>,
+/// Stores a Python object with a `translate` method (user's custom implementation)
+/// and implements the Rust `AddressTranslator` trait by delegating to that Python object.
+struct CustomAddressTranslator {
+    inner: Py<PyAny>,
 }
 
 #[async_trait]
-impl AddressTranslator for InternalAddressTranslator {
+impl AddressTranslator for CustomAddressTranslator {
     async fn translate_address(
         &self,
         untranslated_peer: &UntranslatedPeer,
     ) -> Result<SocketAddr, TranslationError> {
-        let result = Python::attach(|py| -> PyResult<(IpAddr, u16)> {
-            let py_trans = self.python_translator.bind(py);
-            let py_peer_info = PyUntranslatedPeer::from(untranslated_peer);
+        Python::attach(|py| -> PyResult<SocketAddr> {
+            let py_trans = self.inner.bind(py);
+            let peer_info = PyUntranslatedPeer::from(untranslated_peer);
 
-            py_trans
-                .call_method1("translate", (py_peer_info,))?
-                .extract::<(IpAddr, u16)>()
+            let translated = py_trans
+                .call_method1(intern!(py, "translate"), (peer_info,))?
+                .extract::<ContactPoint>()?;
+
+            SocketAddr::try_from(translated).map_err(|e| e.into())
         })
-        .map_err(CustomTranslationError::new)?;
-
-        Ok(SocketAddr::from(result))
+        .map_err(|e| CustomTranslationError::new(e).into())
     }
 }
 
-#[pyclass(get_all, name = "UntranslatedPeer", frozen)]
+/// Python-facing input type for address translator. Extracts from a built-in `PyDictAddressTranslator`
+/// or wraps any Python object with a `translate` method as a `CustomAddressTranslator`.
+pub(crate) struct PyAddressTranslator {
+    inner: Arc<dyn AddressTranslator>,
+}
+
+impl PyAddressTranslator {
+    pub(crate) fn into_inner(self) -> Arc<dyn AddressTranslator> {
+        self.inner
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for PyAddressTranslator {
+    type Error = DriverSessionConfigError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if !obj.hasattr(intern!(obj.py(), "translate")).unwrap_or(false) {
+            return Err(DriverSessionConfigError::invalid_address_translator(obj));
+        }
+
+        Ok(Self {
+            inner: Arc::new(CustomAddressTranslator {
+                inner: obj.unbind(),
+            }),
+        })
+    }
+}
 /// Python representation of an untranslated peer address, exposing host_id, untranslated_address,
 /// datacenter, and rack. Exposed to Python as `UntranslatedPeer`.
 #[pyclass(name = "UntranslatedPeer", frozen)]
@@ -409,7 +430,6 @@ pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResul
     module.add_class::<PyAuthenticatorProvider>()?;
     module.add_class::<PyAuthenticator>()?;
     module.add_class::<PyUntranslatedPeer>()?;
-    module.add_class::<PyAddressTranslator>()?;
     module.add_class::<PyTimestampGenerator>()?;
     module.add_class::<PyHostFilter>()?;
     module.add_class::<PyPeer>()?;

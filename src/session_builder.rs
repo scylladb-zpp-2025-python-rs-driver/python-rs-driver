@@ -3,9 +3,8 @@ use crate::enums::{PyCompression, PyPoolSize, PySelfIdentity, PyWriteCoalescingD
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
 use crate::execution_profile::ExecutionProfile;
 use crate::policies::{
-    InternalAddressTranslator, InternalAuthenticatorProvider, InternalHostFilter,
-    InternalTimestampGenerator, PyAddressTranslator, PyAuthenticatorProvider, PyHostFilter,
-    PyTimestampGenerator,
+    InternalAuthenticatorProvider, InternalHostFilter, InternalTimestampGenerator,
+    PyAddressTranslator, PyAuthenticatorProvider, PyHostFilter, PyTimestampGenerator,
 };
 use crate::session::PySession;
 use crate::utils::{ParsedAddress, ParsedAddressList};
@@ -94,17 +93,16 @@ impl SessionBuilder {
     fn address_translator<'py>(
         slf: PyRef<'py, Self>,
         py: Python<'py>,
-        translator: Py<PyAddressTranslator>,
-    ) -> PyRef<'py, Self> {
+        py_translator: Py<PyAny>,
+    ) -> Result<PyRef<'py, Self>, DriverSessionConfigError> {
         {
             let mut inner = slf.inner.lock_py_attached(py).unwrap();
-            inner.address_translator = Some(translator.clone().into());
-            inner.config.address_translator = Some(Arc::new(InternalAddressTranslator {
-                python_translator: translator,
-            }));
+            let translator = py_translator.extract::<PyAddressTranslator>(py)?;
+            inner.address_translator = Some(py_translator.clone());
+            inner.config.address_translator = Some(translator.into_inner());
         }
 
-        slf
+        Ok(slf)
     }
 
     fn timestamp_generator<'py>(

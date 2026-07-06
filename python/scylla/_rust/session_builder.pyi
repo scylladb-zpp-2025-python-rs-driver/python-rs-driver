@@ -185,12 +185,14 @@ class SessionBuilder:
 
     def address_translator(self, translator: AddressTranslator) -> SessionBuilder:
         """
-        Registers a custom Python-defined address translator.
+        Registers an address translator for the session.
+
+        The translator is Python object implementing the
+        :class:`AddressTranslator` protocol.
 
         Parameters
         ----------
         translator : AddressTranslator
-            An instance of a class inheriting from :class:`AddressTranslator`.
 
         Returns
         -------

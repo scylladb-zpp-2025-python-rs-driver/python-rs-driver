@@ -164,7 +164,7 @@ async def test_builtin_user_credentials(ccm_contact_points: list[tuple[str, int]
 Address = ipaddress.IPv4Address | ipaddress.IPv6Address
 
 
-class MockAddressTranslator(AddressTranslator):
+class MockAddressTranslator:
     default_ip: Address
     default_port: int
     call_log: list[UntranslatedPeer]
@@ -180,7 +180,7 @@ class MockAddressTranslator(AddressTranslator):
         return self.default_ip, self.default_port
 
 
-class FailingTranslator(AddressTranslator):
+class FailingTranslator:
     def translate(self, info: UntranslatedPeer) -> tuple[Address, int]:
         raise RuntimeError("Translation Exploded!")
 
@@ -189,6 +189,7 @@ class FailingTranslator(AddressTranslator):
 @pytest.mark.requires_db
 async def test_custom_address_translator_discovery():
     translator = MockAddressTranslator(ipaddress.IPv4Address("127.0.0.2"), 9042)
+    assert isinstance(translator, AddressTranslator)
 
     builder = (
         SessionBuilder()
@@ -213,6 +214,7 @@ async def test_custom_address_translator_discovery():
 @pytest.mark.xfail(reason="Currently, Python exceptions in the translator do not propagate to the driver")
 async def test_address_translator_failing_python_side():
     translator = FailingTranslator()
+    assert isinstance(translator, AddressTranslator)
 
     builder = (
         SessionBuilder()

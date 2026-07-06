@@ -577,6 +577,8 @@ pub enum DriverSessionConfigError {
         source: AddressParseError,
     },
 
+    /// The object does not have a `translate` method and is not a dict-based address translator.
+    InvalidAddressTranslator {
         type_name: String,
     },
 }
@@ -591,6 +593,12 @@ impl DriverSessionConfigError {
             .unwrap_or_else(|_| "UnknownType".to_string());
 
         Self::InvalidDuration { type_name }
+    }
+
+    pub fn invalid_address_translator(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidAddressTranslator {
+            type_name: get_type_name(obj),
+        }
     }
 }
 
@@ -645,6 +653,13 @@ impl From<DriverSessionConfigError> for PyErr {
 
             DriverSessionConfigError::ZeroDurationNotAllowed => {
                 let message = "Duration must be greater than zero.";
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidAddressTranslator { type_name } => {
+                let message = format!(
+                    "Expected an class implementing AddressTranslator protocol or a dict[ContactPoint, ContactPoint], got {type_name}"
+                );
                 build_session_config_pyerr(py, message, None, None)
             }
         })
