@@ -836,6 +836,7 @@ impl From<tokio::task::JoinError> for DriverSchemaAgreementError {
 #[must_use]
 pub enum DriverLoadBalancingPolicyError {
     InvalidPolicy { type_name: String },
+    DefaultPolicyStringConversionFailed { source: Box<PyErr> },
 }
 
 impl DriverLoadBalancingPolicyError {
@@ -847,6 +848,12 @@ impl DriverLoadBalancingPolicyError {
             .unwrap_or_else(|_| "UnknownType".to_string());
         Self::InvalidPolicy { type_name }
     }
+
+    pub fn default_policy_string_conversion_failed(source: PyErr) -> Self {
+        Self::DefaultPolicyStringConversionFailed {
+            source: Box::new(source),
+        }
+    }
 }
 
 impl From<DriverLoadBalancingPolicyError> for PyErr {
@@ -857,6 +864,15 @@ impl From<DriverLoadBalancingPolicyError> for PyErr {
                     "Invalid load balancing policy '{type_name}': Object does not implement the \
                      LoadBalancingPolicy protocol (missing required 'pick_targets' method)."
                 ))
+            }
+            DriverLoadBalancingPolicyError::DefaultPolicyStringConversionFailed { source } => {
+                Python::attach(|py| {
+                    let err = LoadBalancingPolicyError::new_err(
+                        "String conversion failed while creating default load balancing policy",
+                    );
+                    err.set_cause(py, Some(*source));
+                    err
+                })
             }
         }
     }
