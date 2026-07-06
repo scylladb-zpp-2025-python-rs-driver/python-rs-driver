@@ -8,6 +8,7 @@ use crate::errors::{
     DriverExecuteError, DriverPrepareError, DriverSchemaAgreementError,
     DriverStatementConversionError, DriverUseKeyspaceError,
 };
+use crate::execution_profile::ExecutionProfile;
 use crate::serialize::value_list::PyValueList;
 use crate::statement::PyPreparedStatement;
 use crate::statement::PyStatement;
@@ -91,7 +92,22 @@ impl PySession {
         statement: ExecutableStatement,
     ) -> Result<PyPreparedStatement, DriverPrepareError> {
         match statement {
-            ExecutableStatement::Unprepared(s) => self.scylla_prepare(s).await,
+            ExecutableStatement::Unprepared {
+                statement,
+                execution_profile,
+                load_balancing_policy,
+            } => match self._inner.prepare(statement).await {
+                Ok(prepared) => {
+                    let is_serial_consistency_set = prepared.get_serial_consistency().is_some();
+                    Ok(PyPreparedStatement::new(
+                        prepared,
+                        is_serial_consistency_set,
+                        execution_profile,
+                        load_balancing_policy,
+                    ))
+                }
+                Err(err) => Err(DriverPrepareError::rust_driver_prepare_error(err)),
+            },
             ExecutableStatement::Prepared(_) => {
                 Err(DriverPrepareError::cannot_prepare_prepared_statement())
             }
@@ -184,7 +200,7 @@ impl PySession {
                 })
                 .await?
             }
-            ExecutableStatement::Unprepared(q) => {
+            ExecutableStatement::Unprepared { statement: q, .. } => {
                 self.session_spawn_on_runtime(async move |s| {
                     s.query_unpaged(q, values)
                         .await
@@ -236,16 +252,6 @@ impl PySession {
         RUNTIME.spawn(async move { f(session_clone).await }).await?
     }
 
-    async fn scylla_prepare(
-        &self,
-        statement: impl Into<Statement>,
-    ) -> Result<PyPreparedStatement, DriverPrepareError> {
-        match self._inner.prepare(statement).await {
-            Ok(prepared) => Ok(PyPreparedStatement::new(prepared, false)),
-            Err(err) => Err(DriverPrepareError::rust_driver_prepare_error(err)),
-        }
-    }
-
     pub(crate) async fn execute_single_page(
         &self,
         paging_state: PagingState,
@@ -264,7 +270,7 @@ impl PySession {
                 })
                 .await
             }
-            ExecutableStatement::Unprepared(q) => {
+            ExecutableStatement::Unprepared { statement: q, .. } => {
                 self.session_spawn_on_runtime(async move |s| {
                     s.query_single_page(q, values, paging_state)
                         .await
@@ -279,7 +285,11 @@ impl PySession {
 #[derive(Clone)]
 pub(crate) enum ExecutableStatement {
     Prepared(PreparedStatement),
-    Unprepared(Statement),
+    Unprepared {
+        statement: Statement,
+        execution_profile: Option<Py<ExecutionProfile>>,
+        load_balancing_policy: Option<Py<PyAny>>,
+    },
 }
 
 impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
@@ -287,20 +297,28 @@ impl<'py> FromPyObject<'_, 'py> for ExecutableStatement {
 
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
         if let Ok(prepared) = obj.cast::<PyPreparedStatement>() {
-            return Ok(ExecutableStatement::Prepared(prepared.get()._inner.clone()));
+            let prepared = prepared.get();
+            return Ok(ExecutableStatement::Prepared(prepared._inner.clone()));
         }
 
         if let Ok(text) = obj.cast::<PyString>() {
             let text = text
                 .to_str()
                 .map_err(DriverStatementConversionError::statement_string_conversion_failed)?;
-            return Ok(ExecutableStatement::Unprepared(text.into()));
+            return Ok(ExecutableStatement::Unprepared {
+                statement: text.into(),
+                execution_profile: None,
+                load_balancing_policy: None,
+            });
         }
 
         if let Ok(statement) = obj.cast::<PyStatement>() {
-            return Ok(ExecutableStatement::Unprepared(
-                statement.get()._inner.clone(),
-            ));
+            let stmt = statement.get();
+            return Ok(ExecutableStatement::Unprepared {
+                statement: stmt._inner.clone(),
+                execution_profile: stmt._execution_profile.clone(),
+                load_balancing_policy: stmt._load_balancing_policy.clone(),
+            });
         }
 
         let got = obj
@@ -317,7 +335,7 @@ impl From<ExecutableStatement> for BatchStatement {
     fn from(s: ExecutableStatement) -> Self {
         match s {
             ExecutableStatement::Prepared(p) => BatchStatement::PreparedStatement(p),
-            ExecutableStatement::Unprepared(u) => BatchStatement::Query(u),
+            ExecutableStatement::Unprepared { statement, .. } => BatchStatement::Query(statement),
         }
     }
 }
