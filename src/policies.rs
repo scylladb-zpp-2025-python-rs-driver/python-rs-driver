@@ -536,26 +536,101 @@ impl HostFilter for InternalHostFilter {
     }
 }
 
-#[pyclass(get_all, frozen, name = "Peer")]
+/// Python representation of a cluster peer node, exposing host_id, address, tokens, datacenter, and rack.
+/// Exposed to Python as `Peer`.
+#[pyclass(frozen, name = "Peer")]
 pub struct PyPeer {
-    pub host_id: uuid::Uuid,
-    pub address: (IpAddr, u16),
-    //TODO when LBC is merged switch to using Token instead of i64
-    pub tokens: Vec<i64>,
-    pub datacenter: Option<String>,
-    pub rack: Option<String>,
+    inner: Peer,
+    py_host_id: PyOnceLock<Py<PyAny>>,
+    py_address: PyOnceLock<Py<PyTuple>>,
+    py_tokens: PyOnceLock<Py<PyTuple>>,
+    py_datacenter: PyOnceLock<Py<PyString>>,
+    py_rack: PyOnceLock<Py<PyString>>,
 }
 
 #[pymethods]
 impl PyPeer {
+    #[getter]
+    fn host_id(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        Ok(self
+            .py_host_id
+            .get_or_try_init(py, || {
+                Ok::<_, PyErr>(self.inner.host_id.into_pyobject(py)?.unbind())
+            })?
+            .clone_ref(py))
+    }
+
+    #[getter]
+    fn address(&self, py: Python<'_>) -> PyResult<Py<PyTuple>> {
+        Ok(self
+            .py_address
+            .get_or_try_init(py, || {
+                let ip = self.inner.address.ip();
+                let port = self.inner.address.port();
+                Ok::<_, PyErr>(
+                    (ip, port)
+                        .into_pyobject(py)?
+                        .cast_into::<PyTuple>()?
+                        .unbind(),
+                )
+            })?
+            .clone_ref(py))
+    }
+
+    #[getter]
+    fn tokens(&self, py: Python<'_>) -> PyResult<Py<PyTuple>> {
+        Ok(self
+            .py_tokens
+            .get_or_try_init(py, || {
+                let mapped_tokens = self
+                    .inner
+                    .tokens
+                    .iter()
+                    .map(|token| PyValueOrError::new(Py::new(py, PyToken::from(*token))));
+
+                PyTuple::new(py, mapped_tokens).map(|t| t.unbind())
+            })?
+            .clone_ref(py))
+    }
+
+    #[getter]
+    fn datacenter(&self, py: Python<'_>) -> Py<PyAny> {
+        match &self.inner.datacenter {
+            None => py.None(),
+            Some(datacenter) => self
+                .py_datacenter
+                .get_or_init(py, || PyString::new(py, datacenter).unbind())
+                .clone_ref(py)
+                .into_any(),
+        }
+    }
+
+    #[getter]
+    fn rack(&self, py: Python<'_>) -> Py<PyAny> {
+        match &self.inner.rack {
+            None => py.None(),
+            Some(rack) => self
+                .py_rack
+                .get_or_init(py, || PyString::new(py, rack).unbind())
+                .clone_ref(py)
+                .into_any(),
+        }
+    }
+
     fn __repr__(&self, py: Python<'_>) -> PyResult<Py<PyString>> {
-        let (ip, port) = self.address;
+        let ip = self.inner.address.ip();
+        let port = self.inner.address.port();
 
         let repr_str = PyString::from_fmt(
             py,
             format_args!(
-                "Peer(host_id='{}', address=('{}', {}), tokens={:?}, datacenter={:?}, rack={:?})",
-                self.host_id, ip, port, self.tokens, self.datacenter, self.rack
+                "Peer(host_id='{}', address=('{}', {}), tokens={}, datacenter={:?}, rack={:?})",
+                self.inner.host_id,
+                ip,
+                port,
+                self.tokens(py)?,
+                self.inner.datacenter,
+                self.inner.rack
             ),
         )?;
 
@@ -563,14 +638,15 @@ impl PyPeer {
     }
 }
 
-impl From<&Peer> for PyPeer {
-    fn from(peer: &Peer) -> Self {
+impl From<Peer> for PyPeer {
+    fn from(peer: Peer) -> Self {
         Self {
-            host_id: peer.host_id,
-            address: (peer.address.ip(), peer.address.port()),
-            tokens: peer.tokens.iter().map(|t| t.value()).collect(),
-            datacenter: peer.datacenter.clone(),
-            rack: peer.rack.clone(),
+            inner: peer,
+            py_host_id: PyOnceLock::new(),
+            py_address: PyOnceLock::new(),
+            py_tokens: PyOnceLock::new(),
+            py_datacenter: PyOnceLock::new(),
+            py_rack: PyOnceLock::new(),
         }
     }
 }
