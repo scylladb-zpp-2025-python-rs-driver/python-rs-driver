@@ -9,5 +9,6 @@ TBD.
    :glob:
 
    consistency
+   serial_consistency
 
 ```
