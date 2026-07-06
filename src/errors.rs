@@ -1,7 +1,4 @@
 // src/errors.rs
-use std::error::Error;
-use std::fmt;
-
 use pyo3::PyErr;
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
@@ -10,6 +7,8 @@ use pyo3::types::{PyModule, PyNone};
 use scylla::errors::ClusterStateTokenError as RustClusterStateTokenError;
 use scylla::errors::UseKeyspaceError as RustUseKeyspaceError;
 
+use std::error::Error;
+use std::fmt;
 /* Python exception classes */
 
 create_exception!(errors, ScyllaError, PyException);
@@ -487,17 +486,8 @@ impl From<tokio::task::JoinError> for DriverSessionConnectionError {
 #[derive(Debug)]
 #[must_use]
 pub enum DriverSessionConfigError {
+    /// Failed to iterate over a sequence of node addresses during session config extraction.
     ContactPointsIterationFailed {
-        source: Box<PyErr>,
-    },
-    /// The contact_points argument is of the wrong type.
-    ContactPointTypeError {
-        type_name: String,
-    },
-
-    /// Wraps a Core Error with the index where it happened
-    InvalidContactPointItem {
-        index: usize,
         source: Box<PyErr>,
     },
 
@@ -508,18 +498,28 @@ pub enum DriverSessionConfigError {
     },
 
     ZeroDurationNotAllowed,
+
+    /// The address object is not a valid type (str, tuple, or IpAddr tuple).
+    ContactPointTypeError {
+        type_name: String,
+    },
+
+    /// An individual item in a node address sequence failed to extract at the given index.
+    InvalidContactPointItem {
+        index: usize,
+        source: Box<PyErr>,
+    },
+
+        type_name: String,
+    },
 }
 
 impl DriverSessionConfigError {
     /* Constructors */
     pub fn contact_point_type_error(obj: Borrowed<PyAny>) -> Self {
-        let type_name = obj
-            .get_type()
-            .name()
-            .map(|n| n.to_string())
-            .unwrap_or_else(|_| "UnknownType".to_string());
-
-        Self::ContactPointTypeError { type_name }
+        Self::ContactPointTypeError {
+            type_name: get_type_name(obj),
+        }
     }
 
     pub fn contact_points_iteration_failed(source: PyErr) -> Self {
@@ -565,6 +565,13 @@ fn build_session_config_pyerr(
     }
 
     err
+}
+
+fn get_type_name(obj: Borrowed<PyAny>) -> String {
+    obj.get_type()
+        .name()
+        .map(|n| n.to_string())
+        .unwrap_or_else(|_| "UnknownType".to_string())
 }
 
 impl From<DriverSessionConfigError> for PyErr {
