@@ -2,6 +2,7 @@ import pytest
 from scylla.enums import Consistency, SerialConsistency
 from scylla.errors import ExecuteError, StatementConfigError
 from scylla.execution_profile import ExecutionProfile
+from scylla.load_balancing import DefaultPolicy
 from scylla.session_builder import SessionBuilder
 from scylla.statement import PreparedStatement, Statement
 from scylla.types import Unset
@@ -191,7 +192,8 @@ def test_statement_with_and_get_execution_profile():
     stmt = stmt.with_execution_profile(profile)
 
     actual_profile = stmt.execution_profile
-    assert isinstance(actual_profile, ExecutionProfile)
+    assert actual_profile is profile
+    assert actual_profile is not None
     assert actual_profile.request_timeout == expected_timeout
 
 
@@ -291,7 +293,8 @@ async def test_prepared_with_and_get_execution_profile():
     prepared = prepared.with_execution_profile(expected_profile)
 
     actual_profile = prepared.execution_profile
-    assert isinstance(actual_profile, ExecutionProfile)
+    assert actual_profile is expected_profile
+    assert actual_profile is not None
     assert actual_profile.request_timeout == expected_profile.request_timeout
 
 
@@ -308,6 +311,17 @@ async def test_prepared_with_and_without_execution_profile():
 
     actual_profile = prepared.execution_profile
     assert actual_profile is None
+
+
+def test_statement_execution_profile_preserves_load_balancing_policy():
+    policy = DefaultPolicy()
+    profile = ExecutionProfile(load_balancing_policy=policy)
+    stmt = Statement("SELECT * FROM system.local").with_execution_profile(profile)
+
+    actual_profile = stmt.execution_profile
+    assert actual_profile is profile
+    assert actual_profile is not None
+    assert actual_profile.load_balancing_policy is policy
 
 
 @pytest.mark.asyncio
