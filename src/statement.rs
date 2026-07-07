@@ -20,18 +20,21 @@ pub(crate) struct PyPreparedStatement {
     // between `Unset` and `None` in a different way. To preserve this distinction, an additional
     // flag `is_serial_consistency_set` is required.
     is_serial_consistency_set: bool,
-    _load_balancing_policy: Option<Py<PyAny>>,
+    pub(crate) _execution_profile: Option<Py<ExecutionProfile>>,
+    pub(crate) _load_balancing_policy: Option<Py<PyAny>>,
 }
 
 impl PyPreparedStatement {
     pub(crate) fn new(
         _inner: PreparedStatement,
         is_serial_consistency_set: bool,
+        _execution_profile: Option<Py<ExecutionProfile>>,
         _load_balancing_policy: Option<Py<PyAny>>,
     ) -> Self {
         Self {
             _inner,
             is_serial_consistency_set,
+            _execution_profile,
             _load_balancing_policy,
         }
     }
@@ -39,12 +42,13 @@ impl PyPreparedStatement {
 
 #[pymethods]
 impl PyPreparedStatement {
-    fn with_execution_profile(&self, profile: ExecutionProfile) -> Self {
+    fn with_execution_profile(&self, profile: Py<ExecutionProfile>) -> Self {
         let mut p = self._inner.clone();
-        p.set_execution_profile_handle(Some(profile._inner.into_handle()));
+        p.set_execution_profile_handle(Some(profile.get()._inner.clone().into_handle()));
         Self::new(
             p,
             self.is_serial_consistency_set,
+            Some(profile),
             self._load_balancing_policy.clone(),
         )
     }
@@ -55,18 +59,14 @@ impl PyPreparedStatement {
         Self::new(
             p,
             self.is_serial_consistency_set,
+            None,
             self._load_balancing_policy.clone(),
         )
     }
 
     #[getter]
-    fn get_execution_profile(&self) -> Option<ExecutionProfile> {
-        self._inner
-            .get_execution_profile_handle()
-            .map(|h| ExecutionProfile {
-                _inner: h.to_profile(),
-                _load_balancing_policy: None,
-            })
+    fn get_execution_profile(&self) -> Option<Py<ExecutionProfile>> {
+        self._execution_profile.clone()
     }
 
     fn with_load_balancing_policy(
@@ -80,6 +80,7 @@ impl PyPreparedStatement {
         Ok(Self::new(
             p,
             self.is_serial_consistency_set,
+            self._execution_profile.clone(),
             Some(py_policy),
         ))
     }
@@ -87,7 +88,12 @@ impl PyPreparedStatement {
     fn without_load_balancing_policy(&self) -> Self {
         let mut p = self._inner.clone();
         p.set_load_balancing_policy(None);
-        Self::new(p, self.is_serial_consistency_set, None)
+        Self::new(
+            p,
+            self.is_serial_consistency_set,
+            self._execution_profile.clone(),
+            None,
+        )
     }
 
     #[getter]
@@ -101,6 +107,7 @@ impl PyPreparedStatement {
         Self::new(
             p,
             self.is_serial_consistency_set,
+            self._execution_profile.clone(),
             self._load_balancing_policy.clone(),
         )
     }
@@ -111,6 +118,7 @@ impl PyPreparedStatement {
         Self::new(
             p,
             self.is_serial_consistency_set,
+            self._execution_profile.clone(),
             self._load_balancing_policy.clone(),
         )
     }
@@ -123,13 +131,23 @@ impl PyPreparedStatement {
     fn with_serial_consistency(&self, sc: Option<PySerialConsistency>) -> Self {
         let mut p = self._inner.clone();
         p.set_serial_consistency(sc.map(SerialConsistency::from));
-        Self::new(p, true, self._load_balancing_policy.clone())
+        Self::new(
+            p,
+            true,
+            self._execution_profile.clone(),
+            self._load_balancing_policy.clone(),
+        )
     }
 
     fn without_serial_consistency(&self) -> Self {
         let mut p = self._inner.clone();
         p.unset_serial_consistency();
-        Self::new(p, false, self._load_balancing_policy.clone())
+        Self::new(
+            p,
+            false,
+            self._execution_profile.clone(),
+            self._load_balancing_policy.clone(),
+        )
     }
 
     #[getter]
@@ -164,6 +182,7 @@ impl PyPreparedStatement {
         Ok(Self::new(
             p,
             self.is_serial_consistency_set,
+            self._execution_profile.clone(),
             self._load_balancing_policy.clone(),
         ))
     }
@@ -174,6 +193,7 @@ impl PyPreparedStatement {
         Self::new(
             p,
             self.is_serial_consistency_set,
+            self._execution_profile.clone(),
             self._load_balancing_policy.clone(),
         )
     }
@@ -193,6 +213,7 @@ impl PyPreparedStatement {
         Self::new(
             p,
             self.is_serial_consistency_set,
+            self._execution_profile.clone(),
             self._load_balancing_policy.clone(),
         )
     }
@@ -211,13 +232,22 @@ pub(crate) struct PyStatement {
     // between `Unset` and `None` in a different way. To preserve this distinction, an additional
     // flag `is_serial_consistency_set` is required.
     is_serial_consistency_set: bool,
+    pub(crate) _execution_profile: Option<Py<ExecutionProfile>>,
+    pub(crate) _load_balancing_policy: Option<Py<PyAny>>,
 }
 
 impl PyStatement {
-    pub(crate) fn new(_inner: Statement, is_serial_consistency_set: bool) -> Self {
+    pub(crate) fn new(
+        _inner: Statement,
+        is_serial_consistency_set: bool,
+        _execution_profile: Option<Py<ExecutionProfile>>,
+        _load_balancing_policy: Option<Py<PyAny>>,
+    ) -> Self {
         Self {
             _inner,
             is_serial_consistency_set,
+            _execution_profile,
+            _load_balancing_policy,
         }
     }
 }
@@ -227,7 +257,7 @@ impl PyStatement {
     #[new]
     fn py_new(query_str: String) -> Self {
         let s = Statement::from(query_str);
-        Self::new(s, false)
+        Self::new(s, false, None, None)
     }
 
     #[getter]
@@ -235,37 +265,85 @@ impl PyStatement {
         PyString::new(py, &self._inner.contents)
     }
 
-    fn with_execution_profile(&self, profile: ExecutionProfile) -> Self {
+    fn with_execution_profile(&self, profile: Py<ExecutionProfile>) -> Self {
         let mut s = self._inner.clone();
-        s.set_execution_profile_handle(Some(profile._inner.into_handle()));
-        Self::new(s, self.is_serial_consistency_set)
+        s.set_execution_profile_handle(Some(profile.get()._inner.clone().into_handle()));
+        Self::new(
+            s,
+            self.is_serial_consistency_set,
+            Some(profile),
+            self._load_balancing_policy.clone(),
+        )
     }
 
     fn without_execution_profile(&self) -> Self {
         let mut s = self._inner.clone();
         s.set_execution_profile_handle(None);
-        Self::new(s, self.is_serial_consistency_set)
+        Self::new(
+            s,
+            self.is_serial_consistency_set,
+            None,
+            self._load_balancing_policy.clone(),
+        )
     }
 
     #[getter]
-    fn get_execution_profile(&self) -> Option<ExecutionProfile> {
-        self._inner
-            .get_execution_profile_handle()
-            .map(|h| ExecutionProfile {
-                _inner: h.to_profile(),
-            })
+    fn get_execution_profile(&self) -> Option<Py<ExecutionProfile>> {
+        self._execution_profile.clone()
+    }
+
+    fn with_load_balancing_policy(
+        &self,
+        py: Python<'_>,
+        py_policy: Py<PyAny>,
+    ) -> Result<Self, DriverStatementConfigError> {
+        let policy = py_policy.bind(py).extract::<PyLoadBalancingPolicy>()?;
+        let mut s = self._inner.clone();
+        s.set_load_balancing_policy(Some(policy.into_inner()));
+        Ok(Self::new(
+            s,
+            self.is_serial_consistency_set,
+            self._execution_profile.clone(),
+            Some(py_policy),
+        ))
+    }
+
+    fn without_load_balancing_policy(&self) -> Self {
+        let mut s = self._inner.clone();
+        s.set_load_balancing_policy(None);
+        Self::new(
+            s,
+            self.is_serial_consistency_set,
+            self._execution_profile.clone(),
+            None,
+        )
+    }
+
+    #[getter]
+    fn get_load_balancing_policy(&self) -> Option<Py<PyAny>> {
+        self._load_balancing_policy.clone()
     }
 
     fn with_consistency(&self, c: PyConsistency) -> Self {
         let mut s = self._inner.clone();
         s.set_consistency(c.into());
-        Self::new(s, self.is_serial_consistency_set)
+        Self::new(
+            s,
+            self.is_serial_consistency_set,
+            self._execution_profile.clone(),
+            self._load_balancing_policy.clone(),
+        )
     }
 
     fn without_consistency(&self) -> Self {
         let mut s = self._inner.clone();
         s.unset_consistency();
-        Self::new(s, self.is_serial_consistency_set)
+        Self::new(
+            s,
+            self.is_serial_consistency_set,
+            self._execution_profile.clone(),
+            self._load_balancing_policy.clone(),
+        )
     }
 
     #[getter]
@@ -276,13 +354,23 @@ impl PyStatement {
     fn with_serial_consistency(&self, sc: Option<PySerialConsistency>) -> Self {
         let mut s = self._inner.clone();
         s.set_serial_consistency(sc.map(SerialConsistency::from));
-        Self::new(s, true)
+        Self::new(
+            s,
+            true,
+            self._execution_profile.clone(),
+            self._load_balancing_policy.clone(),
+        )
     }
 
     fn without_serial_consistency(&self) -> Self {
         let mut s = self._inner.clone();
         s.unset_serial_consistency();
-        Self::new(s, false)
+        Self::new(
+            s,
+            false,
+            self._execution_profile.clone(),
+            self._load_balancing_policy.clone(),
+        )
     }
 
     #[getter]
@@ -312,13 +400,23 @@ impl PyStatement {
 
         let mut s = self._inner.clone();
         s.set_request_timeout(Some(timeout));
-        Ok(Self::new(s, self.is_serial_consistency_set))
+        Ok(Self::new(
+            s,
+            self.is_serial_consistency_set,
+            self._execution_profile.clone(),
+            self._load_balancing_policy.clone(),
+        ))
     }
 
     fn without_request_timeout(&self) -> Self {
         let mut s = self._inner.clone();
         s.set_request_timeout(None);
-        Self::new(s, self.is_serial_consistency_set)
+        Self::new(
+            s,
+            self.is_serial_consistency_set,
+            self._execution_profile.clone(),
+            self._load_balancing_policy.clone(),
+        )
     }
 
     #[getter]
@@ -333,7 +431,12 @@ impl PyStatement {
     fn with_page_size(&self, page_size: i32) -> Self {
         let mut s = self._inner.clone();
         s.set_page_size(page_size);
-        Self::new(s, self.is_serial_consistency_set)
+        Self::new(
+            s,
+            self.is_serial_consistency_set,
+            self._execution_profile.clone(),
+            self._load_balancing_policy.clone(),
+        )
     }
 
     #[getter]

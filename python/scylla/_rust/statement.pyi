@@ -1,7 +1,7 @@
 from .enums import Consistency, SerialConsistency
 from .execution_profile import ExecutionProfile
-from .load_balancing import LoadBalancingPolicy
 from .types import UnsetType
+from scylla.load_balancing import LoadBalancingPolicy
 
 class PreparedStatement:
     """
@@ -65,3 +65,7 @@ class Statement:
     def with_page_size(self, page_size: int) -> Statement: ...
     @property
     def page_size(self) -> int: ...
+    def with_load_balancing_policy(self, policy: LoadBalancingPolicy) -> Statement: ...
+    def without_load_balancing_policy(self) -> Statement: ...
+    @property
+    def load_balancing_policy(self) -> LoadBalancingPolicy | None: ...
