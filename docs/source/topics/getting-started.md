@@ -309,10 +309,10 @@ batch.add(insert, [10, "Frank", 40])
 batch.add(insert, [11, "Grace", 28])
 batch.add(insert, [12, "Heidi", 33])
 
-# Optionally configure consistency on the batch itself
+# Optionally configure consistency on the batch itself.
 batch = batch.with_consistency(Consistency.LocalQuorum)
 
-# Or add an ExecutionProfile
+# Or add an ExecutionProfile.
 batch = batch.with_execution_profile(ExecutionProfile(timeout=120.0))
 
 await session.batch(batch)
@@ -353,12 +353,12 @@ from scylla.execution_profile import ExecutionProfile
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 async def main():
-    # Build a session with a custom execution profile
+    # Build a session with a custom execution profile.
     profile = ExecutionProfile(timeout=10.0, consistency=Consistency.LocalQuorum)
     builder = SessionBuilder().contact_points("127.0.0.2").execution_profile(profile)
     session = await builder.connect()
 
-    # Set up schema
+    # Set up schema.
     await session.execute(
         "CREATE KEYSPACE IF NOT EXISTS demo "
         "WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1}"
@@ -368,14 +368,14 @@ async def main():
         "CREATE TABLE IF NOT EXISTS users (id int PRIMARY KEY, name text, age int)"
     )
 
-    # Prepare and execute concurrently
+    # Prepare and execute concurrently.
     insert = await session.prepare("INSERT INTO users (id, name, age) VALUES (?, ?, ?)")
     await asyncio.gather(*[
         session.execute(insert, [i, f"user_{i}", 20 + i % 50])
         for i in range(20)
     ])
 
-    # Read back all rows
+    # Read back all rows.
     result = await session.execute("SELECT id, name, age FROM users")
     async for row in result:
         print(f"id={row['id']}  name={row['name']}  age={row['age']}")

@@ -9,27 +9,27 @@ Only `INSERT`, `UPDATE` and `DELETE` statements are allowed.
 from scylla.batch import Batch
 from scylla.statement import Statement
 
-# Create a batch statement
+# Create a batch statement.
 batch = Batch()
 
-# Add an unprepared statement to the batch using its text
+# Add an unprepared statement to the batch using its text.
 batch.add("INSERT INTO tab (a, b) VALUES (1, 2)")
 
-# Add an unprepared statement created manually to the batch
+# Add an unprepared statement created manually to the batch.
 unprepared = Statement("INSERT INTO tab (a, b) VALUES (3, ?)", (4, ))
 batch.add(unprepared)
 
-# Add a prepared statement to the batch
+# Add a prepared statement to the batch.
 prepared = await session.prepare("INSERT INTO tab (a, b) VALUES(5, 6)", None)
 batch.add(prepared)
 
-# Add multiple statements to the batch at once
+# Add multiple statements to the batch at once.
 unprepared_str = "INSERT INTO tab (a, b) VALUES (7, 8)"
 unprepared = Statement("INSERT INTO tab (a, b) VALUES (9, 10)")
 prepared = await session.prepare("INSERT INTO tab (a, b) VALUES(11, 12)")
 batch.add_all([(unprepared_str, None), (unprepared, None), (prepared, None)])
 
-# Run the batch
+# Run the batch.
 await session.batch(batch)
 ```
 
@@ -46,25 +46,25 @@ Example:
 ```python
 from scylla.batch import Batch
 
-# Create a batch statement
+# Create a batch statement.
 batch = Batch()
 
-# A statement with two bound values
+# A statement with two bound values.
 batch.add("INSERT INTO tab (a, b) VALUES (?, ?)", (1, 2))
 
-# A statement with one bound value
+# A statement with one bound value.
 batch.add("INSERT INTO tab (a, b) VALUES (3, ?)", (4, ))
 
-# A statement with no bound values
+# A statement with no bound values.
 batch.add("INSERT INTO tab (a, b) VALUES (5, 6)")
 
-# A statement with no bound values and explicit None
+# A statement with no bound values and explicit None.
 batch.add("INSERT INTO tab (a, b) VALUES (7, 8)", None)
 
-# A statement with no bound values and empty tuple
+# A statement with no bound values and empty tuple.
 batch.add("INSERT INTO tab (a, b) VALUES (9, 10)", ())
 
-# Run the batch
+# Run the batch.
 # Note that the driver will prepare the first two statements, due to them
 # not being prepared and having a non-empty list of values.
 await session.batch(batch)
@@ -79,10 +79,10 @@ Example:
 ```python
 from scylla.batch import Batch
 
-# Create a batch statement
+# Create a batch statement.
 batch = Batch()
 
-# Add multiple statements with values
+# Add multiple statements with values.
 batch.add_all(
     [
         ("INSERT INTO tab (a, b) VALUES (?, ?)", (7, 8)),
@@ -92,7 +92,7 @@ batch.add_all(
     ]
 )
 
-# Run the batch
+# Run the batch.
 # Note that the driver will prepare the first two statements, due to them
 # not being prepared and having a non-empty list of values.
 await session.batch(batch)
@@ -121,14 +121,14 @@ Example:
 from scylla.batch import Batch
 from scylla.enums import Consistency
 
-# Create a batch statement
+# Create a batch statement.
 batch = Batch()
 batch.add("INSERT INTO tab (a) VALUES (16)")
 
-# Create a batch statement with consistency set to One
+# Create a batch statement with consistency set to One.
 batch = batch.with_consistency(Consistency.One)
 
-# Run the batch
+# Run the batch.
 await session.batch(batch)
 ```
 
