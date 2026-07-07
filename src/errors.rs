@@ -953,6 +953,10 @@ pub enum DriverBatchError {
     InvalidRequestTimeout { value: f64 },
     /// An error occurred in Python code while handling a batch value.
     PythonConversionFailed { source: Box<PyErr> },
+    /// The provided load balancing policy is invalid.
+    InvalidLoadBalancingPolicy {
+        source: Box<DriverLoadBalancingPolicyError>,
+    },
 }
 
 impl DriverBatchError {
@@ -967,6 +971,18 @@ impl DriverBatchError {
             source: Box::new(source),
         }
     }
+
+    pub fn invalid_load_balancing_policy(source: DriverLoadBalancingPolicyError) -> Self {
+        Self::InvalidLoadBalancingPolicy {
+            source: Box::new(source),
+        }
+    }
+}
+
+impl From<DriverLoadBalancingPolicyError> for DriverBatchError {
+    fn from(e: DriverLoadBalancingPolicyError) -> Self {
+        Self::invalid_load_balancing_policy(e)
+    }
 }
 
 impl From<DriverBatchError> for PyErr {
@@ -980,6 +996,11 @@ impl From<DriverBatchError> for PyErr {
                     BatchError::new_err("Python conversion failed while handling batch value");
 
                 err.set_cause(py, Some(*source));
+                err
+            }),
+            DriverBatchError::InvalidLoadBalancingPolicy { source } => Python::attach(|py| {
+                let err = BatchError::new_err("Invalid load balancing policy for batch");
+                err.set_cause(py, Some(PyErr::from(*source)));
                 err
             }),
         }
