@@ -482,6 +482,7 @@ impl PySessionBuilderConfig {
             py,
             ExecutionProfile {
                 _inner: config.default_execution_profile_handle.to_profile(),
+                _load_balancing_policy: None,
             },
         )?;
 
