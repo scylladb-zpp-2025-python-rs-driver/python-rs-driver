@@ -886,6 +886,10 @@ pub enum DriverStatementConfigError {
     InvalidRequestTimeout { value: f64 },
     /// An error occurred in Python code while handling a statement value.
     PythonConversionFailed { source: Box<PyErr> },
+    /// The provided load balancing policy is invalid.
+    InvalidLoadBalancingPolicy {
+        source: Box<DriverLoadBalancingPolicyError>,
+    },
 }
 
 impl DriverStatementConfigError {
@@ -899,6 +903,18 @@ impl DriverStatementConfigError {
         Self::PythonConversionFailed {
             source: Box::new(source),
         }
+    }
+
+    pub fn invalid_load_balancing_policy(source: DriverLoadBalancingPolicyError) -> Self {
+        Self::InvalidLoadBalancingPolicy {
+            source: Box::new(source),
+        }
+    }
+}
+
+impl From<DriverLoadBalancingPolicyError> for DriverStatementConfigError {
+    fn from(e: DriverLoadBalancingPolicyError) -> Self {
+        Self::invalid_load_balancing_policy(e)
     }
 }
 
@@ -918,6 +934,13 @@ impl From<DriverStatementConfigError> for PyErr {
                 err.set_cause(py, Some(*source));
                 err
             }),
+            DriverStatementConfigError::InvalidLoadBalancingPolicy { source } => {
+                Python::attach(|py| {
+                    let err = StatementConfigError::new_err("Invalid load balancing policy");
+                    err.set_cause(py, Some(PyErr::from(*source)));
+                    err
+                })
+            }
         }
     }
 }
