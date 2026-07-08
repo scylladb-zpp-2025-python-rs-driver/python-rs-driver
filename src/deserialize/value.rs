@@ -8,17 +8,13 @@ use pyo3::types::{
     PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyNone, PySet, PyString, PyTuple,
 };
 use pyo3::{Bound, IntoPyObject, Py, PyAny, PyResult, Python, pyclass, pymethods, pymodule};
-use scylla_cql::deserialize::value::{
-    BuiltinDeserializationErrorKind, FixedLengthBytesSequenceIterator, MapDeserializationErrorKind,
-    SetOrListDeserializationErrorKind, mk_deser_err,
-};
-use scylla_cql::deserialize::value::{DeserializeValue, UdtIterator};
+use scylla::deserialize::value::FrameSliceWithMetadata;
+use scylla::deserialize::value::VectorIterator;
+use scylla::deserialize::value::{DeserializeValue, ListlikeIterator, MapIterator, UdtIterator};
 use scylla_cql::deserialize::{DeserializationError, FrameSlice};
-use scylla_cql::frame::frame_errors::LowLevelDeserializationError;
 use scylla_cql::frame::response::result::ColumnType;
 use scylla_cql::frame::response::result::ColumnType::Native;
 use scylla_cql::frame::response::result::{CollectionType, NativeType};
-use scylla_cql::frame::types;
 use scylla_cql::value::{
     Counter, CqlDate, CqlDecimalBorrowed, CqlDuration, CqlTime, CqlTimestamp, CqlTimeuuid,
     CqlVarintBorrowed,
@@ -26,8 +22,6 @@ use scylla_cql::value::{
 use std::convert::Infallible;
 use std::marker::PhantomData;
 use std::net::IpAddr;
-use std::sync::Arc;
-
 // NOTE: I intentionally do NOT use Scylla's `DeserializeValue` trait here.
 // The trait does not provide a `Python` argument, meaning that Python objects which
 // would have to be constructed inside `deserialize()` or deeper in recursion
@@ -143,40 +137,33 @@ struct List<T> {
 
 fn deserialize_sequence<'frame, 'metadata, 'py, T, FBuild>(
     typ: &'metadata ColumnType<'metadata>,
-    mut v: FrameSlice<'frame>,
+    v: FrameSlice<'frame>,
     py: Python<'py>,
-    elem_typ: &'metadata ColumnType<'metadata>,
     mut builder: FBuild,
 ) -> Result<(), DriverDeserializationError>
 where
     T: PyDeserializeValue<'frame, 'metadata, 'py>,
     FBuild: FnMut(PyDeserializedValue) -> PyResult<()>,
 {
-    let count = types::read_int_length(v.as_slice_mut())
-        .map_err(|err| {
-            mk_deser_err::<T>(
-                typ,
-                SetOrListDeserializationErrorKind::LengthDeserializationFailed(
-                    DeserializationError::new(err),
-                ),
-            )
-        })
-        .map_err(DriverDeserializationError::scylla_decode_failed)?;
+    let list_iter =
+        ListlikeIterator::<FrameSliceWithMetadata<'frame, 'metadata>>::deserialize(typ, Some(v))
+            .map_err(DriverDeserializationError::scylla_decode_failed)?;
 
-    let raw_iter = FixedLengthBytesSequenceIterator::new(count, v);
-
-    for (i, raw) in raw_iter.enumerate() {
-        let raw = raw
-            .map_err(DeserializationError::new)
+    for (i, raw_elem_with_metadata) in list_iter.enumerate() {
+        let raw_elem_with_metadata = raw_elem_with_metadata
             .map_err(DriverDeserializationError::scylla_decode_failed)
-            // Element i could not be read
-            .map_err(|err| err.in_sequence_index(i))?;
+            .map_err(|e| e.in_sequence_index(i))?;
 
-        let item = T::deserialize_py(elem_typ, raw, py).map_err(|err| err.in_sequence_index(i))?;
+        let item = T::deserialize_py(
+            raw_elem_with_metadata.column_type,
+            raw_elem_with_metadata.frame_slice,
+            py,
+        )
+        .map_err(|e| e.in_sequence_index(i))?;
+
         builder(item)
             .map_err(DriverDeserializationError::python_conversion_failed)
-            // Element i could not be added to the collection
-            .map_err(|err| err.in_sequence_index(i))?;
+            .map_err(|e| e.in_sequence_index(i))?;
     }
 
     Ok(())
@@ -191,105 +178,15 @@ where
         v: Option<FrameSlice<'frame>>,
         py: Python<'py>,
     ) -> Result<PyDeserializedValue, DriverDeserializationError> {
-        let elem_typ = match typ {
-            ColumnType::Collection {
-                frozen: _,
-                typ: CollectionType::List(elem_typ),
-            } => elem_typ,
-            _ => {
-                let expected = "List";
-                let got = format!("{typ:?}");
-                return Err(DriverDeserializationError::wrong_deserializer(
-                    expected, got,
-                ));
-            }
-        };
-
         let Some(v) = v else {
             return Ok(PyDeserializedValue::new(PyList::empty(py).into_any()));
         };
 
         let list = PyList::empty(py);
 
-        deserialize_sequence::<T, _>(typ, v, py, elem_typ, |item| list.append(item))?;
+        deserialize_sequence::<T, _>(typ, v, py, |item| list.append(item))?;
 
         Ok(PyDeserializedValue::new(list.into_any()))
-    }
-}
-
-struct MapIterator<'frame, 'metadata, 'py, K, V> {
-    col_typ: &'metadata ColumnType<'metadata>,
-    k_typ: &'metadata ColumnType<'metadata>,
-    v_typ: &'metadata ColumnType<'metadata>,
-    raw_iter: FixedLengthBytesSequenceIterator<'frame>,
-    phantom_data_k: PhantomData<K>,
-    phantom_data_v: PhantomData<V>,
-    py: Python<'py>,
-}
-
-impl<'frame, 'metadata, 'py, K, V> MapIterator<'frame, 'metadata, 'py, K, V> {
-    fn new(
-        col_typ: &'metadata ColumnType<'metadata>,
-        k_typ: &'metadata ColumnType<'metadata>,
-        v_typ: &'metadata ColumnType<'metadata>,
-        count: usize,
-        slice: FrameSlice<'frame>,
-        py: Python<'py>,
-    ) -> Self {
-        Self {
-            col_typ,
-            k_typ,
-            v_typ,
-            raw_iter: FixedLengthBytesSequenceIterator::new(count, slice),
-            phantom_data_k: PhantomData,
-            phantom_data_v: PhantomData,
-            py,
-        }
-    }
-}
-impl<'frame, 'metadata, 'py, K, V> Iterator for MapIterator<'frame, 'metadata, 'py, K, V>
-where
-    K: PyDeserializeValue<'frame, 'metadata, 'py>,
-    V: PyDeserializeValue<'frame, 'metadata, 'py>,
-{
-    type Item = Result<(PyDeserializedValue, PyDeserializedValue), DriverDeserializationError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let raw_k = match self.raw_iter.next()? {
-            Ok(raw_k) => raw_k,
-            Err(err) => {
-                let scylla_err = mk_deser_err::<Self>(
-                    self.col_typ,
-                    BuiltinDeserializationErrorKind::RawCqlBytesReadError(err),
-                );
-                return Some(Err(DriverDeserializationError::scylla_decode_failed(
-                    scylla_err,
-                )));
-            }
-        };
-        let raw_v = match self.raw_iter.next()? {
-            Ok(raw_v) => raw_v,
-            Err(err) => {
-                let scylla_err = mk_deser_err::<Self>(
-                    self.col_typ,
-                    BuiltinDeserializationErrorKind::RawCqlBytesReadError(err),
-                );
-                return Some(Err(DriverDeserializationError::scylla_decode_failed(
-                    scylla_err,
-                )));
-            }
-        };
-
-        let do_next = || -> Self::Item {
-            let k = K::deserialize_py(self.k_typ, raw_k, self.py)?;
-            let v = V::deserialize_py(self.v_typ, raw_v, self.py)?;
-            Ok((k, v))
-        };
-        Some(do_next())
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.raw_iter.size_hint()
     }
 }
 
@@ -308,41 +205,37 @@ where
         v: Option<FrameSlice<'frame>>,
         py: Python<'py>,
     ) -> Result<PyDeserializedValue, DriverDeserializationError> {
-        let (key_typ, value_typ) = match typ {
-            ColumnType::Collection {
-                frozen: _,
-                typ: CollectionType::Map(key_typ, value_typ),
-            } => (key_typ, value_typ),
-            _ => {
-                let expected = "Map";
-                let got = format!("{:?}", typ);
-                return Err(DriverDeserializationError::wrong_deserializer(
-                    expected, got,
-                ));
-            }
-        };
-
-        let Some(mut v) = v else {
+        let Some(v) = v else {
             return Ok(PyDeserializedValue::new(PyDict::new(py).into_any()));
         };
 
-        let count = types::read_int_length(v.as_slice_mut())
-            .map_err(|err| {
-                mk_deser_err::<Self>(
-                    typ,
-                    MapDeserializationErrorKind::LengthDeserializationFailed(
-                        DeserializationError::new(err),
-                    ),
-                )
-            })
-            .map_err(DriverDeserializationError::scylla_decode_failed)?;
+        let map_iter = MapIterator::<
+            FrameSliceWithMetadata<'frame, 'metadata>,
+            FrameSliceWithMetadata<'frame, 'metadata>,
+        >::deserialize(typ, Some(v))
+        .map_err(DriverDeserializationError::scylla_decode_failed)?;
 
-        let map_iter =
-            MapIterator::<'_, '_, '_, K, V>::new(typ, key_typ, value_typ, 2 * count, v, py);
         let dict = PyDict::new(py);
 
-        for (i, item) in map_iter.enumerate() {
-            let (key, value) = item.map_err(|e| e.in_map_index(i))?;
+        for (i, kv_result) in map_iter.enumerate() {
+            let (raw_key_with_metadata, raw_value_with_metadata) = kv_result
+                .map_err(DriverDeserializationError::scylla_decode_failed)
+                .map_err(|e| e.in_map_index(i))?;
+
+            let key = K::deserialize_py(
+                raw_key_with_metadata.column_type,
+                raw_key_with_metadata.frame_slice,
+                py,
+            )
+            .map_err(|e| e.in_map_index(i))?;
+
+            let value = V::deserialize_py(
+                raw_value_with_metadata.column_type,
+                raw_value_with_metadata.frame_slice,
+                py,
+            )
+            .map_err(|e| e.in_map_index(i))?;
+
             dict.set_item(key, value)
                 .map_err(DriverDeserializationError::python_conversion_failed)
                 .map_err(|e| e.in_map_index(i))?;
@@ -365,20 +258,6 @@ where
         v: Option<FrameSlice<'frame>>,
         py: Python<'py>,
     ) -> Result<PyDeserializedValue, DriverDeserializationError> {
-        let elem_typ = match typ {
-            ColumnType::Collection {
-                frozen: _,
-                typ: CollectionType::Set(elem_typ),
-            } => elem_typ,
-            _ => {
-                let expected = "Set";
-                let got = format!("{:?}", typ);
-                return Err(DriverDeserializationError::wrong_deserializer(
-                    expected, got,
-                ));
-            }
-        };
-
         let Some(v) = v else {
             return Ok(PyDeserializedValue::new(
                 PySet::empty(py)
@@ -389,124 +268,9 @@ where
 
         let set = PySet::empty(py).map_err(DriverDeserializationError::python_conversion_failed)?;
 
-        deserialize_sequence::<T, _>(typ, v, py, elem_typ, |item| set.add(item))?;
+        deserialize_sequence::<T, _>(typ, v, py, |item| set.add(item))?;
 
         Ok(PyDeserializedValue::new(set.into_any()))
-    }
-}
-
-struct VectorIterator<'frame, 'metadata, 'py, T> {
-    collection_type: &'metadata ColumnType<'metadata>,
-    element_type: &'metadata ColumnType<'metadata>,
-    remaining: usize,
-    element_length: Option<usize>,
-    slice: FrameSlice<'frame>,
-    phantom_data: PhantomData<T>,
-    py: Python<'py>,
-}
-
-impl<'frame, 'metadata, 'py, T> VectorIterator<'frame, 'metadata, 'py, T> {
-    fn new(
-        collection_type: &'metadata ColumnType<'metadata>,
-        element_type: &'metadata ColumnType<'metadata>,
-        count: usize,
-        element_length: Option<usize>,
-        slice: FrameSlice<'frame>,
-        py: Python<'py>,
-    ) -> Self {
-        Self {
-            collection_type,
-            element_type,
-            remaining: count,
-            element_length,
-            slice,
-            phantom_data: PhantomData,
-            py,
-        }
-    }
-}
-
-impl<'frame, 'metadata, 'py, T> VectorIterator<'frame, 'metadata, 'py, T>
-where
-    T: PyDeserializeValue<'frame, 'metadata, 'py>,
-{
-    fn next_constant_length_elem(
-        &mut self,
-        element_length: usize,
-    ) -> Option<<Self as Iterator>::Item> {
-        self.remaining = self.remaining.checked_sub(1)?;
-
-        let raw = self
-            .slice
-            .read_n_bytes(element_length)
-            .map_err(|err| {
-                mk_deser_err::<Self>(
-                    self.collection_type,
-                    BuiltinDeserializationErrorKind::RawCqlBytesReadError(err),
-                )
-            })
-            .map_err(DriverDeserializationError::scylla_decode_failed);
-
-        Some(raw.and_then(|raw| T::deserialize_py(self.element_type, raw, self.py)))
-    }
-
-    fn next_variable_length_elem(&mut self) -> Option<<Self as Iterator>::Item> {
-        self.remaining = self.remaining.checked_sub(1)?;
-
-        let size = types::unsigned_vint_decode(self.slice.as_slice_mut())
-            .map_err(|err| {
-                mk_deser_err::<Self>(
-                    self.collection_type,
-                    BuiltinDeserializationErrorKind::RawCqlBytesReadError(
-                        LowLevelDeserializationError::IoError(Arc::new(err)),
-                    ),
-                )
-            })
-            .map_err(DriverDeserializationError::scylla_decode_failed);
-
-        let raw = size
-            .and_then(|size| {
-                size.try_into()
-                    .map_err(|_| {
-                        mk_deser_err::<Self>(
-                            self.collection_type,
-                            BuiltinDeserializationErrorKind::ValueOverflow,
-                        )
-                    })
-                    .map_err(DriverDeserializationError::scylla_decode_failed)
-            })
-            .and_then(|size: usize| {
-                self.slice
-                    .read_n_bytes(size)
-                    .map_err(|err| {
-                        mk_deser_err::<Self>(
-                            self.collection_type,
-                            BuiltinDeserializationErrorKind::RawCqlBytesReadError(err),
-                        )
-                    })
-                    .map_err(DriverDeserializationError::scylla_decode_failed)
-            });
-
-        Some(raw.and_then(|raw| T::deserialize_py(self.element_type, raw, self.py)))
-    }
-}
-
-impl<'frame, 'metadata, 'py, T> Iterator for VectorIterator<'frame, 'metadata, 'py, T>
-where
-    T: PyDeserializeValue<'frame, 'metadata, 'py>,
-{
-    type Item = Result<PyDeserializedValue, DriverDeserializationError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.element_length {
-            Some(element_length) => self.next_constant_length_elem(element_length),
-            None => self.next_variable_length_elem(),
-        }
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.remaining, Some(self.remaining))
     }
 }
 
@@ -523,38 +287,31 @@ where
         v: Option<FrameSlice<'frame>>,
         py: Python<'py>,
     ) -> Result<PyDeserializedValue, DriverDeserializationError> {
-        let (element_type, dimensions) = match typ {
-            ColumnType::Vector {
-                typ: element_type,
-                dimensions,
-            } => (element_type, dimensions),
-            _ => {
-                let expected = "Vector";
-                let got = format!("{:?}", typ);
-                return Err(DriverDeserializationError::wrong_deserializer(
-                    expected, got,
-                ));
-            }
-        };
-
         let Some(val) = v else {
             return Ok(PyDeserializedValue::none(py));
         };
 
-        let vector_iterator = VectorIterator::<PyDeserializedValue>::new(
-            typ,
-            element_type,
-            *dimensions as usize,
-            element_type.type_size(),
-            val,
-            py,
-        );
+        let vector_iterator =
+            VectorIterator::<FrameSliceWithMetadata<'frame, 'metadata>>::deserialize(
+                typ,
+                Some(val),
+            )
+            .map_err(DriverDeserializationError::scylla_decode_failed)?;
 
         let list = PyList::empty(py);
-        for (i, value) in vector_iterator.enumerate() {
-            let value = value.map_err(|e| e.in_vector_index(i))?;
+        for (i, raw_value_with_metadata_result) in vector_iterator.enumerate() {
+            let raw_value_with_metadata = raw_value_with_metadata_result
+                .map_err(DriverDeserializationError::scylla_decode_failed)
+                .map_err(|e| e.in_vector_index(i))?;
 
-            list.append(value)
+            let deserialized_value = T::deserialize_py(
+                raw_value_with_metadata.column_type,
+                raw_value_with_metadata.frame_slice,
+                py,
+            )
+            .map_err(|e| e.in_vector_index(i))?;
+
+            list.append(deserialized_value)
                 .map_err(DriverDeserializationError::python_conversion_failed)
                 .map_err(|e| e.in_vector_index(i))?;
         }

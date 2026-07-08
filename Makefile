@@ -42,7 +42,7 @@ check-rust:
 
 .PHONY: clippy
 clippy:
-	RUSTFLAGS=-Dwarnings cargo clippy --all-targets --all-features
+	RUSTFLAGS="-Dwarnings --cfg scylla_unstable" cargo clippy --all-targets --all-features
 
 .PHONY: fmt-python
 fmt-python:

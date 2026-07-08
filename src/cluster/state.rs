@@ -29,8 +29,8 @@ impl TryFrom<Arc<ClusterState>> for PyClusterState {
     fn try_from(inner: Arc<ClusterState>) -> Result<Self, Self::Error> {
         let known_nodes = Python::attach(|py| {
             let dict = PyDict::new(py);
-            for (host_id, node) in &inner.known_peers {
-                dict.set_item(host_id, PyNode::from(Arc::clone(node)))?
+            for node in inner.get_nodes_info().iter() {
+                dict.set_item(node.host_id, PyNode::from(Arc::clone(node)))?
             }
             Ok::<Py<PyDict>, PyErr>(dict.unbind())
         })?;
