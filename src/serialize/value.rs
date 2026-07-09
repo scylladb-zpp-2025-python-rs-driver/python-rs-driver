@@ -21,13 +21,14 @@ use scylla::serialize::value::{
     BuiltinTypeCheckErrorKind, MapSerializationErrorKind, SerializeValue,
     SetOrListSerializationErrorKind, UdtTypeCheckErrorKind,
 };
-use scylla::serialize::writers::{CellValueBuilder, CellWriter, WrittenCellProof};
+use scylla::serialize::writers::{CellWriter, WrittenCellProof};
 use scylla::value::{
     Counter, CqlDuration, CqlTime, CqlTimestamp, CqlTimeuuid, CqlValue, ValueOverflow,
 };
 
 use scylla_cql::serialize::value::{
-    VectorSerializationErrorKind, serialize_next_variable_length_elem,
+    VectorSerializationErrorKind, serialize_next_constant_length_elem_unstable,
+    serialize_next_variable_length_elem_unstable,
 };
 
 /// Wrapper around a Python value (`PyAny`) used for Python → CQL serialization.
@@ -435,10 +436,11 @@ pub fn serialize_vector<'t, 'b, 'py, T: Any>(
         ));
     }
     let mut builder = writer.into_value_builder();
-    match element_type.type_size() {
+    match element_type.type_size_for_vector() {
         Some(_) => {
             for element in iter {
-                serialize_next_constant_length_elem::<_, T>(
+                serialize_next_constant_length_elem_unstable(
+                    std::any::type_name::<T>(),
                     element_type,
                     typ,
                     &mut builder,
@@ -448,7 +450,7 @@ pub fn serialize_vector<'t, 'b, 'py, T: Any>(
         }
         None => {
             for element in iter {
-                serialize_next_variable_length_elem(
+                serialize_next_variable_length_elem_unstable(
                     std::any::type_name::<T>(),
                     element_type,
                     typ,
@@ -462,26 +464,6 @@ pub fn serialize_vector<'t, 'b, 'py, T: Any>(
     builder
         .finish()
         .map_err(|_| mk_ser_err::<T>(typ, BuiltinSerializationErrorKind::SizeOverflow))
-}
-
-fn serialize_next_constant_length_elem<'t, T: SerializeValue + 't, U: Any>(
-    element_type: &ColumnType,
-    typ: &ColumnType,
-    builder: &mut CellValueBuilder,
-    element: &'t T,
-) -> Result<(), SerializationError> {
-    T::serialize(
-        element,
-        element_type,
-        builder.make_sub_writer_without_size(),
-    )
-    .map_err(|err| {
-        mk_ser_err::<U>(
-            typ,
-            VectorSerializationErrorKind::ElementSerializationFailed(err),
-        )
-    })?;
-    Ok(())
 }
 
 #[derive(Debug)]

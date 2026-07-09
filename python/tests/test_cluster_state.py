@@ -1,3 +1,4 @@
+import asyncio
 import ipaddress
 import uuid
 from types import MappingProxyType
@@ -22,9 +23,11 @@ from scylla.cluster.metadata import (
 from scylla.routing import ReplicaLocator, Shard, Token
 from scylla.session import Session
 from scylla.session_builder import SessionBuilder
+from scylla.statement import Statement
 
 KEYSPACE = "cs_test_ks"
 TABLE = "cs_test_table"
+TEST_PARTITION_KEY = 1  # Default partition key value for testing
 
 
 async def set_up() -> Session:
@@ -32,12 +35,21 @@ async def set_up() -> Session:
     session = await builder.connect()
     await session.execute(f"""
         CREATE KEYSPACE IF NOT EXISTS {KEYSPACE}
-        WITH replication = {{'class': 'NetworkTopologyStrategy', 'replication_factor': 1}};
+        WITH replication = {{'class': 'NetworkTopologyStrategy', 'datacenter1': '1'}};
     """)
     await session.execute(f"""
         CREATE TABLE IF NOT EXISTS {KEYSPACE}.{TABLE}
         (id int PRIMARY KEY, name text);
     """)
+
+    # Execute some queries to initialize replica locators for tablets
+    # This is needed because replica locators are lazily initialized for tablet-enabled tables
+    insert_stmt = Statement(f"INSERT INTO {KEYSPACE}.{TABLE} (id, name) VALUES (?, ?)")
+    p = await session.prepare(insert_stmt)
+
+    warm_up = [session.execute(p, (i % 6, f"test{i % 6}")) for i in range(600)]
+    await asyncio.gather(*warm_up)
+
     return session
 
 
@@ -180,7 +192,7 @@ async def test_replica_locator_unique_nodes_in_global_ring(cluster_state: Cluste
 async def test_replica_locator_primary_replica(cluster_state: ClusterState) -> None:
     ks = cluster_state.get_keyspace(KEYSPACE)
     assert ks is not None
-    token = cluster_state.compute_token(KEYSPACE, TABLE, (1,))
+    token = cluster_state.compute_token(KEYSPACE, TABLE, (TEST_PARTITION_KEY,))
     replica = cluster_state.replica_locator.primary_replica_for_token(token, ks.strategy, KEYSPACE, TABLE)
     assert replica is not None
     node, shard = replica
@@ -193,7 +205,7 @@ async def test_replica_locator_primary_replica(cluster_state: ClusterState) -> N
 async def test_replica_locator_primary_replica_with_dc(cluster_state: ClusterState) -> None:
     ks = cluster_state.get_keyspace(KEYSPACE)
     assert ks is not None
-    token = cluster_state.compute_token(KEYSPACE, TABLE, (1,))
+    token = cluster_state.compute_token(KEYSPACE, TABLE, (TEST_PARTITION_KEY,))
     dc = cluster_state.replica_locator.datacenter_names[0]
     replica = cluster_state.replica_locator.primary_replica_for_token(
         token, ks.strategy, KEYSPACE, TABLE, datacenter=dc
@@ -210,7 +222,7 @@ async def test_replica_locator_primary_replica_with_dc(cluster_state: ClusterSta
 async def test_replica_locator_all_replicas_with_dc(cluster_state: ClusterState) -> None:
     ks = cluster_state.get_keyspace(KEYSPACE)
     assert ks is not None
-    token = cluster_state.compute_token(KEYSPACE, TABLE, (1,))
+    token = cluster_state.compute_token(KEYSPACE, TABLE, (TEST_PARTITION_KEY,))
     dc = cluster_state.replica_locator.datacenter_names[0]
     replicas = cluster_state.replica_locator.all_replicas_for_token(token, ks.strategy, KEYSPACE, TABLE, datacenter=dc)
     assert replicas is not None
@@ -238,7 +250,7 @@ async def test_replica_locator_nodes_in_dc(cluster_state: ClusterState) -> None:
 async def test_replica_set_iteration(cluster_state: ClusterState) -> None:
     ks = cluster_state.get_keyspace(KEYSPACE)
     assert ks is not None
-    token = cluster_state.compute_token(KEYSPACE, TABLE, (1,))
+    token = cluster_state.compute_token(KEYSPACE, TABLE, (TEST_PARTITION_KEY,))
     replicas = cluster_state.replica_locator.all_replicas_for_token(token, ks.strategy, KEYSPACE, TABLE)
     all_nodes = cluster_state.nodes_info
     assert isinstance(replicas, list)
@@ -258,7 +270,7 @@ async def test_get_token_endpoints_matches_replica_locator(
 ) -> None:
     ks = cluster_state.get_keyspace(KEYSPACE)
     assert ks is not None
-    token = cluster_state.compute_token(KEYSPACE, TABLE, [42])
+    token = cluster_state.compute_token(KEYSPACE, TABLE, [TEST_PARTITION_KEY])
     replicas_from_locator = cluster_state.replica_locator.all_replicas_for_token(token, ks.strategy, KEYSPACE, TABLE)
     replicas_from_get_token = cluster_state.get_token_endpoints(KEYSPACE, TABLE, token)
     assert len(replicas_from_locator) > 0
@@ -273,7 +285,7 @@ async def test_node_identity(cluster_state: ClusterState) -> None:
     node_info = list(cluster_state.nodes_info.values())
 
     # Get replicas for a token
-    replicas = cluster_state.get_endpoints(KEYSPACE, TABLE, [42])
+    replicas = cluster_state.get_endpoints(KEYSPACE, TABLE, [TEST_PARTITION_KEY])
     assert len(replicas) > 0
 
     # Find a node from the replica list and check for object identity
@@ -294,7 +306,7 @@ async def test_replica_locator_primary_replica_invalid_dc(
 ) -> None:
     ks = cluster_state.get_keyspace(KEYSPACE)
     assert ks is not None
-    token = cluster_state.compute_token(KEYSPACE, TABLE, (1,))
+    token = cluster_state.compute_token(KEYSPACE, TABLE, (TEST_PARTITION_KEY,))
     replica = cluster_state.replica_locator.primary_replica_for_token(
         token, ks.strategy, KEYSPACE, TABLE, datacenter="invalid_dc"
     )
@@ -315,7 +327,7 @@ async def test_replica_locator_all_replicas_invalid_dc(
 ) -> None:
     ks = cluster_state.get_keyspace(KEYSPACE)
     assert ks is not None
-    token = cluster_state.compute_token(KEYSPACE, TABLE, (1,))
+    token = cluster_state.compute_token(KEYSPACE, TABLE, (TEST_PARTITION_KEY,))
     replicas = cluster_state.replica_locator.all_replicas_for_token(
         token, ks.strategy, KEYSPACE, TABLE, datacenter="invalid_dc"
     )
@@ -325,7 +337,7 @@ async def test_replica_locator_all_replicas_invalid_dc(
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_token_value_property(cluster_state: ClusterState) -> None:
-    token = cluster_state.compute_token(KEYSPACE, TABLE, [42])
+    token = cluster_state.compute_token(KEYSPACE, TABLE, [TEST_PARTITION_KEY])
     assert hasattr(token, "value")
     assert isinstance(token.value, int)
 
@@ -333,8 +345,8 @@ async def test_token_value_property(cluster_state: ClusterState) -> None:
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_token_equality(cluster_state: ClusterState) -> None:
-    token1 = cluster_state.compute_token(KEYSPACE, TABLE, [42])
-    token2 = cluster_state.compute_token(KEYSPACE, TABLE, [42])
+    token1 = cluster_state.compute_token(KEYSPACE, TABLE, [TEST_PARTITION_KEY])
+    token2 = cluster_state.compute_token(KEYSPACE, TABLE, [TEST_PARTITION_KEY])
     assert token1 == token2
     assert token1.value == token2.value
 
@@ -342,8 +354,8 @@ async def test_token_equality(cluster_state: ClusterState) -> None:
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_token_inequality(cluster_state: ClusterState) -> None:
-    token1 = cluster_state.compute_token(KEYSPACE, TABLE, [42])
-    token2 = cluster_state.compute_token(KEYSPACE, TABLE, [99])
+    token1 = cluster_state.compute_token(KEYSPACE, TABLE, [TEST_PARTITION_KEY])
+    token2 = cluster_state.compute_token(KEYSPACE, TABLE, [2])
     assert token1 != token2
     assert token1.value != token2.value
 
@@ -351,7 +363,7 @@ async def test_token_inequality(cluster_state: ClusterState) -> None:
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_token_hashable(cluster_state: ClusterState) -> None:
-    token = cluster_state.compute_token(KEYSPACE, TABLE, [42])
+    token = cluster_state.compute_token(KEYSPACE, TABLE, [TEST_PARTITION_KEY])
     token_set = {token}
     assert token in token_set
     token_dict = {token: "value"}
@@ -376,9 +388,9 @@ async def test_node_has_required_attributes(cluster_state: ClusterState) -> None
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_compute_token_with_different_types(cluster_state: ClusterState) -> None:
-    token1 = cluster_state.compute_token(KEYSPACE, TABLE, [42])
-    token2 = cluster_state.compute_token(KEYSPACE, TABLE, (42,))
-    token3 = cluster_state.compute_token(KEYSPACE, TABLE, {"id": 42})
+    token1 = cluster_state.compute_token(KEYSPACE, TABLE, [TEST_PARTITION_KEY])
+    token2 = cluster_state.compute_token(KEYSPACE, TABLE, (TEST_PARTITION_KEY,))
+    token3 = cluster_state.compute_token(KEYSPACE, TABLE, {"id": TEST_PARTITION_KEY})
     assert token1 == token2 == token3
 
 
@@ -386,7 +398,7 @@ async def test_compute_token_with_different_types(cluster_state: ClusterState) -
 @pytest.mark.requires_db
 async def test_replicas_are_from_cluster_nodes(cluster_state: ClusterState) -> None:
     all_node_ids = set(cluster_state.nodes_info.keys())
-    token = cluster_state.compute_token(KEYSPACE, TABLE, [42])
+    token = cluster_state.compute_token(KEYSPACE, TABLE, [TEST_PARTITION_KEY])
     replicas = cluster_state.get_token_endpoints(KEYSPACE, TABLE, token)
 
     for node, shard in replicas:
@@ -399,7 +411,7 @@ async def test_replicas_are_from_cluster_nodes(cluster_state: ClusterState) -> N
 async def test_primary_replica_is_in_all_replicas(cluster_state: ClusterState) -> None:
     ks = cluster_state.get_keyspace(KEYSPACE)
     assert ks is not None
-    token = cluster_state.compute_token(KEYSPACE, TABLE, [42])
+    token = cluster_state.compute_token(KEYSPACE, TABLE, [TEST_PARTITION_KEY])
 
     primary = cluster_state.replica_locator.primary_replica_for_token(token, ks.strategy, KEYSPACE, TABLE)
     all_replicas = cluster_state.replica_locator.all_replicas_for_token(token, ks.strategy, KEYSPACE, TABLE)
