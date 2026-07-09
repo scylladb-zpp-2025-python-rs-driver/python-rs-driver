@@ -11,9 +11,12 @@ from dateutil.relativedelta import relativedelta
 from scylla.session import Session
 from scylla.session_builder import SessionBuilder
 
-# SerializationError is never raised directly, but it shapes the error message.
-# We import ExecuteError which is raised for serialization issues during query execution.
-from scylla.errors import ExecuteError
+from scylla.errors import (
+    TypeMismatchSerializationError,
+    ValueOverflowSerializationError,
+    PySerializationFailedError,
+    UnsupportedTypeSerializationError,
+)
 
 
 async def set_up() -> Session:
@@ -230,9 +233,10 @@ async def test_int_serialization_overflow(session: Session, table_factory: Table
 
     val = 9999999999999999999999999
 
-    with pytest.raises(ExecuteError) as exc_info:
+    with pytest.raises(ValueOverflowSerializationError) as exc_info:
         await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
 
+    assert exc_info.value.parameter == 1
     assert "value overflow during serialization" in str(exc_info.value).lower()
 
 
@@ -260,9 +264,10 @@ async def test_bigint_serialization_overflow(session: Session, table_factory: Ta
 
     val = 99999999999999999999999999999999
 
-    with pytest.raises(ExecuteError) as exc_info:
+    with pytest.raises(ValueOverflowSerializationError) as exc_info:
         await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
 
+    assert exc_info.value.parameter == 1
     assert "value overflow during serialization" in str(exc_info.value).lower()
 
 
@@ -334,9 +339,10 @@ async def test_smallint_serialization_overflow(session: Session, table_factory: 
 
     val = 999999999999999999999999
 
-    with pytest.raises(ExecuteError) as exc_info:
+    with pytest.raises(ValueOverflowSerializationError) as exc_info:
         await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
 
+    assert exc_info.value.parameter == 1
     assert "value overflow during serialization" in str(exc_info.value).lower()
 
 
@@ -382,9 +388,10 @@ async def test_tinyint_serialization_overflow(session: Session, table_factory: T
 
     val = 99999999999999999999999
 
-    with pytest.raises(ExecuteError) as exc_info:
+    with pytest.raises(ValueOverflowSerializationError) as exc_info:
         await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
 
+    assert exc_info.value.parameter == 1
     assert "value overflow during serialization" in str(exc_info.value).lower()
 
 
@@ -531,12 +538,13 @@ async def test_set_serialization_rejects_dict(
 
     invalid_values = {"brand": "Ford", "model": "Mustang"}
 
-    with pytest.raises(ExecuteError) as exc_info:
+    with pytest.raises(TypeMismatchSerializationError) as exc_info:
         await session.execute(
             f"INSERT INTO {table} (id, tags) VALUES (?, ?)",
             {"id": 1, "tags": invalid_values},
         )
 
+    assert exc_info.value.parameter == "tags"
     assert "type mismatch" in str(exc_info.value).lower()
 
 
@@ -606,12 +614,13 @@ async def test_list_serialization_rejects_tuple(
         (1, 2, 3),
     )
 
-    with pytest.raises(ExecuteError) as exc_info:
+    with pytest.raises(TypeMismatchSerializationError) as exc_info:
         await session.execute(
             f"INSERT INTO {table} (id, tags, scores) VALUES (?, ?, ?)",
             invalid_values,
         )
 
+    assert exc_info.value.parameter == 1
     assert "type mismatch" in str(exc_info.value).lower()
 
 
@@ -653,12 +662,13 @@ async def test_tuple_serialization_rejects_list(
         [1, 2, 3],
     )
 
-    with pytest.raises(ExecuteError) as exc_info:
+    with pytest.raises(TypeMismatchSerializationError) as exc_info:
         await session.execute(
             f"INSERT INTO {table} (id, tags, scores) VALUES (?, ?, ?)",
             invalid_values,
         )
 
+    assert exc_info.value.parameter == 1
     assert "type mismatch" in str(exc_info.value).lower()
 
 
@@ -832,3 +842,47 @@ async def test_nested_udts(session: Session, table_factory: TableFactory):
 
     await session.execute(f"INSERT INTO {table} (id, person) VALUES (?, ?)", (2, asdict(person)))
     await session.execute(f"SELECT * from {table}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_unsupported_type_serialization(session: Session, table_factory: TableFactory):
+    table = await table_factory(
+        "id int PRIMARY KEY, col int",
+        "unsupported_type_table",
+    )
+
+    class MyUnsupportedObject:
+        pass
+
+    val = MyUnsupportedObject()
+
+    with pytest.raises(UnsupportedTypeSerializationError) as exc_info:
+        await session.execute(f"INSERT INTO {table} (id, col) VALUES (?, ?)", (1, val))
+
+    assert exc_info.value.parameter == 1
+    assert "unsupported cql type" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_python_interop_failed_serialization(session: Session, table_factory: TableFactory):
+    table = await table_factory(
+        "id int PRIMARY KEY, name text",
+        "python_interop_row_table",
+    )
+
+    class FaultyRowDict(dict):  # pyright: ignore[reportUnknownParameterType, reportMissingTypeArgument]
+        def __getitem__(self, key):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+            raise RuntimeError("Simulated mapping access error")
+
+    # The row simulates a dictionary mapping column names to values
+    row = FaultyRowDict({"id": 1, "name": "Test"})
+
+    with pytest.raises(PySerializationFailedError) as exc_info:
+        await session.execute(f"INSERT INTO {table} (id, name) VALUES (?, ?)", row)
+
+    assert exc_info.value.parameter is None
+    assert "python interop failed" in str(exc_info.value).lower()
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+    assert str(exc_info.value.__cause__) == "Simulated mapping access error"
