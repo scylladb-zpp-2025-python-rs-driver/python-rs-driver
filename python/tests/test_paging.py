@@ -1,12 +1,11 @@
-from typing import Callable, Awaitable, AsyncGenerator, Any
+from typing import Any, AsyncGenerator, Awaitable, Callable
 
 import pytest
 import pytest_asyncio
-
-from scylla.statement import Statement
+from scylla.results import PagingState
 from scylla.session import Session
 from scylla.session_builder import SessionBuilder
-from scylla.results import PagingState
+from scylla.statement import Statement
 
 
 async def set_up() -> Session:
@@ -18,7 +17,7 @@ async def set_up() -> Session:
             WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1};
         """)
 
-    await session.execute("USE testks")
+    await session.use_keyspace("testks")
 
     return session
 

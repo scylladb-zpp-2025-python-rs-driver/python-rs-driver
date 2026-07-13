@@ -15,7 +15,7 @@ async def main():
     await session.execute(
         "CREATE KEYSPACE IF NOT EXISTS example_ks WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1};"
     )
-    await session.execute("USE example_ks;")
+    await session.use_keyspace("example_ks")
     await session.execute(f"DROP TABLE IF EXISTS {table_name};")
     await session.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({schema});")
 

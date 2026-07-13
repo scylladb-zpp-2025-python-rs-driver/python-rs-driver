@@ -16,10 +16,10 @@ import asyncio
 import os
 from typing import Any, Dict
 
-from scylla.session_builder import SessionBuilder
+from scylla.results import ColumnIterator, RowFactory
 from scylla.session import Session
+from scylla.session_builder import SessionBuilder
 from scylla.statement import Statement
-from scylla.results import RowFactory, ColumnIterator
 
 
 # ----------------------------
@@ -33,7 +33,7 @@ async def setup_schema(session: Session) -> None:
         WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1};
         """
     )
-    await session.execute("USE examples_ks")
+    await session.use_keyspace("examples_ks")
 
     await session.execute(
         """

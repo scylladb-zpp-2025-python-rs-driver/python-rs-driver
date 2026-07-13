@@ -20,7 +20,7 @@ async def test_rust_logs_forwarded(caplog: LogCaptureFixture):
     await session.execute(
         "CREATE KEYSPACE IF NOT EXISTS example_ks WITH replication = {'class': 'NetworkTopologyStrategy', 'replication_factor': 1};"
     )
-    await session.execute("USE example_ks;")
+    await session.use_keyspace("example_ks")
 
     # Assert that the warning log was captured
     assert any("Response from the database contains a warning" in rec.getMessage() for rec in caplog.records)
