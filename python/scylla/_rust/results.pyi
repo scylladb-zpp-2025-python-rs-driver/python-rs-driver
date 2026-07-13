@@ -6,6 +6,8 @@ from uuid import UUID
 
 from dateutil.relativedelta import relativedelta
 
+from .future import ResponseFuture
+
 CqlNative = Union[
     # CQL:
     # - Counter
@@ -254,4 +256,4 @@ class AsyncRowsIterator(AsyncIterator[Any]):
     """
 
     def __aiter__(self) -> AsyncRowsIterator: ...
-    async def __anext__(self) -> Any: ...
+    def __anext__(self) -> ResponseFuture[Any]: ...

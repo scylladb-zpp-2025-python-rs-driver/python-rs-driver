@@ -1,5 +1,6 @@
 use crate::deserialize::value::{PyDeserializeValue, PyDeserializedValue};
 use crate::errors::{DriverDeserializationError, DriverExecuteError, DriverRowIterationError};
+use crate::future::PyFuture;
 use crate::serialize::value_list::PyValueList;
 use crate::session::{ExecutableStatement, PySession};
 use pyo3::exceptions::{PyRuntimeError, PyStopAsyncIteration, PyStopIteration};
@@ -324,12 +325,17 @@ impl AsyncRowsIterator {
 
 #[pymethods]
 impl AsyncRowsIterator {
-    pub fn __anext__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        // TODO: Add a "ready" awaitable for the fast path (row already buffered) to avoid `future_into_py` scheduling/allocation.
+    pub fn __anext__(&self, py: Python<'_>) -> PyResult<Py<PyResponseFuture>> {
+        if let Ok(state) = self.state.try_lock()
+            && let Some(row_result) = state.rows_iterator.next(py)
+        {
+            let result = row_result.map_err(Into::into);
+            return PyResponseFuture::ready(py, result);
+        }
 
         let state_clone = self.state.clone();
 
-        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+        PyResponseFuture::spawn(py, async move {
             let mut state = state_clone.lock().await;
 
             let AsyncIteratorState {
