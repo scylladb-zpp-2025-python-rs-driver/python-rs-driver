@@ -171,15 +171,28 @@ impl PySession {
         values: PyValueList,
         factory: Option<Py<RowFactory>>,
     ) -> Result<RequestResult, DriverExecuteError> {
-        let result = self
-            .session_spawn_on_runtime(async move |s| {
-                match statement {
-                    ExecutableStatement::Prepared(p) => s.execute_unpaged(&p, values).await,
-                    ExecutableStatement::Unprepared(q) => s.query_unpaged(q, values).await,
-                }
-                .map_err(DriverExecuteError::rust_driver_execution_error)
-            })
-            .await?;
+        let result = match statement {
+            ExecutableStatement::Prepared(p) => {
+                let serialized_values = p
+                    .serialize_values_unstable(&values)
+                    .map_err(DriverExecuteError::serialization_failed)?;
+                self.session_spawn_on_runtime(async move |s| {
+                    s.execute_unstable(&p, &serialized_values, false, PagingState::start())
+                        .await
+                        .map(|(result, _paging_response)| result)
+                        .map_err(DriverExecuteError::rust_driver_execution_error)
+                })
+                .await?
+            }
+            ExecutableStatement::Unprepared(q) => {
+                self.session_spawn_on_runtime(async move |s| {
+                    s.query_unpaged(q, values)
+                        .await
+                        .map_err(DriverExecuteError::rust_driver_execution_error)
+                })
+                .await?
+            }
+        };
 
         Ok(RequestResult::new(result, Pager::unpaged(), factory))
     }
@@ -239,18 +252,27 @@ impl PySession {
         query_request: ExecutableStatement,
         values: PyValueList,
     ) -> Result<(QueryResult, PagingStateResponse), DriverExecuteError> {
-        self.session_spawn_on_runtime(async move |s| {
-            match query_request {
-                ExecutableStatement::Prepared(p) => {
-                    s.execute_single_page(&p, values, paging_state).await
-                }
-                ExecutableStatement::Unprepared(q) => {
-                    s.query_single_page(q, values, paging_state).await
-                }
+        match query_request {
+            ExecutableStatement::Prepared(p) => {
+                let serialized_values = p
+                    .serialize_values_unstable(&values)
+                    .map_err(DriverExecuteError::serialization_failed)?;
+                self.session_spawn_on_runtime(async move |s| {
+                    s.execute_unstable(&p, &serialized_values, true, paging_state)
+                        .await
+                        .map_err(DriverExecuteError::rust_driver_execution_error)
+                })
+                .await
             }
-            .map_err(DriverExecuteError::rust_driver_execution_error)
-        })
-        .await
+            ExecutableStatement::Unprepared(q) => {
+                self.session_spawn_on_runtime(async move |s| {
+                    s.query_single_page(q, values, paging_state)
+                        .await
+                        .map_err(DriverExecuteError::rust_driver_execution_error)
+                })
+                .await
+            }
+        }
     }
 }
 
