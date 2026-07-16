@@ -665,6 +665,10 @@ pub enum DriverExecuteError {
     RustDriverExecutionError {
         source: Box<scylla::errors::ExecutionError>,
     },
+    /// Serialization of values failed before execution.
+    SerializationFailed {
+        source: scylla::serialize::SerializationError,
+    },
     /// The Tokio runtime task responsible for executing the query failed to join.
     RuntimeTaskJoinFailed { message: Box<str> },
 }
@@ -687,6 +691,10 @@ impl DriverExecuteError {
             message: err.to_string().into_boxed_str(),
         }
     }
+
+    pub fn serialization_failed(source: scylla::serialize::SerializationError) -> Self {
+        Self::SerializationFailed { source }
+    }
 }
 
 impl From<DriverExecuteError> for PyErr {
@@ -705,6 +713,11 @@ impl From<DriverExecuteError> for PyErr {
             DriverExecuteError::RuntimeTaskJoinFailed { message } => ExecuteError::new_err(
                 format!("Internal driver error: runtime error while executing query: {message}"),
             ),
+
+            DriverExecuteError::SerializationFailed { source } => {
+                let message = format!("Failed to serialize values: {source}");
+                ExecuteError::new_err(message)
+            }
         }
     }
 }
