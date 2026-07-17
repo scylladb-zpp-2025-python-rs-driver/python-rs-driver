@@ -1,17 +1,23 @@
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, Condvar, Mutex};
+use std::task::Wake;
+
+use crate::RUNTIME;
+
 use crate::coroutine::waker::AsyncioWaker;
 use crate::coroutine::{Coroutine, PollResult};
 use crate::utils::PrependedIterator;
-use pyo3::BoundObject;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyStopIteration;
 use pyo3::prelude::*;
 use pyo3::sync::MutexExt;
 use pyo3::types::{PyDict, PyTuple};
-use pyo3::{Py, PyAny, PyResult};
-use std::future::Future;
-use std::sync::{Arc, Condvar, Mutex};
+use pyo3::{Py, PyAny, PyResult, BoundObject}
 
 use tokio::task::AbortHandle;
+
+type BoxedFuture = Pin<Box<dyn Future<Output = PyResult<Py<PyAny>>> + Send>>;
 
 // # PyResponseFuture — hybrid design
 //
@@ -153,6 +159,76 @@ impl PyResponseFuture {
                 ready: Arc::new(Condvar::new()),
             },
         )
+    }
+
+    /// Spawn a future on tokio, returning the abort handle.
+    /// On completion the spawned task transitions `state` to `Ready`,
+    /// fires callbacks, wakes the asyncio waker, and notifies the condvar.
+    fn spawn_future_on_tokio<F>(
+        future: F,
+        state: &Arc<Mutex<FutureState>>,
+        ready: &Arc<Condvar>,
+        waker: &Arc<AsyncioWaker>,
+    ) -> AbortHandle
+    where
+        F: Future<Output = PyResult<Py<PyAny>>> + Send + 'static,
+    {
+        let state_clone = Arc::clone(state);
+        let ready_clone = Arc::clone(ready);
+        let waker_clone = Arc::clone(waker);
+
+        let handle = RUNTIME.spawn(async move {
+            let result = future.await;
+
+            Python::attach(|py| {
+                let callbacks = {
+                    let mut state = state_clone.lock_py_attached(py).unwrap();
+                    match &mut *state {
+                        FutureState::PendingTokio {
+                            on_success,
+                            on_error,
+                            ..
+                        } => {
+                            let taken_success = std::mem::take(on_success);
+                            let taken_error = std::mem::take(on_error);
+                            *state = FutureState::Ready {
+                                result: clone_result(py, &result),
+                            };
+                            Some((taken_success, taken_error))
+                        }
+                        _ => None,
+                    }
+                };
+
+                if let Some(cbs) = callbacks {
+                    Callback::fire_all(py, cbs, &result);
+                    waker_clone.wake();
+                    ready_clone.notify_all();
+                }
+            });
+        });
+
+        handle.abort_handle()
+    }
+
+    /// Transition from PendingAsyncio to PendingTokio by spawning the given
+    /// future on the tokio runtime.
+    /// Must be called while holding the state lock.
+    fn transition_to_tokio(
+        future: BoxedFuture,
+        waker: Arc<AsyncioWaker>,
+        state: &Arc<Mutex<FutureState>>,
+        ready: &Arc<Condvar>,
+        state_guard: &mut std::sync::MutexGuard<'_, FutureState>,
+    ) {
+        let abort_handle = Self::spawn_future_on_tokio(future, state, ready, &waker);
+
+        **state_guard = FutureState::PendingTokio {
+            on_success: Vec::new(),
+            on_error: Vec::new(),
+            abort_handle: Some(abort_handle),
+            waker,
+        };
     }
 
     /// Poll the coroutine (__next__).
