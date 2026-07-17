@@ -150,6 +150,75 @@ impl PyResponseFuture {
         }
     }
 
+    /// Create a `Py<PyResponseFuture>` from a future returning `Result<T, E>`.
+    /// Starts in PendingAsyncio.
+    pub fn spawn<Fut, T, E>(py: Python<'_>, future: Fut) -> PyResult<Py<PyResponseFuture>>
+    where
+        Fut: Future<Output = Result<T, E>> + Send + 'static,
+        T: for<'py> IntoPyObject<'py>,
+        E: Into<PyErr>,
+    {
+        Py::new(
+            py,
+            PyResponseFuture::new(async move {
+                let result = future.await;
+                Python::attach(|py| {
+                    result.map_err(Into::into).and_then(|v| {
+                        v.into_pyobject(py)
+                            .map(|b| b.into_any().unbind())
+                            .map_err(Into::into)
+                    })
+                })
+            }),
+        )
+    }
+
+    /// Create a `Py<PyResponseFuture>` that immediately spawns the future on tokio.
+    pub fn spawn_tokio<Fut, T, E>(py: Python<'_>, future: Fut) -> PyResult<Py<PyResponseFuture>>
+    where
+        Fut: Future<Output = Result<T, E>> + Send + 'static,
+        T: for<'py> IntoPyObject<'py> + Send + 'static,
+        E: Into<PyErr> + Send + 'static,
+    {
+        let waker = Arc::new(AsyncioWaker::new());
+
+        let state = Arc::new(Mutex::new(FutureState::PendingTokio {
+            on_success: Vec::new(),
+            on_error: Vec::new(),
+            abort_handle: None,
+            waker: Arc::clone(&waker),
+        }));
+        let ready = Arc::new(Condvar::new());
+
+        let abort_handle = Self::spawn_future_on_tokio(
+            async move {
+                let result = future.await;
+                Python::attach(|py| {
+                    result.map_err(Into::into).and_then(|v| {
+                        v.into_pyobject(py)
+                            .map(|b| b.into_any().unbind())
+                            .map_err(Into::into)
+                    })
+                })
+            },
+            &state,
+            &ready,
+            &waker,
+        );
+
+        {
+            let mut s = state.lock_py_attached(py).unwrap();
+            if let FutureState::PendingTokio {
+                abort_handle: ah, ..
+            } = &mut *s
+            {
+                *ah = Some(abort_handle);
+            }
+        }
+
+        Py::new(py, PyResponseFuture { state, ready })
+    }
+
     /// Create an already-resolved PyResponseFuture.
     pub fn ready(py: Python, result: PyResult<Py<PyAny>>) -> PyResult<Py<PyResponseFuture>> {
         Py::new(
