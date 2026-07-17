@@ -386,6 +386,115 @@ impl PyResponseFuture {
     fn result(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         self.block_until_ready(py)
     }
+
+    /// Register a callback to be invoked when the future completes successfully.
+    ///
+    /// The callback is called as `callback(result, *args, **kwargs)`.
+    /// If the future is already done with a success, the callback is invoked immediately.
+    /// If the future is pending on asyncio, it is moved to tokio to support callbacks.
+    #[pyo3(signature = (callback, *args, **kwargs))]
+    fn add_callback(
+        &self,
+        py: Python<'_>,
+        callback: Py<PyAny>,
+        args: &Bound<'_, PyTuple>,
+        kwargs: Option<&Bound<'_, PyDict>>,
+    ) {
+        let cb = Callback::new(callback, args, kwargs);
+
+        let mut state = self.state.lock_py_attached(py).unwrap();
+        match &mut *state {
+            FutureState::Ready { result } => {
+                let result = clone_result(py, result);
+                drop(state);
+                if let Ok(value) = result {
+                    cb.invoke(py, &value);
+                }
+            }
+
+            FutureState::PendingTokio { on_success, .. } => {
+                on_success.push(cb);
+            }
+
+            FutureState::PendingAsyncio { coroutine } => {
+                let (future, waker) = coroutine
+                    .take_future_and_waker()
+                    .expect("PendingAsyncio coroutine has no future");
+                Self::transition_to_tokio(future, waker, &self.state, &self.ready, &mut state);
+                if let FutureState::PendingTokio { on_success, .. } = &mut *state {
+                    on_success.push(cb);
+                }
+            }
+        }
+    }
+
+    /// Register a callback to be invoked when the future completes with an error.
+    ///
+    /// The callback is called as `callback(exception, *args, **kwargs)`.
+    /// If the future is already done with an error, the callback is invoked immediately.
+    /// If the future is pending on asyncio, it is moved to tokio to support callbacks.
+    #[pyo3(signature = (callback, *args, **kwargs))]
+    fn add_errback(
+        &self,
+        py: Python<'_>,
+        callback: Py<PyAny>,
+        args: &Bound<'_, PyTuple>,
+        kwargs: Option<&Bound<'_, PyDict>>,
+    ) {
+        let cb = Callback::new(callback, args, kwargs);
+
+        let mut state = self.state.lock_py_attached(py).unwrap();
+        match &mut *state {
+            FutureState::Ready { result } => {
+                let result = clone_result(py, result);
+                drop(state);
+                if let Err(err) = result {
+                    let err_obj = err.value(py);
+                    cb.invoke(py, err_obj.as_any().as_unbound());
+                }
+            }
+
+            FutureState::PendingTokio { on_error, .. } => {
+                on_error.push(cb);
+            }
+
+            FutureState::PendingAsyncio { coroutine } => {
+                let (future, waker) = coroutine
+                    .take_future_and_waker()
+                    .expect("PendingAsyncio coroutine has no future");
+                Self::transition_to_tokio(future, waker, &self.state, &self.ready, &mut state);
+                if let FutureState::PendingTokio { on_error, .. } = &mut *state {
+                    on_error.push(cb);
+                }
+            }
+        }
+    }
+
+    /// Register both a success and an error callback in a single call.
+    ///
+    /// Equivalent to calling `add_callback` and `add_errback` separately.
+    /// The success callback is called as `callback(result, *callback_args, **callback_kwargs)`
+    /// and the error callback as `errback(exception, *errback_args, **errback_kwargs)`.
+    ///
+    /// If the future is already resolved, the appropriate callback is invoked immediately.
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (callback, errback, /, callback_args=None, callback_kwargs=None, errback_args=None, errback_kwargs=None))]
+    fn add_callbacks(
+        &self,
+        py: Python<'_>,
+        callback: Py<PyAny>,
+        errback: Py<PyAny>,
+        callback_args: Option<&Bound<'_, PyTuple>>,
+        callback_kwargs: Option<&Bound<'_, PyDict>>,
+        errback_args: Option<&Bound<'_, PyTuple>>,
+        errback_kwargs: Option<&Bound<'_, PyDict>>,
+    ) {
+        let empty = PyTuple::empty(py);
+        let cb_args = callback_args.unwrap_or(&empty);
+        let eb_args = errback_args.unwrap_or(&empty);
+        self.add_callback(py, callback, cb_args, callback_kwargs);
+        self.add_errback(py, errback, eb_args, errback_kwargs);
+    }
 }
 
 #[pymodule]
