@@ -1,8 +1,11 @@
+use std::future::Future;
+use std::sync::{Arc, Condvar, Mutex};
 use crate::coroutine::waker::AsyncioWaker;
 use crate::coroutine::{Coroutine, PollResult};
 use crate::utils::PrependedIterator;
 use pyo3::BoundObject;
 use pyo3::prelude::*;
+use pyo3::sync::MutexExt;
 use pyo3::types::{PyDict, PyTuple};
 use pyo3::{Py, PyAny, PyResult};
 
@@ -115,4 +118,45 @@ enum FutureState {
     },
     /// Future has completed. Result is stored permanently.
     Ready { result: PyResult<Py<PyAny>> },
+}
+
+/// A Python awaitable wrapping a Rust future.
+#[pyclass(name = "ResponseFuture", frozen)]
+pub struct PyResponseFuture {
+    state: Arc<Mutex<FutureState>>,
+    /// Notified when state transitions to Ready.
+    ready: Arc<Condvar>,
+}
+
+impl PyResponseFuture {
+    /// Create a PyResponseFuture starting in PendingAsyncio (default).
+    pub fn new<F>(future: F) -> Self
+    where
+        F: Future<Output = PyResult<Py<PyAny>>> + Send + 'static,
+    {
+        Self {
+            state: Arc::new(Mutex::new(FutureState::PendingAsyncio {
+                coroutine: Coroutine::new(None, future),
+            })),
+            ready: Arc::new(Condvar::new()),
+        }
+    }
+
+    /// Create an already-resolved PyResponseFuture.
+    pub fn ready(py: Python, result: PyResult<Py<PyAny>>) -> PyResult<Py<PyResponseFuture>> {
+        Py::new(
+            py,
+            PyResponseFuture {
+                state: Arc::new(Mutex::new(FutureState::Ready { result })),
+                ready: Arc::new(Condvar::new()),
+            },
+        )
+    }
+
+}
+
+#[pymodule]
+pub(crate) fn future(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_class::<PyResponseFuture>()?;
+    Ok(())
 }
