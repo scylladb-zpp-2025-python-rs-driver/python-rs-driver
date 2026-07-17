@@ -1,13 +1,15 @@
-use std::future::Future;
-use std::sync::{Arc, Condvar, Mutex};
 use crate::coroutine::waker::AsyncioWaker;
 use crate::coroutine::{Coroutine, PollResult};
 use crate::utils::PrependedIterator;
 use pyo3::BoundObject;
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::exceptions::PyStopIteration;
 use pyo3::prelude::*;
 use pyo3::sync::MutexExt;
 use pyo3::types::{PyDict, PyTuple};
 use pyo3::{Py, PyAny, PyResult};
+use std::future::Future;
+use std::sync::{Arc, Condvar, Mutex};
 
 use tokio::task::AbortHandle;
 
@@ -153,6 +155,64 @@ impl PyResponseFuture {
         )
     }
 
+    /// Poll the coroutine (__next__).
+    fn poll_coroutine(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let mut state = self.state.lock_py_attached(py).unwrap();
+        match &mut *state {
+            FutureState::Ready { result } => raise_stop_iteration(py, result),
+
+            FutureState::PendingTokio { waker, .. } => {
+                // Future is running on tokio — just yield the asyncio future.
+                let waker = Arc::clone(waker);
+                drop(state);
+                waker.yield_asyncio_future(py)
+            }
+
+            FutureState::PendingAsyncio { coroutine } => {
+                // Drive the future via the coroutine.
+                match coroutine.poll(py, None)? {
+                    PollResult::Pending(value) => Ok(value),
+                    PollResult::Ready(result) => {
+                        *state = FutureState::Ready {
+                            result: clone_result(py, &result),
+                        };
+                        drop(state);
+                        self.ready.notify_all();
+                        raise_stop_iteration(py, &result)
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn clone_result(py: Python<'_>, result: &PyResult<Py<PyAny>>) -> PyResult<Py<PyAny>> {
+    match result {
+        Ok(value) => Ok(value.clone_ref(py)),
+        Err(err) => Err(err.clone_ref(py)),
+    }
+}
+
+fn raise_stop_iteration(py: Python<'_>, result: &PyResult<Py<PyAny>>) -> PyResult<Py<PyAny>> {
+    match result {
+        Ok(value) => Err(PyStopIteration::new_err((value.clone_ref(py),))),
+        Err(err) => Err(err.clone_ref(py)),
+    }
+}
+
+#[pymethods]
+impl PyResponseFuture {
+    fn __await__(self_: Py<Self>) -> Py<Self> {
+        self_
+    }
+
+    fn __iter__(self_: Py<Self>) -> Py<Self> {
+        self_
+    }
+
+    fn __next__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self.poll_coroutine(py)
+    }
 }
 
 #[pymodule]
