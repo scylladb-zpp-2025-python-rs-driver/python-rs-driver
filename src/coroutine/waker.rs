@@ -4,12 +4,18 @@
 // Copyright (c) 2023-present PyO3 Project and Contributors. https://github.com/PyO3
 //
 // Modifications Copyright 2025 ScyllaDB, licensed under Apache-2.0 OR MIT.
+//
+// Changes from the original pyo3 source:
+//
+// - Added `yield_asyncio_future` to encapsulate initializing the asyncio future and
+//   yielding it to park the Python coroutine. Returns `py.None()` if the waker was
+//   already woken (sleep(0) equivalent).
 
 use std::sync::Arc;
 use std::task::Wake;
 
 use pyo3::sync::PyOnceLock;
-use pyo3::types::PyCFunction;
+use pyo3::types::{PyCFunction, PyIterator};
 use pyo3::{Bound, Py, PyAny, PyResult, Python, intern, wrap_pyfunction};
 
 use pyo3::prelude::PyAnyMethods;
@@ -41,6 +47,19 @@ impl AsyncioWaker {
         let init = || LoopAndFuture::new(py).map(Some);
         let loop_and_future = self.state.get_or_try_init(py, init)?.as_ref();
         Ok(loop_and_future.map(|LoopAndFuture { future, .. }| future.bind(py)))
+    }
+
+    /// Initialize the asyncio future and yield it to park the Python coroutine.
+    /// Returns `py.None()` if the waker was already woken (sleep(0) equivalent).
+    pub(crate) fn yield_asyncio_future(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        // `asyncio.Future` must be awaited; fortunately, it implements `__iter__ = __await__`
+        // and will yield itself if its result has not been set in polling above
+        if let Some(future) = self.initialize_future(py)?
+            && let Some(future) = PyIterator::from_object(future).unwrap().next()
+        {
+            return Ok(future?.unbind());
+        }
+        Ok(py.None())
     }
 }
 
