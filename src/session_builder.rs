@@ -8,6 +8,7 @@ use crate::policies::{
     PyTimestampGenerator,
 };
 use crate::session::PySession;
+use crate::tls::PyTlsContext;
 use pyo3::prelude::*;
 use pyo3::sync::MutexExt;
 use pyo3::types::{PySequence, PyString};
@@ -435,6 +436,18 @@ impl SessionBuilder {
     fn get_config<'py>(&self, py: Python<'py>) -> PyResult<Py<PySessionBuilderConfig>> {
         let inner = self.inner.lock_py_attached(py).unwrap();
         Py::new(py, inner.clone())
+    }
+
+    fn tls_context<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+        tls_context: Option<PyRef<'py, PyTlsContext>>,
+    ) -> PyRef<'py, Self> {
+        {
+            let mut inner = slf.inner.lock_py_attached(py).unwrap();
+            inner.config.tls_context = tls_context.map(|ctx| ctx.inner.clone().into());
+        }
+        slf
     }
 
     async fn connect(&self) -> Result<PySession, DriverSessionConnectionError> {
