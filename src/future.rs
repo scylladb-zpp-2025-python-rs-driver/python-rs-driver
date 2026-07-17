@@ -1,8 +1,37 @@
+use crate::coroutine::waker::AsyncioWaker;
+use crate::coroutine::{Coroutine, PollResult};
 use crate::utils::PrependedIterator;
 use pyo3::BoundObject;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
 use pyo3::{Py, PyAny, PyResult};
+
+use tokio::task::AbortHandle;
+
+// # PyResponseFuture — hybrid design
+//
+// ## Three states
+//
+// `PendingAsyncio { coroutine }`
+//     The future is driven by the Python async protocol (`__next__`).
+//     This is the default starting state.
+//
+// `PendingTokio { on_success, on_error, abort_handle, waker }`
+//     The future has been spawned on the tokio runtime. `__next__` just
+//     yields the asyncio future from the waker. The spawned task transitions
+//     to `Ready` on completion.
+//
+// `Ready { result }`
+//     Terminal state. Result stored permanently.
+//
+// ## Transitions
+//
+// - `PendingAsyncio` → `PendingTokio`: when callbacks are registered or `result()` is called.
+//   The inner future is taken from the coroutine, spawned on tokio.
+// - `PendingAsyncio` → `Ready`: when `poll` completes or `close()` is called.
+// - `PendingTokio` → `Ready`: when the spawned task completes or `close()` aborts it.
+// - `Ready` → (no transitions)
+
 /// A registered callback with optional positional and keyword arguments.
 struct Callback {
     callable: Py<PyAny>,
@@ -71,4 +100,19 @@ impl Callback {
             }
         }
     }
+}
+
+/// Internal state of a PyResponseFuture.
+enum FutureState {
+    /// Future is driven by the Python async protocol.
+    PendingAsyncio { coroutine: Coroutine },
+    /// Future has been spawned on the tokio runtime.
+    PendingTokio {
+        on_success: Vec<Callback>,
+        on_error: Vec<Callback>,
+        abort_handle: Option<AbortHandle>,
+        waker: Arc<AsyncioWaker>,
+    },
+    /// Future has completed. Result is stored permanently.
+    Ready { result: PyResult<Py<PyAny>> },
 }
