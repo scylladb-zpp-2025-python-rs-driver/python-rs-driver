@@ -184,6 +184,52 @@ impl PyResponseFuture {
             }
         }
     }
+
+    /// Close the future. Transitions to Ready with an error.
+    fn close_future(&self, py: Python<'_>) {
+        let err_result: PyResult<Py<PyAny>> = Err(PyRuntimeError::new_err("future was closed"));
+
+        let mut state = self.state.lock_py_attached(py).unwrap();
+        match &mut *state {
+            FutureState::Ready { .. } => (),
+
+            FutureState::PendingTokio {
+                abort_handle,
+                waker,
+                on_success,
+                on_error,
+                ..
+            } => {
+                if let Some(ah) = abort_handle {
+                    ah.abort();
+                }
+                let waker = Arc::clone(waker);
+                let taken_success = std::mem::take(on_success);
+                let taken_error = std::mem::take(on_error);
+                *state = FutureState::Ready {
+                    result: clone_result(py, &err_result),
+                };
+                drop(state);
+
+                waker.wake();
+                self.ready.notify_all();
+                Callback::fire_all(py, (taken_success, taken_error), &err_result);
+            }
+
+            FutureState::PendingAsyncio { coroutine } => {
+                let waker = coroutine.close_and_get_waker();
+                *state = FutureState::Ready {
+                    result: clone_result(py, &err_result),
+                };
+                drop(state);
+
+                if let Some(waker) = waker {
+                    waker.wake();
+                }
+                self.ready.notify_all();
+            }
+        }
+    }
 }
 
 fn clone_result(py: Python<'_>, result: &PyResult<Py<PyAny>>) -> PyResult<Py<PyAny>> {
@@ -212,6 +258,10 @@ impl PyResponseFuture {
 
     fn __next__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         self.poll_coroutine(py)
+    }
+
+    fn close(&self, py: Python<'_>) {
+        self.close_future(py);
     }
 }
 
