@@ -501,6 +501,19 @@ impl PyResponseFuture {
         let state = self.state.lock_py_attached(py).unwrap();
         matches!(*state, FutureState::Ready { .. })
     }
+
+    fn __repr__(&self, py: Python<'_>) -> String {
+        let state = self.state.lock_py_attached(py).unwrap();
+        match &*state {
+            FutureState::PendingAsyncio { .. } | FutureState::PendingTokio { .. } => {
+                "<ResponseFuture pending>".to_string()
+            }
+            FutureState::Ready { result } => match result {
+                Ok(_) => "<ResponseFuture finished>".to_string(),
+                Err(e) => format!("<ResponseFuture finished exception={}>", e),
+            },
+        }
+    }
 }
 
 #[pymodule]
