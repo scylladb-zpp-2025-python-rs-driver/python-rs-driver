@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 from ipaddress import IPv4Address, IPv6Address
 from typing import Any, Optional, Protocol, runtime_checkable
 
@@ -91,21 +92,18 @@ class DictAddressTranslator:
     def __init__(self, translation_map: dict[Any, Any]) -> None: ...
     def translate(self, info: UntranslatedPeer) -> ContactPoint: ...
 
-class TimestampGenerator:
+@runtime_checkable
+class TimestampGenerator(Protocol):
     """
-    Base class for implementing custom client-side timestamp generation.
-
-    Subclass this and override :meth:`next_timestamp` to provide custom logic for generating timestamps for requests.
+    Protocol for custom client-side timestamp generation.
     """
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
     def next_timestamp(self) -> int:
         """
         Generate the next timestamp for a request.
 
         This method should return an integer representing the timestamp.
 
-        If this method is not overridden or raises an exception, the
+        If this method is not implemented or raises an exception, the
         driver will log the error and fallback to the current system timestamp.
 
         """

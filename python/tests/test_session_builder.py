@@ -265,7 +265,7 @@ async def test_address_translator_dict_invalid():
     assert "invalid socket address syntax" in str(excinfo.value.__cause__)
 
 
-class MockTimestampGenerator(TimestampGenerator):
+class MockTimestampGenerator:
     fixed_ts: int
     called: bool
 
@@ -279,7 +279,7 @@ class MockTimestampGenerator(TimestampGenerator):
         return self.fixed_ts
 
 
-class FailingTimestampGenerator(TimestampGenerator):
+class FailingTimestampGenerator:
     def next_timestamp(self) -> int:
         raise RuntimeError("Timestamp Generation Exploded!")
 
@@ -289,6 +289,7 @@ class FailingTimestampGenerator(TimestampGenerator):
 async def test_custom_timestamp_generator_success() -> None:
     my_custom_ts = 1122334455
     ts_gen = MockTimestampGenerator(my_custom_ts)
+    assert isinstance(ts_gen, TimestampGenerator)
 
     builder = (
         SessionBuilder()
@@ -322,6 +323,7 @@ async def test_custom_timestamp_generator_fallback_on_failure(
     caplog: LogCaptureFixture,
 ) -> None:
     ts_gen = FailingTimestampGenerator()
+    assert isinstance(ts_gen, TimestampGenerator)
 
     builder = (
         SessionBuilder()

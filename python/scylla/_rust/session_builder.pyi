@@ -211,7 +211,8 @@ class SessionBuilder:
         Parameters
         ----------
         generator : TimestampGenerator
-            An instance of a class inheriting from :class:`TimestampGenerator`.
+            A custom Python object implementing the :class:`TimestampGenerator`
+            protocol.
 
         Returns
         -------

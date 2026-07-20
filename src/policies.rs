@@ -371,33 +371,19 @@ impl<'a> From<&'a PyUntranslatedPeer> for UntranslatedPeer<'a> {
     }
 }
 
-#[pyclass(subclass, skip_from_py_object, name = "TimestampGenerator")]
-pub(crate) struct PyTimestampGenerator {}
-
-#[pymethods]
-impl PyTimestampGenerator {
-    #[expect(unused_variables)]
-    #[new]
-    #[pyo3(signature = (*args, **kwargs))]
-    pub fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Self {
-        PyTimestampGenerator {}
-    }
-
-    fn next_timestamp(&self) -> PyResult<i64> {
-        Err(PyNotImplementedError::new_err("Method is not implemented"))
-    }
+/// Stores a Python object with a `next_timestamp` method (user's custom implementation)
+/// and implements the Rust `TimestampGenerator` trait by delegating to that Python object.
+pub struct CustomTimestampGenerator {
+    pub py_timestamp_generator: Py<PyAny>,
 }
 
-pub(crate) struct InternalTimestampGenerator {
-    pub(crate) py_timestamp_generator: Py<PyTimestampGenerator>,
-}
-impl TimestampGenerator for InternalTimestampGenerator {
+impl TimestampGenerator for CustomTimestampGenerator {
     fn next_timestamp(&self) -> i64 {
         Python::attach(|py| {
             let py_generator = self.py_timestamp_generator.bind(py);
 
             py_generator
-                .call_method0("next_timestamp")
+                .call_method0(intern!(py, "next_timestamp"))
                 .and_then(|res| res.extract::<i64>())
                 .unwrap_or_else(|err| {
                     log::error!("Failed to generate custom timestamp from Python: {}", err);
@@ -412,6 +398,36 @@ impl TimestampGenerator for InternalTimestampGenerator {
     }
 }
 
+/// Python-facing input type for timestamp generator. Extracts from built-in `PyMonotonicTimestampGenerator`,
+/// `PySimpleTimestampGenerator`, or wraps any Python object with a `next_timestamp` method
+/// as a `CustomTimestampGenerator`.
+pub(crate) struct PyTimestampGenerator {
+    inner: Arc<dyn TimestampGenerator>,
+}
+impl PyTimestampGenerator {
+    pub(crate) fn into_inner(self) -> Arc<dyn TimestampGenerator> {
+        self.inner
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for PyTimestampGenerator {
+    type Error = DriverSessionConfigError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+
+        if !obj
+            .hasattr(intern!(obj.py(), "next_timestamp"))
+            .unwrap_or(false)
+        {
+            return Err(DriverSessionConfigError::invalid_timestamp_generator(obj));
+        }
+
+        Ok(Self {
+            inner: Arc::new(CustomTimestampGenerator {
+                py_timestamp_generator: obj.unbind(),
+            }),
+        })
+    }
 #[pyclass(subclass, skip_from_py_object, name = "HostFilter")]
 pub(crate) struct PyHostFilter {}
 
@@ -494,7 +510,6 @@ pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResul
     module.add_class::<PyAuthenticator>()?;
     module.add_class::<PyDictAddressTranslator>()?;
     module.add_class::<PyUntranslatedPeer>()?;
-    module.add_class::<PyTimestampGenerator>()?;
     module.add_class::<PyHostFilter>()?;
     module.add_class::<PyPeer>()?;
     Ok(())
