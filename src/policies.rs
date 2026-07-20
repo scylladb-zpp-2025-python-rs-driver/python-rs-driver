@@ -499,34 +499,19 @@ impl PySimpleTimestampGenerator {
     }
 }
 
-#[pyclass(subclass, skip_from_py_object, name = "HostFilter")]
-pub(crate) struct PyHostFilter {}
-
-#[pymethods]
-impl PyHostFilter {
-    #[expect(unused_variables)]
-    #[new]
-    #[pyo3(signature = (*args, **kwargs))]
-    pub fn new(args: &Bound<'_, PyTuple>, kwargs: Option<&Bound<'_, PyDict>>) -> Self {
-        PyHostFilter {}
-    }
-
-    fn accept(&self, _peer: Py<PyPeer>) -> PyResult<bool> {
-        Err(PyNotImplementedError::new_err("Method is not implemented"))
-    }
+/// Stores a Python object with an `accept` method (user's custom implementation)
+/// and implements the Rust `HostFilter` trait by delegating to that Python object.
+struct CustomHostFilter {
+    py_host_filter: Py<PyAny>,
 }
-
-pub(crate) struct InternalHostFilter {
-    pub(crate) py_host_filter: Py<PyHostFilter>,
-}
-impl HostFilter for InternalHostFilter {
+impl HostFilter for CustomHostFilter {
     fn accept(&self, peer: &Peer) -> bool {
         Python::attach(|py| {
             let py_filter = self.py_host_filter.bind(py);
-            let py_peer = PyPeer::from(peer);
+            let py_peer = PyPeer::from(peer.clone());
 
             py_filter
-                .call_method1("accept", (py_peer,))
+                .call_method1(intern!(py, "accept"), (py_peer,))
                 .and_then(|res| res.extract::<bool>())
                 .unwrap_or_else(|err| {
                     log::error!("Failed to evaluate custom host filter from Python: {}", err);
@@ -536,6 +521,35 @@ impl HostFilter for InternalHostFilter {
     }
 }
 
+/// Python-facing input type for host filter. Extracts from built-in `PyAcceptAllHostFilter`,
+/// `PyDcHostFilter`, `PyAllowListHostFilter`, or wraps any Python object with an `accept` method
+/// as a `CustomHostFilter`.
+pub(crate) struct PyHostFilter {
+    inner: Arc<dyn HostFilter>,
+}
+
+impl PyHostFilter {
+    pub(crate) fn into_inner(self) -> Arc<dyn HostFilter> {
+        self.inner
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for PyHostFilter {
+    type Error = DriverSessionConfigError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+
+        if !obj.hasattr(intern!(obj.py(), "accept")).unwrap_or(false) {
+            return Err(DriverSessionConfigError::invalid_host_filter(obj));
+        }
+
+        Ok(Self {
+            inner: Arc::new(CustomHostFilter {
+                py_host_filter: obj.to_owned().unbind(),
+            }),
+        })
+    }
+}
 /// Python representation of a cluster peer node, exposing host_id, address, tokens, datacenter, and rack.
 /// Exposed to Python as `Peer`.
 #[pyclass(frozen, name = "Peer")]
@@ -659,7 +673,6 @@ pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResul
     module.add_class::<PyUntranslatedPeer>()?;
     module.add_class::<PyMonotonicTimestampGenerator>()?;
     module.add_class::<PySimpleTimestampGenerator>()?;
-    module.add_class::<PyHostFilter>()?;
     module.add_class::<PyPeer>()?;
     Ok(())
 }

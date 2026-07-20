@@ -162,15 +162,11 @@ class Peer:
     def rack(self) -> Optional[str]: ...
     def __repr__(self) -> str: ...
 
-class HostFilter:
+@runtime_checkable
+class HostFilter(Protocol):
     """
-    Base class for implementing custom host filtering.
-
-    Subclass this and override :meth:`accept` to decide whether a given
-    node should be considered by the driver.
+    Protocol for implementing custom host filtering.
     """
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
     def accept(self, peer: Peer) -> bool:
         """
         Decide whether the given peer should be accepted.

@@ -587,6 +587,11 @@ pub enum DriverSessionConfigError {
     InvalidTimestampGenerator {
         type_name: String,
     },
+
+    /// The object does not have an `accept` method and is not a built-in host filter class.
+    InvalidHostFilter {
+        type_name: String,
+    },
 }
 
 impl DriverSessionConfigError {
@@ -605,6 +610,12 @@ impl DriverSessionConfigError {
 
     pub fn invalid_timestamp_generator(obj: Borrowed<PyAny>) -> Self {
         Self::InvalidTimestampGenerator {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_host_filter(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidHostFilter {
             type_name: get_type_name(obj),
         }
     }
@@ -675,6 +686,12 @@ impl From<DriverSessionConfigError> for PyErr {
                 let message = format!(
                     "Expected a class implementing TimestampGenerator protocol, got {type_name}"
                 );
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidHostFilter { type_name } => {
+                let message =
+                    format!("Expected a class implementing HostFilter protocol, got {type_name}");
                 build_session_config_pyerr(py, message, None, None)
             }
         })

@@ -402,7 +402,7 @@ async def test_monotonic_timestamp_generator_works_with_session() -> None:
     assert row["writetime(val)"] > 0
 
 
-class AcceptAllHostFilter(HostFilter):
+class CustomAcceptAllHostFilter:
     def __init__(self) -> None:
         super().__init__()
         self.called = False
@@ -416,7 +416,7 @@ class AcceptAllHostFilter(HostFilter):
         return True
 
 
-class FailingHostFilter(HostFilter):
+class FailingHostFilter:
     def accept(self, peer: Peer) -> bool:
         raise RuntimeError("Host Filter Exploded!")
 
@@ -424,7 +424,8 @@ class FailingHostFilter(HostFilter):
 @pytest.mark.asyncio
 @pytest.mark.requires_db
 async def test_custom_host_filter_success() -> None:
-    host_filter = AcceptAllHostFilter()
+    host_filter = CustomAcceptAllHostFilter()
+    assert isinstance(host_filter, HostFilter)
 
     builder = (
         SessionBuilder().contact_points([("127.0.0.2", 9042)]).user("cassandra", "cassandra").host_filter(host_filter)
@@ -447,6 +448,7 @@ async def test_custom_host_filter_fallback_on_failure(
     caplog: LogCaptureFixture,
 ) -> None:
     host_filter = FailingHostFilter()
+    assert isinstance(host_filter, HostFilter)
 
     builder = (
         SessionBuilder().contact_points([("127.0.0.2", 9042)]).user("cassandra", "cassandra").host_filter(host_filter)
