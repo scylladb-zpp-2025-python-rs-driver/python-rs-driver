@@ -495,6 +495,12 @@ impl PyResponseFuture {
         self.add_callback(py, callback, cb_args, callback_kwargs);
         self.add_errback(py, errback, eb_args, errback_kwargs);
     }
+
+    /// Returns True if the future has completed (successfully or with an error).
+    fn done(&self, py: Python<'_>) -> bool {
+        let state = self.state.lock_py_attached(py).unwrap();
+        matches!(*state, FutureState::Ready { .. })
+    }
 }
 
 #[pymodule]
