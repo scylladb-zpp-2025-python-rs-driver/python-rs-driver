@@ -1,16 +1,18 @@
 import ipaddress
+import time
 from datetime import timedelta
 from typing import Any, Generator, Optional, Sequence
 
 import pytest
 from _pytest.logging import LogCaptureFixture
 from scylla.enums import Compression, Consistency, PoolSize, SelfIdentity, SerialConsistency, WriteCoalescingDelay
-from scylla.errors import SessionConfigError
+from scylla.errors import AddressTranslationError, SessionConfigError
 from scylla.execution_profile import ExecutionProfile
 from scylla.policies import (
     AddressTranslator,
     Authenticator,
     AuthenticatorProvider,
+    DictAddressTranslator,
     HostFilter,
     Peer,
     TimestampGenerator,
@@ -227,6 +229,40 @@ async def test_address_translator_failing_python_side():
         await builder.connect()
 
     assert "Translation Exploded" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_address_translator_dict_discovery():
+    translator = {
+        (ipaddress.IPv4Address("127.0.0.2"), 9042): (ipaddress.IPv4Address("127.0.0.2"), 9042),
+        ("127.0.0.3", 9042): ("127.0.0.2", 9042),
+        ("127.0.0.4", 9042): ("127.0.0.2", 9042),
+    }
+
+    builder = (
+        SessionBuilder()
+        .contact_points([("127.0.0.2", 9042)])
+        .address_translator(DictAddressTranslator(translator))
+        .user("cassandra", "cassandra")
+    )
+
+    session = await builder.connect()
+
+    assert session is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_address_translator_dict_invalid():
+    translator = {
+        ("127.0.0.3.3", 9042): ("127.0.0.2.5", 9042),
+    }
+
+    with pytest.raises(AddressTranslationError) as excinfo:
+        DictAddressTranslator(translator)
+
+    assert "invalid socket address syntax" in str(excinfo.value.__cause__)
 
 
 class MockTimestampGenerator(TimestampGenerator):

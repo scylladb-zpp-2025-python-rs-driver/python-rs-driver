@@ -4,9 +4,8 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyNone};
-use scylla::errors::ClusterStateTokenError as RustClusterStateTokenError;
 use scylla::errors::UseKeyspaceError as RustUseKeyspaceError;
-
+use scylla::errors::{ClusterStateTokenError as RustClusterStateTokenError, TranslationError};
 use std::error::Error;
 use std::fmt;
 /* Python exception classes */
@@ -57,6 +56,7 @@ create_exception!(errors, RequestError, UseKeyspaceError);
 create_exception!(errors, KeyspaceNameMismatchError, UseKeyspaceError);
 create_exception!(errors, RequestTimeoutError, UseKeyspaceError);
 create_exception!(errors, RuntimeTaskJoinFailedError, UseKeyspaceError);
+create_exception!(errors, AddressTranslationError, ScyllaError);
 
 // Policy: DriverError types are pure Rust and contain PyErr only as source
 // in cases where the error originated from Python code (e.g. during extraction or user callbacks).
@@ -658,11 +658,61 @@ impl From<DriverSessionConfigError> for PyErr {
 
             DriverSessionConfigError::InvalidAddressTranslator { type_name } => {
                 let message = format!(
-                    "Expected an class implementing AddressTranslator protocol or a dict[ContactPoint, ContactPoint], got {type_name}"
+                    "Expected a class implementing AddressTranslator protocol, got {type_name}"
                 );
                 build_session_config_pyerr(py, message, None, None)
             }
         })
+    }
+}
+
+#[derive(Debug)]
+#[must_use]
+pub enum DriverAddressTranslationError {
+    TranslationError {
+        source: Box<TranslationError>,
+    },
+
+    InvalidAddress {
+        index: usize,
+        source: AddressParseError,
+    },
+}
+
+impl DriverAddressTranslationError {
+    pub fn translation_error(source: TranslationError) -> Self {
+        Self::TranslationError {
+            source: Box::new(source),
+        }
+    }
+    pub fn invalid_address(index: usize, source: AddressParseError) -> Self {
+        Self::InvalidAddress { index, source }
+    }
+}
+
+impl From<TranslationError> for DriverAddressTranslationError {
+    fn from(source: TranslationError) -> Self {
+        Self::translation_error(source)
+    }
+}
+impl From<DriverAddressTranslationError> for PyErr {
+    fn from(e: DriverAddressTranslationError) -> PyErr {
+        match e {
+            DriverAddressTranslationError::TranslationError { source } => {
+                AddressTranslationError::new_err(format!("Address translation failed: {source}"))
+            }
+            DriverAddressTranslationError::InvalidAddress { index, source } => {
+                Python::attach(|py| {
+                    let message = format!("Error processing address at index {index}");
+                    let err = AddressTranslationError::new_err(message);
+                    let cause: PyErr = source.into();
+                    err.set_cause(py, Some(cause));
+                    let inst = err.value(py);
+                    let _ = inst.setattr("index", index);
+                    err
+                })
+            }
+        }
     }
 }
 
@@ -1476,6 +1526,10 @@ pub(crate) fn errors(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<(
     module.add(
         "RuntimeTaskJoinFailedError",
         py.get_type::<RuntimeTaskJoinFailedError>(),
+    )?;
+    module.add(
+        "AddressTranslationError",
+        py.get_type::<AddressTranslationError>(),
     )?;
     Ok(())
 }

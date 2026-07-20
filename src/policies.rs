@@ -1,6 +1,11 @@
+use crate::errors::{DriverAddressTranslationError, DriverSessionConfigError};
+use crate::routing::PyToken;
+use crate::utils::{ParsedAddress, ParsedAddressList, PyValueOrError};
 use async_trait::async_trait;
+use pyo3::IntoPyObject;
+use pyo3::PyErr;
 use pyo3::exceptions::PyNotImplementedError;
-use pyo3::prelude::{PyAnyMethods, PyModule, PyModuleMethods};
+use pyo3::prelude::{PyAnyMethods, PyDictMethods, PyModule, PyModuleMethods};
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyDict, PyString, PyTuple};
 use pyo3::{
@@ -13,7 +18,9 @@ use scylla::errors::{CustomTranslationError, TranslationError};
 use scylla::policies::address_translator::{AddressTranslator, UntranslatedPeer};
 use scylla::policies::host_filter::HostFilter;
 use scylla::policies::timestamp_generator::TimestampGenerator;
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
@@ -157,7 +164,7 @@ impl AddressTranslator for CustomAddressTranslator {
 
             let translated = py_trans
                 .call_method1(intern!(py, "translate"), (peer_info,))?
-                .extract::<ContactPoint>()?;
+                .extract::<ParsedAddress>()?;
 
             SocketAddr::try_from(translated).map_err(|e| e.into())
         })
@@ -181,6 +188,12 @@ impl<'py> FromPyObject<'_, 'py> for PyAddressTranslator {
     type Error = DriverSessionConfigError;
 
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(dict) = obj.cast::<PyDictAddressTranslator>() {
+            return Ok(Self {
+                inner: Arc::clone(&dict.get().inner) as Arc<dyn AddressTranslator>,
+            });
+        }
+
         if !obj.hasattr(intern!(obj.py(), "translate")).unwrap_or(false) {
             return Err(DriverSessionConfigError::invalid_address_translator(obj));
         }
@@ -192,6 +205,56 @@ impl<'py> FromPyObject<'_, 'py> for PyAddressTranslator {
         })
     }
 }
+
+/// Built-in address translator that uses a dict-based address mapping.
+/// Exposed to Python as `DictAddressTranslator`.
+#[pyclass(name = "DictAddressTranslator", frozen)]
+struct PyDictAddressTranslator {
+    inner: Arc<HashMap<SocketAddr, SocketAddr>>,
+}
+
+#[pymethods]
+impl PyDictAddressTranslator {
+    #[new]
+    pub fn new<'py>(dict: Bound<'py, PyDict>) -> Result<Self, DriverAddressTranslationError> {
+        let map = dict
+            .iter()
+            .enumerate()
+            .map(|(idx, (k, v))| {
+                let from = k
+                    .extract::<ParsedAddress>()
+                    .and_then(SocketAddr::try_from)
+                    .map_err(|e| DriverAddressTranslationError::invalid_address(idx, e))?;
+
+                let to = v
+                    .extract::<ParsedAddress>()
+                    .and_then(SocketAddr::try_from)
+                    .map_err(|e| DriverAddressTranslationError::invalid_address(idx, e))?;
+
+                Ok((from, to))
+            })
+            .collect::<Result<HashMap<SocketAddr, SocketAddr>, DriverAddressTranslationError>>()?;
+
+        Ok(PyDictAddressTranslator {
+            inner: Arc::new(map),
+        })
+    }
+
+    pub async fn translate(
+        &self,
+        peer: Py<PyUntranslatedPeer>,
+    ) -> Result<(IpAddr, u16), DriverAddressTranslationError> {
+        let untranslated_peer = peer.get();
+        let translated_address = self
+            .inner
+            .translate_address(&untranslated_peer.into())
+            .await
+            .map_err(DriverAddressTranslationError::from)?;
+
+        Ok((translated_address.ip(), translated_address.port()))
+    }
+}
+
 /// Python representation of an untranslated peer address, exposing host_id, untranslated_address,
 /// datacenter, and rack. Exposed to Python as `UntranslatedPeer`.
 #[pyclass(name = "UntranslatedPeer", frozen)]
@@ -429,6 +492,7 @@ impl From<&Peer> for PyPeer {
 pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyAuthenticatorProvider>()?;
     module.add_class::<PyAuthenticator>()?;
+    module.add_class::<PyDictAddressTranslator>()?;
     module.add_class::<PyUntranslatedPeer>()?;
     module.add_class::<PyTimestampGenerator>()?;
     module.add_class::<PyHostFilter>()?;

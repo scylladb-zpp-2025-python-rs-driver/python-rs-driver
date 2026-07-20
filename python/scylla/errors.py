@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ._rust.errors import (  # pyright: ignore[reportMissingModuleSource]
     BadKeyspaceNameError,
+    AddressTranslationError,
     BatchError,
     ClusterStateTokenError,
     DecodeFailedError,
@@ -31,6 +32,7 @@ from ._rust.errors import (  # pyright: ignore[reportMissingModuleSource]
 )
 
 __all__ = [
+    "AddressTranslationError",
     "ScyllaError",
     "RowIterationError",
     "DeserializationError",
