@@ -1,15 +1,13 @@
 // src/errors.rs
-use std::error::Error;
-use std::fmt;
-
 use pyo3::PyErr;
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
 use pyo3::types::{PyModule, PyNone};
-use scylla::errors::ClusterStateTokenError as RustClusterStateTokenError;
 use scylla::errors::UseKeyspaceError as RustUseKeyspaceError;
-
+use scylla::errors::{ClusterStateTokenError as RustClusterStateTokenError, TranslationError};
+use std::error::Error;
+use std::fmt;
 /* Python exception classes */
 
 create_exception!(errors, ScyllaError, PyException);
@@ -58,6 +56,8 @@ create_exception!(errors, RequestError, UseKeyspaceError);
 create_exception!(errors, KeyspaceNameMismatchError, UseKeyspaceError);
 create_exception!(errors, RequestTimeoutError, UseKeyspaceError);
 create_exception!(errors, RuntimeTaskJoinFailedError, UseKeyspaceError);
+create_exception!(errors, AddressTranslationError, ScyllaError);
+create_exception!(errors, HostFilterError, ScyllaError);
 
 // Policy: DriverError types are pure Rust and contain PyErr only as source
 // in cases where the error originated from Python code (e.g. during extraction or user callbacks).
@@ -483,66 +483,153 @@ impl From<tokio::task::JoinError> for DriverSessionConnectionError {
 
 /* Session configuration errors */
 
-/// Errors related to invalid session configuration.
+/* Address parsing errors */
+
+/// Error type for address parsing failures.
 #[derive(Debug)]
-#[must_use]
-pub enum DriverSessionConfigError {
-    ContactPointsIterationFailed {
-        source: Box<PyErr>,
+pub enum AddressParseError {
+    /// The Python object is not a valid address type (str, tuple(str, int), tuple(IpAddr, int)).
+    InvalidType { type_name: String },
+    /// A string could not be parsed into a SocketAddr.
+    InvalidSocketAddr {
+        addr: String,
+        source: std::net::AddrParseError,
     },
-    /// The contact_points argument is of the wrong type.
-    ContactPointTypeError {
-        type_name: String,
-    },
-
-    /// Wraps a Core Error with the index where it happened
-    InvalidContactPointItem {
-        index: usize,
-        source: Box<PyErr>,
-    },
-
-    InvalidPortRange,
-
-    InvalidDuration {
-        type_name: String,
-    },
-
-    ZeroDurationNotAllowed,
+    /// Failed to iterate over a sequence of addresses.
+    IterationFailed { source: Box<PyErr> },
+    /// An individual item in an address sequence failed to extract at the given index.
+    InvalidItem { index: usize, source: Box<PyErr> },
 }
 
-impl DriverSessionConfigError {
-    /* Constructors */
-    pub fn contact_point_type_error(obj: Borrowed<PyAny>) -> Self {
-        let type_name = obj
-            .get_type()
-            .name()
-            .map(|n| n.to_string())
-            .unwrap_or_else(|_| "UnknownType".to_string());
-
-        Self::ContactPointTypeError { type_name }
+impl AddressParseError {
+    pub fn invalid_type(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidType {
+            type_name: get_type_name(obj),
+        }
     }
 
-    pub fn contact_points_iteration_failed(source: PyErr) -> Self {
-        Self::ContactPointsIterationFailed {
+    pub fn iteration_failed(source: PyErr) -> Self {
+        Self::IterationFailed {
             source: Box::new(source),
         }
     }
 
-    pub fn contact_points_invalid_item(index: usize, source: PyErr) -> Self {
-        Self::InvalidContactPointItem {
+    pub fn invalid_item(index: usize, source: PyErr) -> Self {
+        Self::InvalidItem {
             index,
             source: Box::new(source),
         }
     }
+}
 
+impl fmt::Display for AddressParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidType { type_name } => write!(
+                f,
+                "Invalid address type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these, got {type_name}"
+            ),
+            Self::InvalidSocketAddr { addr, source } => {
+                write!(f, "Invalid socket address '{addr}': {source}")
+            }
+            Self::IterationFailed { .. } => {
+                write!(f, "Failed to iterate over sequence of addresses")
+            }
+            Self::InvalidItem { index, .. } => {
+                write!(f, "Error processing address at index {index}")
+            }
+        }
+    }
+}
+
+impl From<AddressParseError> for PyErr {
+    fn from(e: AddressParseError) -> PyErr {
+        let message = e.to_string();
+        match e {
+            AddressParseError::IterationFailed { source } => Python::attach(|py| {
+                let err = pyo3::exceptions::PyValueError::new_err(message);
+                err.set_cause(py, Some(*source));
+                err
+            }),
+            AddressParseError::InvalidItem { source, .. } => Python::attach(|py| {
+                let err = pyo3::exceptions::PyValueError::new_err(message);
+                err.set_cause(py, Some(*source));
+                err
+            }),
+            _ => pyo3::exceptions::PyValueError::new_err(message),
+        }
+    }
+}
+
+/// Errors related to invalid session configuration.
+#[derive(Debug)]
+#[must_use]
+pub enum DriverSessionConfigError {
+    InvalidPortRange,
+
+    ZeroDurationNotAllowed,
+
+    /// The address object is not a valid type (str, tuple, or IpAddr tuple).
+    InvalidAddress {
+        source: AddressParseError,
+    },
+
+    /// The object does not have a `translate` method and is not a dict-based address translator.
+    InvalidAddressTranslator {
+        type_name: String,
+    },
+
+    /// The duration/timedelta object is neither a datetime.timedelta nor a non-negative finite float.
+    InvalidDuration {
+        type_name: String,
+    },
+
+    /// The object is not AuthenticatorProvider subclass.
+    InvalidAuthenticatorProvider {
+        type_name: String,
+    },
+
+    /// The object does not have a `next_timestamp` method and is not a built-in timestamp generator.
+    InvalidTimestampGenerator {
+        type_name: String,
+    },
+
+    /// The object does not have an `accept` method and is not a built-in host filter class.
+    InvalidHostFilter {
+        type_name: String,
+    },
+}
+
+impl DriverSessionConfigError {
+    /* Constructors */
     pub fn invalid_duration(obj: Borrowed<PyAny>) -> Self {
-        let type_name = obj
-            .get_type()
-            .name()
-            .map(|n| n.to_string())
-            .unwrap_or_else(|_| "UnknownType".to_string());
+        Self::InvalidDuration {
+            type_name: get_type_name(obj),
+        }
+    }
 
-        Self::InvalidDuration { type_name }
+    pub fn invalid_authenticator_provider(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidAuthenticatorProvider {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_address_translator(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidAddressTranslator {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_timestamp_generator(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidTimestampGenerator {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn invalid_host_filter(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidHostFilter {
+            type_name: get_type_name(obj),
+        }
     }
 }
 
@@ -567,26 +654,20 @@ fn build_session_config_pyerr(
     err
 }
 
+fn get_type_name(obj: Borrowed<PyAny>) -> String {
+    obj.get_type()
+        .name()
+        .map(|n| n.to_string())
+        .unwrap_or_else(|_| "UnknownType".to_string())
+}
+
 impl From<DriverSessionConfigError> for PyErr {
     fn from(e: DriverSessionConfigError) -> PyErr {
         Python::attach(|py| match e {
-            DriverSessionConfigError::ContactPointTypeError { type_name } => {
-                let message = format!(
-                    "Invalid contact points type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these, got {type_name}"
-                );
-
-                build_session_config_pyerr(py, message, None, None)
-            }
-
-            DriverSessionConfigError::ContactPointsIterationFailed { source } => {
-                let message = "Failed to iterate over sequence of contact points".to_string();
-
-                build_session_config_pyerr(py, message, Some(*source), None)
-            }
-
-            DriverSessionConfigError::InvalidContactPointItem { index, source } => {
-                let message = format!("Error processing contact point at index {index}");
-                build_session_config_pyerr(py, message, Some(*source), Some(index))
+            DriverSessionConfigError::InvalidAddress { source } => {
+                let message = "Failed to parse address".to_string();
+                let cause: PyErr = source.into();
+                build_session_config_pyerr(py, message, Some(cause), None)
             }
 
             DriverSessionConfigError::InvalidPortRange => {
@@ -605,7 +686,106 @@ impl From<DriverSessionConfigError> for PyErr {
                 let message = "Duration must be greater than zero.";
                 build_session_config_pyerr(py, message, None, None)
             }
+
+            DriverSessionConfigError::InvalidAuthenticatorProvider { type_name } => {
+                let message =
+                    format!("Expected an AuthenticatorProvider subclass, got {type_name}");
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidAddressTranslator { type_name } => {
+                let message = format!(
+                    "Expected a class implementing AddressTranslator protocol, got {type_name}"
+                );
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidTimestampGenerator { type_name } => {
+                let message = format!(
+                    "Expected a class implementing TimestampGenerator protocol, got {type_name}"
+                );
+                build_session_config_pyerr(py, message, None, None)
+            }
+
+            DriverSessionConfigError::InvalidHostFilter { type_name } => {
+                let message =
+                    format!("Expected a class implementing HostFilter protocol, got {type_name}");
+                build_session_config_pyerr(py, message, None, None)
+            }
         })
+    }
+}
+
+#[derive(Debug)]
+#[must_use]
+pub enum DriverAddressTranslationError {
+    TranslationError {
+        source: Box<TranslationError>,
+    },
+
+    InvalidAddress {
+        index: usize,
+        source: AddressParseError,
+    },
+}
+
+impl DriverAddressTranslationError {
+    pub fn translation_error(source: TranslationError) -> Self {
+        Self::TranslationError {
+            source: Box::new(source),
+        }
+    }
+    pub fn invalid_address(index: usize, source: AddressParseError) -> Self {
+        Self::InvalidAddress { index, source }
+    }
+}
+
+impl From<TranslationError> for DriverAddressTranslationError {
+    fn from(source: TranslationError) -> Self {
+        Self::translation_error(source)
+    }
+}
+impl From<DriverAddressTranslationError> for PyErr {
+    fn from(e: DriverAddressTranslationError) -> PyErr {
+        match e {
+            DriverAddressTranslationError::TranslationError { source } => {
+                AddressTranslationError::new_err(format!("Address translation failed: {source}"))
+            }
+            DriverAddressTranslationError::InvalidAddress { index, source } => {
+                Python::attach(|py| {
+                    let message = format!("Error processing address at index {index}");
+                    let err = AddressTranslationError::new_err(message);
+                    let cause: PyErr = source.into();
+                    err.set_cause(py, Some(cause));
+                    let inst = err.value(py);
+                    let _ = inst.setattr("index", index);
+                    err
+                })
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+#[must_use]
+pub enum DriverHostFilterError {
+    InvalidAddress { source: std::io::Error },
+}
+
+impl DriverHostFilterError {
+    pub fn invalid_address(source: std::io::Error) -> Self {
+        Self::InvalidAddress { source }
+    }
+}
+
+impl From<DriverHostFilterError> for PyErr {
+    fn from(e: DriverHostFilterError) -> PyErr {
+        match e {
+            DriverHostFilterError::InvalidAddress { source } => {
+                let message = format!("Invalid address in host filter allow list: {source}");
+                HostFilterError::new_err(message)
+            }
+        }
     }
 }
 
@@ -1420,5 +1600,10 @@ pub(crate) fn errors(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<(
         "RuntimeTaskJoinFailedError",
         py.get_type::<RuntimeTaskJoinFailedError>(),
     )?;
+    module.add(
+        "AddressTranslationError",
+        py.get_type::<AddressTranslationError>(),
+    )?;
+    module.add("HostFilterError", py.get_type::<HostFilterError>())?;
     Ok(())
 }

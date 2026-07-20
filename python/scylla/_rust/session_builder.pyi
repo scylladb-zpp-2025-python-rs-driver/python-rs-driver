@@ -185,12 +185,14 @@ class SessionBuilder:
 
     def address_translator(self, translator: AddressTranslator) -> SessionBuilder:
         """
-        Registers a custom Python-defined address translator.
+        Registers an address translator for the session.
+
+        The translator is Python object implementing the
+        :class:`AddressTranslator` protocol.
 
         Parameters
         ----------
         translator : AddressTranslator
-            An instance of a class inheriting from :class:`AddressTranslator`.
 
         Returns
         -------
@@ -209,7 +211,8 @@ class SessionBuilder:
         Parameters
         ----------
         generator : TimestampGenerator
-            An instance of a class inheriting from :class:`TimestampGenerator`.
+            A custom Python object implementing the :class:`TimestampGenerator`
+            protocol.
 
         Returns
         -------
@@ -219,15 +222,19 @@ class SessionBuilder:
 
     def host_filter(self, host_filter: HostFilter) -> SessionBuilder:
         """
-        Registers a custom Python-defined host filter.
+        Registers a host filter or a list of allowed addresses.
 
-        The filter is consulted to decide whether a discovered node should be
-        accepted by the driver.
+        This decides whether a discovered node should be accepted by the driver.
+        You can provide a custom filter object for complex logic or one of the
+        built-in host filter implementations provided by the driver.
 
         Parameters
         ----------
         host_filter : HostFilter
-            An instance of a class inheriting from :class:`HostFilter`.
+            If a object implements :class:`HostFilter` protocol, the driver calls
+            its ``accept`` method for each node.
+
+            Address = str | tuple[str | IPv4Address | IPv6Address, int]
 
         Returns
         -------
