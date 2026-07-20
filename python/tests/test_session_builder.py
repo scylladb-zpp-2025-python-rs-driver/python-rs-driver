@@ -6,11 +6,12 @@ from typing import Any, Generator, Optional, Sequence
 import pytest
 from _pytest.logging import LogCaptureFixture
 from scylla.enums import Compression, Consistency, PoolSize, SelfIdentity, SerialConsistency, WriteCoalescingDelay
-from scylla.errors import AddressTranslationError, SessionConfigError
+from scylla.errors import AddressTranslationError, HostFilterError, SessionConfigError
 from scylla.execution_profile import ExecutionProfile
 from scylla.policies import (
     AcceptAllHostFilter,
     AddressTranslator,
+    AllowListHostFilter,
     Authenticator,
     AuthenticatorProvider,
     DcHostFilter,
@@ -732,3 +733,27 @@ async def test_dc_host_filter_matches() -> None:
 
     assert row is not None
     assert row["data_center"] == "datacenter1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_host_filter_list_with_resolvable_dns() -> None:
+    accepted_list = ["127.0.0.1:9042", ("127.0.0.2", 9042), "localhost:9042"]
+
+    builder = SessionBuilder().contact_points([("127.0.0.2", 9042)]).host_filter(AllowListHostFilter(accepted_list))
+
+    session = await builder.connect()
+    assert session is not None
+
+    await session.execute("SELECT * FROM system.local")
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_host_filter_list_with_garbage_string_fails() -> None:
+    garbage_list = ["this-is-not-an-address-and-has-no-port", ("127.0.0.1", 9042)]
+
+    with pytest.raises(HostFilterError) as excinfo:
+        _ = AllowListHostFilter(garbage_list)
+
+    assert "invalid socket address" in str(excinfo.value).lower()

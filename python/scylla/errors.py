@@ -8,6 +8,7 @@ from ._rust.errors import (  # pyright: ignore[reportMissingModuleSource]
     DecodeFailedError,
     DeserializationError,
     ExecuteError,
+    HostFilterError,
     KeyspaceNameMismatchError,
     PrepareError,
     PyConversionFailedError,
@@ -33,6 +34,7 @@ from ._rust.errors import (  # pyright: ignore[reportMissingModuleSource]
 
 __all__ = [
     "AddressTranslationError",
+    "HostFilterError",
     "ScyllaError",
     "RowIterationError",
     "DeserializationError",

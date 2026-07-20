@@ -1,4 +1,6 @@
-use crate::errors::{DriverAddressTranslationError, DriverSessionConfigError};
+use crate::errors::{
+    DriverAddressTranslationError, DriverHostFilterError, DriverSessionConfigError,
+};
 use crate::routing::PyToken;
 use crate::session_builder::PyDuration;
 use crate::utils::{ParsedAddress, ParsedAddressList, PyValueOrError};
@@ -540,6 +542,12 @@ impl<'py> FromPyObject<'_, 'py> for PyHostFilter {
     type Error = DriverSessionConfigError;
 
     fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(filter) = obj.cast::<PyAllowListHostFilter>() {
+            return Ok(Self {
+                inner: Arc::clone(&filter.get().inner) as Arc<dyn HostFilter>,
+            });
+        }
+
         if let Ok(filter) = obj.cast::<PyAcceptAllHostFilter>() {
             return Ok(Self {
                 inner: Arc::clone(&filter.get().inner) as Arc<dyn HostFilter>,
@@ -598,6 +606,30 @@ impl PyDcHostFilter {
         PyDcHostFilter {
             inner: Arc::new(DcHostFilter::new(local_dc)),
         }
+    }
+
+    pub fn accept(&self, peer: Py<PyPeer>) -> bool {
+        self.inner.accept(&peer.get().inner)
+    }
+}
+
+/// Built-in host filter that accepts only peers whose address matches a given allow list.
+/// Exposed to Python as `AllowListHostFilter`.
+#[pyclass(name = "AllowListHostFilter", frozen)]
+struct PyAllowListHostFilter {
+    inner: Arc<AllowListHostFilter>,
+}
+
+#[pymethods]
+impl PyAllowListHostFilter {
+    #[new]
+    pub fn new(list: ParsedAddressList) -> Result<Self, DriverHostFilterError> {
+        let filter =
+            AllowListHostFilter::new(list.inner).map_err(DriverHostFilterError::invalid_address)?;
+
+        Ok(PyAllowListHostFilter {
+            inner: Arc::new(filter),
+        })
     }
 
     pub fn accept(&self, peer: Py<PyPeer>) -> bool {
@@ -730,6 +762,7 @@ pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResul
     module.add_class::<PySimpleTimestampGenerator>()?;
     module.add_class::<PyAcceptAllHostFilter>()?;
     module.add_class::<PyDcHostFilter>()?;
+    module.add_class::<PyAllowListHostFilter>()?;
     module.add_class::<PyPeer>()?;
     Ok(())
 }

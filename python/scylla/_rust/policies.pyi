@@ -1,7 +1,8 @@
 import uuid
 from datetime import timedelta
 from ipaddress import IPv4Address, IPv6Address
-from typing import Any, Optional, Protocol, runtime_checkable
+
+from typing import Any, Optional, Protocol, Sequence, runtime_checkable
 
 from .routing import Token
 from .session_builder import ContactPoint
@@ -201,3 +202,9 @@ class DcHostFilter:
     def __init__(self, local_dc: str) -> None: ...
     def accept(self, peer: Peer) -> bool: ...
 
+class AllowListHostFilter:
+    """
+    A host filter that accepts only nodes whose addresses are present in the provided allow list.
+    """
+    def __init__(self, list: Sequence[str | tuple[str | IPv4Address | IPv6Address, int]]) -> None: ...
+    def accept(self, peer: Peer) -> bool: ...

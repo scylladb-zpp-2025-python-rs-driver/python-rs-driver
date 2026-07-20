@@ -120,7 +120,6 @@ impl SessionBuilder {
 
         Ok(slf)
     }
-
     fn host_filter<'py>(
         slf: PyRef<'py, Self>,
         py: Python<'py>,

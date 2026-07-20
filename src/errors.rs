@@ -57,6 +57,7 @@ create_exception!(errors, KeyspaceNameMismatchError, UseKeyspaceError);
 create_exception!(errors, RequestTimeoutError, UseKeyspaceError);
 create_exception!(errors, RuntimeTaskJoinFailedError, UseKeyspaceError);
 create_exception!(errors, AddressTranslationError, ScyllaError);
+create_exception!(errors, HostFilterError, ScyllaError);
 
 // Policy: DriverError types are pure Rust and contain PyErr only as source
 // in cases where the error originated from Python code (e.g. during extraction or user callbacks).
@@ -743,6 +744,29 @@ impl From<DriverAddressTranslationError> for PyErr {
                     let _ = inst.setattr("index", index);
                     err
                 })
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+#[must_use]
+pub enum DriverHostFilterError {
+    InvalidAddress { source: std::io::Error },
+}
+
+impl DriverHostFilterError {
+    pub fn invalid_address(source: std::io::Error) -> Self {
+        Self::InvalidAddress { source }
+    }
+}
+
+impl From<DriverHostFilterError> for PyErr {
+    fn from(e: DriverHostFilterError) -> PyErr {
+        match e {
+            DriverHostFilterError::InvalidAddress { source } => {
+                let message = format!("Invalid address in host filter allow list: {source}");
+                HostFilterError::new_err(message)
             }
         }
     }
@@ -1563,5 +1587,6 @@ pub(crate) fn errors(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<(
         "AddressTranslationError",
         py.get_type::<AddressTranslationError>(),
     )?;
+    module.add("HostFilterError", py.get_type::<HostFilterError>())?;
     Ok(())
 }
