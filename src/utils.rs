@@ -117,6 +117,33 @@ impl<'py> FromPyObject<'_, 'py> for ParsedAddressList {
     }
 }
 
+pub(crate) struct PyValueOrError<T, E = PyErr> {
+    result: Result<T, E>,
+}
+
+impl<T, E> PyValueOrError<T, E> {
+    pub(crate) fn new(result: Result<T, E>) -> Self {
+        PyValueOrError { result }
+    }
+}
+
+impl<'py, T, E> IntoPyObject<'py> for PyValueOrError<T, E>
+where
+    T: IntoPyObject<'py>,
+    E: Into<PyErr>,
+{
+    type Target = T::Target;
+    type Output = T::Output;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        match self.result {
+            Ok(value) => value.into_pyobject(py).map_err(|e| e.into()),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
 /// Add submodule.
 ///
 /// This function is required,

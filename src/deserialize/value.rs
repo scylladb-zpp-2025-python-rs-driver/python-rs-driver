@@ -1,5 +1,6 @@
 use crate::deserialize::conversion::{CqlDurationWrapper, CqlVarintWrapper};
 use crate::errors::DriverDeserializationError;
+use crate::utils::PyValueOrError;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, NaiveTime, Utc};
 use pyo3::prelude::{PyDictMethods, PyListMethods, PyModule, PyModuleMethods, PySetMethods};
@@ -97,28 +98,6 @@ impl<'frame, 'metadata, 'py> PyDeserializeValue<'frame, 'metadata, 'py> for PyDe
 
 pub(crate) struct PyDeserializedValue {
     value: Py<PyAny>,
-}
-
-struct PyValueOrError {
-    result: Result<PyDeserializedValue, DriverDeserializationError>,
-}
-
-impl PyValueOrError {
-    fn new(result: Result<PyDeserializedValue, DriverDeserializationError>) -> Self {
-        PyValueOrError { result }
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyValueOrError {
-    type Target = PyAny;
-    type Output = Bound<'py, PyAny>;
-    type Error = DriverDeserializationError;
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        self.result.map(|value| {
-            let Ok(obj) = value.into_pyobject(py);
-            obj
-        })
-    }
 }
 
 #[pyclass(frozen)]
@@ -561,22 +540,19 @@ fn deser_cql_py_value<'py, 'metadata, 'frame>(
                 return Ok(PyDeserializedValue::none(py));
             };
 
-            let t = type_names
-                .iter()
-                .enumerate()
-                .map(|(i, typ)| -> PyValueOrError {
-                    let result: Result<PyDeserializedValue, DriverDeserializationError> = v
-                        .read_cql_bytes()
-                        // low-level → DeserializationError
-                        .map_err(DeserializationError::new)
-                        // DeserializationError → DriverDeserializationError
-                        .map_err(DriverDeserializationError::scylla_decode_failed)
-                        // Option<&[u8]> → PyDeserializedValue
-                        .and_then(|raw| PyDeserializedValue::deserialize_py(typ, raw, py))
-                        // Add context about which tuple index failed
-                        .map_err(|e| e.in_tuple_index(i));
-                    PyValueOrError::new(result)
-                });
+            let t = type_names.iter().enumerate().map(|(i, typ)| {
+                let result: Result<PyDeserializedValue, DriverDeserializationError> = v
+                    .read_cql_bytes()
+                    // low-level → DeserializationError
+                    .map_err(DeserializationError::new)
+                    // DeserializationError → DriverDeserializationError
+                    .map_err(DriverDeserializationError::scylla_decode_failed)
+                    // Option<&[u8]> → PyDeserializedValue
+                    .and_then(|raw| PyDeserializedValue::deserialize_py(typ, raw, py))
+                    // Add context about which tuple index failed
+                    .map_err(|e| e.in_tuple_index(i));
+                PyValueOrError::new(result)
+            });
 
             let tuple = PyTuple::new(py, t)
                 .map_err(DriverDeserializationError::python_conversion_failed)?;
