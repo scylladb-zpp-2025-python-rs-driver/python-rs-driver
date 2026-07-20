@@ -3,6 +3,7 @@ from typing import Any
 
 from .batch import Batch
 from .cluster import ClusterState
+from .future import ResponseFuture
 from .results import PagingState, RequestResult, RowFactory
 from .statement import PreparedStatement, Statement
 
@@ -17,9 +18,10 @@ class Session:
         Access information about the cluster topology or schema through ClusterState object.
         """
         ...
-    async def use_keyspace(self, keyspace: str, case_sensitive: bool = False) -> None:
+
+    def use_keyspace(self, keyspace: str, case_sensitive: bool = False) -> ResponseFuture[None]:
         """
-        Sends `USE <keyspace>` request on all connections
+        Sends `USE <keyspace>` request on all connections.
         This allows to write `SELECT * FROM table` instead of `SELECT * FROM keyspace.table`
 
         Note that even failed `use_keyspace` can change currently used keyspace - the request is sent on all connections and
@@ -31,7 +33,8 @@ class Session:
             If an error occurred when trying to use the provided keyspace.
         """
         ...
-    async def prepare(self, statement: Statement | str) -> PreparedStatement:
+
+    def prepare(self, statement: Statement | str) -> ResponseFuture[PreparedStatement]:
         """
         Prepare a statement for repeated execution.
 
@@ -42,12 +45,12 @@ class Session:
 
         Returns
         -------
-        PreparedStatement
-            A prepared statement ready for execution with parameters.
+        ResponseFuture[PreparedStatement]
+            A future resolving to a prepared statement ready for execution with parameters.
         """
         ...
 
-    async def execute(
+    def execute(
         self,
         statement: PreparedStatement | Statement | str,
         values: Any | None = None,
@@ -56,7 +59,7 @@ class Session:
         factory: RowFactory | None = None,
         paging_state: PagingState | None = None,
         paged: bool = True,
-    ) -> RequestResult:
+    ) -> ResponseFuture[RequestResult]:
         """
         Execute a query and return results.
 
@@ -79,18 +82,18 @@ class Session:
 
         Returns
         -------
-        RequestResult
-            Query results with paging support.
+        ResponseFuture[RequestResult]
+            A future resolving to query results with paging support.
         """
         ...
 
-    async def batch(
+    def batch(
         self,
         batch: Batch,
         /,
         *,
         factory: RowFactory | None = None,
-    ) -> RequestResult:
+    ) -> ResponseFuture[RequestResult]:
         """
         Execute a batch statement, which can contain many `Statement`s and `PreparedStatement`s.
 
@@ -104,16 +107,16 @@ class Session:
 
         Returns
         -------
-        RequestResult
+        ResponseFuture[RequestResult]
+            A future resolving to the batch result.
             For non-LWT batches, the result does not contain rows.
             For LWT batches, the result contains rows with a boolean `[applied]` column.
             In each returned row, columns other than `[applied]` contain either the current
             values of that row (if the condition was not met) or `None` values (if it was met).
-
         """
         ...
 
-    async def await_schema_agreement(self) -> uuid.UUID:
+    def await_schema_agreement(self) -> ResponseFuture[uuid.UUID]:
         """
         Wait until all nodes in the cluster agree on the current schema version.
 
@@ -122,8 +125,8 @@ class Session:
 
         Returns
         -------
-        uuid.UUID
-            The agreed schema version as a UUID object.
+        ResponseFuture[uuid.UUID]
+            A future resolving to the agreed schema version as a UUID object.
 
         Raises
         ------
@@ -132,7 +135,7 @@ class Session:
         """
         ...
 
-    async def check_schema_agreement(self) -> uuid.UUID | None:
+    def check_schema_agreement(self) -> ResponseFuture[uuid.UUID | None]:
         """
         Check if all nodes in the cluster agree on the current schema version.
 
@@ -141,8 +144,8 @@ class Session:
 
         Returns
         -------
-        uuid.UUID | None
-            The agreed schema version as a UUID object if all nodes agree, None otherwise.
+        ResponseFuture[uuid.UUID | None]
+            A future resolving to the agreed schema version if all nodes agree, None otherwise.
 
         Raises
         ------

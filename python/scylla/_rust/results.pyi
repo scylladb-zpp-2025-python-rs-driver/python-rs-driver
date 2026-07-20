@@ -6,6 +6,8 @@ from uuid import UUID
 
 from dateutil.relativedelta import relativedelta
 
+from .future import ResponseFuture
+
 CqlNative = Union[
     # CQL:
     # - Counter
@@ -198,7 +200,7 @@ class RequestResult:
         """
         ...
 
-    async def fetch_next_page(self) -> RequestResult | None:
+    def fetch_next_page(self) -> ResponseFuture[RequestResult | None]:
         """
         Fetches the next page if available.
 
@@ -207,8 +209,8 @@ class RequestResult:
 
         Returns
         -------
-        RequestResult | None
-            A new RequestResult with the next page data, or None if no more pages.
+        ResponseFuture[RequestResult | None]
+            A future resolving to the next page data, or None if no more pages.
         """
         ...
 
@@ -219,9 +221,9 @@ class RequestResult:
         ...
 
     def __aiter__(self) -> AsyncRowsIterator: ...
-    async def first_row(self) -> Any | None:
+    def first_row(self) -> ResponseFuture[Any | None]:
         """
-        Returns the first row starting from the current state.
+        Returns a future resolving to the first row starting from the current state.
 
         Fetches the first available row from the current page onwards,
         automatically retrieving additional pages as needed. This method
@@ -230,14 +232,14 @@ class RequestResult:
 
         Returns
         -------
-        Any | None
-            The first row as a Python object, or None if no more rows exist.
+        ResponseFuture[Any | None]
+            A future resolving to the first row, or None if no more rows exist.
         """
         ...
 
-    async def all(self) -> List[Any]:
+    def all(self) -> ResponseFuture[List[Any]]:
         """
-        Return all rows of the result set as a list.
+        Return a future resolving to all rows of the result set as a list.
 
         This method eagerly fetches all remaining pages and materializes
         the entire result set in memory. It should be used with care
@@ -254,4 +256,4 @@ class AsyncRowsIterator(AsyncIterator[Any]):
     """
 
     def __aiter__(self) -> AsyncRowsIterator: ...
-    async def __anext__(self) -> Any: ...
+    def __anext__(self) -> ResponseFuture[Any]: ...
