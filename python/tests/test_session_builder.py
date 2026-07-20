@@ -51,10 +51,20 @@ async def test_contact_points_invalid_types(item: Any):
     with pytest.raises(SessionConfigError) as excinfo:
         builder.contact_points(item)  # type: ignore[arg-type]
 
-    assert (
-        "Invalid contact points type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these"
-        in str(excinfo.value.__cause__)
-    )
+    cause = excinfo.value.__cause__
+    assert cause is not None
+    # The cause is the AddressParseError (either InvalidItem or InvalidType)
+    # For sequence items, the inner cause contains the type error
+    if cause.__cause__ is not None:
+        assert (
+            "Invalid address type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these"
+            in str(cause.__cause__)
+        )
+    else:
+        assert (
+            "Invalid address type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these"
+            in str(cause)
+        )
 
 
 @pytest.fixture(scope="module")

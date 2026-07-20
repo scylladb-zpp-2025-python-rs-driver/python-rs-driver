@@ -482,15 +482,88 @@ impl From<tokio::task::JoinError> for DriverSessionConnectionError {
 
 /* Session configuration errors */
 
+/* Address parsing errors */
+
+/// Error type for address parsing failures.
+#[derive(Debug)]
+pub enum AddressParseError {
+    /// The Python object is not a valid address type (str, tuple(str, int), tuple(IpAddr, int)).
+    InvalidType { type_name: String },
+    /// A string could not be parsed into a SocketAddr.
+    InvalidSocketAddr {
+        addr: String,
+        source: std::net::AddrParseError,
+    },
+    /// Failed to iterate over a sequence of addresses.
+    IterationFailed { source: Box<PyErr> },
+    /// An individual item in an address sequence failed to extract at the given index.
+    InvalidItem { index: usize, source: Box<PyErr> },
+}
+
+impl AddressParseError {
+    pub fn invalid_type(obj: Borrowed<PyAny>) -> Self {
+        Self::InvalidType {
+            type_name: get_type_name(obj),
+        }
+    }
+
+    pub fn iteration_failed(source: PyErr) -> Self {
+        Self::IterationFailed {
+            source: Box::new(source),
+        }
+    }
+
+    pub fn invalid_item(index: usize, source: PyErr) -> Self {
+        Self::InvalidItem {
+            index,
+            source: Box::new(source),
+        }
+    }
+}
+
+impl fmt::Display for AddressParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidType { type_name } => write!(
+                f,
+                "Invalid address type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these, got {type_name}"
+            ),
+            Self::InvalidSocketAddr { addr, source } => {
+                write!(f, "Invalid socket address '{addr}': {source}")
+            }
+            Self::IterationFailed { .. } => {
+                write!(f, "Failed to iterate over sequence of addresses")
+            }
+            Self::InvalidItem { index, .. } => {
+                write!(f, "Error processing address at index {index}")
+            }
+        }
+    }
+}
+
+impl From<AddressParseError> for PyErr {
+    fn from(e: AddressParseError) -> PyErr {
+        let message = e.to_string();
+        match e {
+            AddressParseError::IterationFailed { source } => Python::attach(|py| {
+                let err = pyo3::exceptions::PyValueError::new_err(message);
+                err.set_cause(py, Some(*source));
+                err
+            }),
+            AddressParseError::InvalidItem { source, .. } => Python::attach(|py| {
+                let err = pyo3::exceptions::PyValueError::new_err(message);
+                err.set_cause(py, Some(*source));
+                err
+            }),
+            _ => pyo3::exceptions::PyValueError::new_err(message),
+        }
+    }
+}
+
 /// Errors related to invalid session configuration.
 #[derive(Debug)]
 #[must_use]
 pub enum DriverSessionConfigError {
-    /// Failed to iterate over a sequence of node addresses during session config extraction.
-    ContactPointsIterationFailed {
-        source: Box<PyErr>,
-    },
-
     InvalidPortRange,
 
     InvalidDuration {
@@ -500,14 +573,8 @@ pub enum DriverSessionConfigError {
     ZeroDurationNotAllowed,
 
     /// The address object is not a valid type (str, tuple, or IpAddr tuple).
-    ContactPointTypeError {
-        type_name: String,
-    },
-
-    /// An individual item in a node address sequence failed to extract at the given index.
-    InvalidContactPointItem {
-        index: usize,
-        source: Box<PyErr>,
+    InvalidAddress {
+        source: AddressParseError,
     },
 
         type_name: String,
@@ -516,25 +583,6 @@ pub enum DriverSessionConfigError {
 
 impl DriverSessionConfigError {
     /* Constructors */
-    pub fn contact_point_type_error(obj: Borrowed<PyAny>) -> Self {
-        Self::ContactPointTypeError {
-            type_name: get_type_name(obj),
-        }
-    }
-
-    pub fn contact_points_iteration_failed(source: PyErr) -> Self {
-        Self::ContactPointsIterationFailed {
-            source: Box::new(source),
-        }
-    }
-
-    pub fn contact_points_invalid_item(index: usize, source: PyErr) -> Self {
-        Self::InvalidContactPointItem {
-            index,
-            source: Box::new(source),
-        }
-    }
-
     pub fn invalid_duration(obj: Borrowed<PyAny>) -> Self {
         let type_name = obj
             .get_type()
@@ -577,23 +625,10 @@ fn get_type_name(obj: Borrowed<PyAny>) -> String {
 impl From<DriverSessionConfigError> for PyErr {
     fn from(e: DriverSessionConfigError) -> PyErr {
         Python::attach(|py| match e {
-            DriverSessionConfigError::ContactPointTypeError { type_name } => {
-                let message = format!(
-                    "Invalid contact points type: expected str | tuple(str, int) | tuple(ipaddress, int) or a sequence of these, got {type_name}"
-                );
-
-                build_session_config_pyerr(py, message, None, None)
-            }
-
-            DriverSessionConfigError::ContactPointsIterationFailed { source } => {
-                let message = "Failed to iterate over sequence of contact points".to_string();
-
-                build_session_config_pyerr(py, message, Some(*source), None)
-            }
-
-            DriverSessionConfigError::InvalidContactPointItem { index, source } => {
-                let message = format!("Error processing contact point at index {index}");
-                build_session_config_pyerr(py, message, Some(*source), Some(index))
+            DriverSessionConfigError::InvalidAddress { source } => {
+                let message = "Failed to parse address".to_string();
+                let cause: PyErr = source.into();
+                build_session_config_pyerr(py, message, Some(cause), None)
             }
 
             DriverSessionConfigError::InvalidPortRange => {
