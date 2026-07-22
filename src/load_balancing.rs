@@ -198,6 +198,44 @@ impl PyRoutingInfo {
     }
 }
 
+/// Python representation of structures implementing the load balancing trait.
+#[derive(Clone)]
+pub(crate) struct PyLoadBalancingPolicy {
+    pub(crate) inner: Arc<dyn LoadBalancingPolicy>,
+}
+
+impl PyLoadBalancingPolicy {
+    pub(crate) fn into_inner(self) -> Arc<dyn LoadBalancingPolicy> {
+        self.inner
+    }
+}
+
+impl<'py> FromPyObject<'_, 'py> for PyLoadBalancingPolicy {
+    type Error = DriverLoadBalancingPolicyError;
+
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if let Ok(default) = obj.cast::<PyDefaultPolicy>() {
+            return Ok(Self {
+                inner: default.get().inner.clone(),
+            });
+        }
+
+        if obj
+            .hasattr(intern!(obj.py(), "pick_targets"))
+            .unwrap_or(false)
+        {
+            return Ok(Self {
+                inner: Arc::new(CustomLoadBalancingPolicy {
+                    inner: obj.unbind(),
+                    cluster_cache: Mutex::new(None),
+                }),
+            });
+        }
+
+        Err(DriverLoadBalancingPolicyError::invalid_policy(obj))
+    }
+}
+
 /// Represents a custom load balancing policy object implemented by the Python user.
 #[derive(Debug)]
 struct CustomLoadBalancingPolicy {
