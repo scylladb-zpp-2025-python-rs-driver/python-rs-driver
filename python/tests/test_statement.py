@@ -4,6 +4,7 @@ import pytest
 from scylla.enums import Consistency, SerialConsistency
 from scylla.errors import PrepareError, StatementConfigError, StatementConversionError
 from scylla.execution_profile import ExecutionProfile
+from scylla.load_balancing import DefaultPolicy
 from scylla.session_builder import SessionBuilder
 from scylla.statement import PreparedStatement, Statement
 from scylla.types import Unset
@@ -224,6 +225,7 @@ async def test_statement_preserves_execution_profile_after_prepare():
     prepared = await session.prepare(query_stmt)
 
     prepared_ep = prepared.execution_profile
+    assert prepared_ep is query_stmt.execution_profile
     assert prepared_ep is not None
     assert prepared_ep.request_timeout == 12.234
 
@@ -244,3 +246,53 @@ async def test_statement_preserves_settings_after_prepare():
 
     prepared_c = prepared.consistency
     assert prepared_c == Consistency.EachQuorum
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_statement_with_lb_policy_executes() -> None:
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
+    stmt = Statement("SELECT * FROM system.local").with_load_balancing_policy(DefaultPolicy())
+    row = await (await session.execute(stmt)).first_row()
+    assert row is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_with_lb_policy_executes() -> None:
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
+    prepared = (await session.prepare("SELECT * FROM system.local")).with_load_balancing_policy(DefaultPolicy())
+    row = await (await session.execute(prepared)).first_row()
+    assert row is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_statement_without_lb_policy() -> None:
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
+    stmt = Statement("SELECT * FROM system.local").with_load_balancing_policy(DefaultPolicy())
+    assert stmt.load_balancing_policy is not None
+    stmt2 = stmt.without_load_balancing_policy()
+    assert stmt2.load_balancing_policy is None
+    assert await session.execute(stmt2) is not None
+
+
+def test_statement_get_lb_policy_returns_original() -> None:
+    stmt = Statement("SELECT * FROM system.local").with_load_balancing_policy(DefaultPolicy())
+    assert stmt.load_balancing_policy is not None
+    assert isinstance(stmt.load_balancing_policy, DefaultPolicy)
+
+
+def test_statement_is_immutable_after_with_lb_policy() -> None:
+    stmt = Statement("SELECT * FROM system.local")
+    stmt2 = stmt.with_load_balancing_policy(DefaultPolicy())
+    assert stmt.load_balancing_policy is None
+    assert stmt2.load_balancing_policy is not None
+
+
+def test_policy_without_pick_targets_raises_on_set() -> None:
+    class NoPickTargets:
+        pass
+
+    with pytest.raises(StatementConfigError):
+        Statement("SELECT * FROM system.local").with_load_balancing_policy(NoPickTargets())  # type: ignore[arg-type]

@@ -8,6 +8,7 @@ from ._rust.errors import (  # pyright: ignore[reportMissingModuleSource]
     DeserializationError,
     ExecuteError,
     KeyspaceNameMismatchError,
+    LoadBalancingPolicyError,
     PrepareError,
     PyConversionFailedError,
     PySerializationFailedError,
@@ -58,4 +59,5 @@ __all__ = [
     "KeyspaceNameMismatchError",
     "RequestTimeoutError",
     "RuntimeTaskJoinFailedError",
+    "LoadBalancingPolicyError",
 ]

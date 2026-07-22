@@ -59,6 +59,8 @@ create_exception!(errors, KeyspaceNameMismatchError, UseKeyspaceError);
 create_exception!(errors, RequestTimeoutError, UseKeyspaceError);
 create_exception!(errors, RuntimeTaskJoinFailedError, UseKeyspaceError);
 
+create_exception!(errors, LoadBalancingPolicyError, ScyllaError);
+
 // Policy: DriverError types are pure Rust and contain PyErr only as source
 // in cases where the error originated from Python code (e.g. during extraction or user callbacks).
 // Conversion to PyErr happens at the boundary (e.g. in #[pymethods] implementations)
@@ -830,6 +832,52 @@ impl From<tokio::task::JoinError> for DriverSchemaAgreementError {
     }
 }
 
+#[derive(Debug)]
+#[must_use]
+pub enum DriverLoadBalancingPolicyError {
+    InvalidPolicy { type_name: String },
+    DefaultPolicyStringConversionFailed { source: Box<PyErr> },
+}
+
+impl DriverLoadBalancingPolicyError {
+    pub fn invalid_policy(obj: Borrowed<PyAny>) -> Self {
+        let type_name = obj
+            .get_type()
+            .name()
+            .map(|n| n.to_string())
+            .unwrap_or_else(|_| "UnknownType".to_string());
+        Self::InvalidPolicy { type_name }
+    }
+
+    pub fn default_policy_string_conversion_failed(source: PyErr) -> Self {
+        Self::DefaultPolicyStringConversionFailed {
+            source: Box::new(source),
+        }
+    }
+}
+
+impl From<DriverLoadBalancingPolicyError> for PyErr {
+    fn from(e: DriverLoadBalancingPolicyError) -> PyErr {
+        match e {
+            DriverLoadBalancingPolicyError::InvalidPolicy { type_name } => {
+                LoadBalancingPolicyError::new_err(format!(
+                    "Invalid load balancing policy '{type_name}': Object does not implement the \
+                     LoadBalancingPolicy protocol (missing required 'pick_targets' method)."
+                ))
+            }
+            DriverLoadBalancingPolicyError::DefaultPolicyStringConversionFailed { source } => {
+                Python::attach(|py| {
+                    let err = LoadBalancingPolicyError::new_err(
+                        "String conversion failed while creating default load balancing policy",
+                    );
+                    err.set_cause(py, Some(*source));
+                    err
+                })
+            }
+        }
+    }
+}
+
 /// Errors related to invalid statement configuration.
 #[derive(Debug)]
 #[must_use]
@@ -838,6 +886,10 @@ pub enum DriverStatementConfigError {
     InvalidRequestTimeout { value: f64 },
     /// An error occurred in Python code while handling a statement value.
     PythonConversionFailed { source: Box<PyErr> },
+    /// The provided load balancing policy is invalid.
+    InvalidLoadBalancingPolicy {
+        source: Box<DriverLoadBalancingPolicyError>,
+    },
 }
 
 impl DriverStatementConfigError {
@@ -851,6 +903,18 @@ impl DriverStatementConfigError {
         Self::PythonConversionFailed {
             source: Box::new(source),
         }
+    }
+
+    pub fn invalid_load_balancing_policy(source: DriverLoadBalancingPolicyError) -> Self {
+        Self::InvalidLoadBalancingPolicy {
+            source: Box::new(source),
+        }
+    }
+}
+
+impl From<DriverLoadBalancingPolicyError> for DriverStatementConfigError {
+    fn from(e: DriverLoadBalancingPolicyError) -> Self {
+        Self::invalid_load_balancing_policy(e)
     }
 }
 
@@ -870,6 +934,13 @@ impl From<DriverStatementConfigError> for PyErr {
                 err.set_cause(py, Some(*source));
                 err
             }),
+            DriverStatementConfigError::InvalidLoadBalancingPolicy { source } => {
+                Python::attach(|py| {
+                    let err = StatementConfigError::new_err("Invalid load balancing policy");
+                    err.set_cause(py, Some(PyErr::from(*source)));
+                    err
+                })
+            }
         }
     }
 }
@@ -882,6 +953,10 @@ pub enum DriverBatchError {
     InvalidRequestTimeout { value: f64 },
     /// An error occurred in Python code while handling a batch value.
     PythonConversionFailed { source: Box<PyErr> },
+    /// The provided load balancing policy is invalid.
+    InvalidLoadBalancingPolicy {
+        source: Box<DriverLoadBalancingPolicyError>,
+    },
 }
 
 impl DriverBatchError {
@@ -896,6 +971,18 @@ impl DriverBatchError {
             source: Box::new(source),
         }
     }
+
+    pub fn invalid_load_balancing_policy(source: DriverLoadBalancingPolicyError) -> Self {
+        Self::InvalidLoadBalancingPolicy {
+            source: Box::new(source),
+        }
+    }
+}
+
+impl From<DriverLoadBalancingPolicyError> for DriverBatchError {
+    fn from(e: DriverLoadBalancingPolicyError) -> Self {
+        Self::invalid_load_balancing_policy(e)
+    }
 }
 
 impl From<DriverBatchError> for PyErr {
@@ -909,6 +996,11 @@ impl From<DriverBatchError> for PyErr {
                     BatchError::new_err("Python conversion failed while handling batch value");
 
                 err.set_cause(py, Some(*source));
+                err
+            }),
+            DriverBatchError::InvalidLoadBalancingPolicy { source } => Python::attach(|py| {
+                let err = BatchError::new_err("Invalid load balancing policy for batch");
+                err.set_cause(py, Some(PyErr::from(*source)));
                 err
             }),
         }
@@ -1419,6 +1511,10 @@ pub(crate) fn errors(py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<(
     module.add(
         "RuntimeTaskJoinFailedError",
         py.get_type::<RuntimeTaskJoinFailedError>(),
+    )?;
+    module.add(
+        "LoadBalancingPolicyError",
+        py.get_type::<LoadBalancingPolicyError>(),
     )?;
     Ok(())
 }

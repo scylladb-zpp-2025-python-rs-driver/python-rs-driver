@@ -345,7 +345,7 @@ def test_batch_execution_profile():
     profile = ExecutionProfile()
 
     batch = batch.with_execution_profile(profile)
-    assert isinstance(batch.execution_profile, ExecutionProfile)
+    assert batch.execution_profile is profile
 
     batch = batch.without_execution_profile()
     assert batch.execution_profile is None
