@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+
 from .cluster import ClusterState, Node
 from .enums import Consistency, SerialConsistency
 from .routing import Shard, Token
@@ -139,4 +140,3 @@ class DefaultPolicy:
         the preferred targets for the given request.
         """
         ...
-
