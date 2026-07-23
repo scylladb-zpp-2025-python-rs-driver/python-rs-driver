@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 from .enums import Compression, PoolSize, SelfIdentity, WriteCoalescingDelay
 from .execution_profile import ExecutionProfile
-from .policies import AddressTranslator, AuthenticatorProvider, HostFilter, TimestampGenerator
+from .other_policies import AddressTranslator, AuthenticatorProvider, HostFilter, TimestampGenerator
 from .session import Session
 
 ContactPoint = str | tuple[str | IPv4Address | IPv6Address, int]

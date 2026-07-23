@@ -4,6 +4,7 @@ import pytest
 from scylla.enums import Consistency, SerialConsistency
 from scylla.errors import PrepareError, StatementConfigError, StatementConversionError
 from scylla.execution_profile import ExecutionProfile
+from scylla.policies.retry_policy import DefaultRetryPolicy
 from scylla.session_builder import SessionBuilder
 from scylla.statement import PreparedStatement, Statement
 from scylla.types import Unset
@@ -244,3 +245,162 @@ async def test_statement_preserves_settings_after_prepare():
 
     prepared_c = prepared.consistency
     assert prepared_c == Consistency.EachQuorum
+
+
+def test_statement_retry_policy_default():
+    statement = Statement("SELECT * FROM system.local")
+
+    assert statement.retry_policy is None
+
+
+def test_statement_with_retry_policy():
+    statement = Statement("SELECT * FROM system.local")
+    policy = DefaultRetryPolicy()
+
+    new_statement = statement.with_retry_policy(policy)
+
+    assert statement.retry_policy is None
+    assert new_statement.retry_policy is policy
+
+
+def test_statement_without_retry_policy():
+    policy = DefaultRetryPolicy()
+
+    statement = Statement("SELECT * FROM system.local").with_retry_policy(policy)
+    new_statement = statement.without_retry_policy()
+
+    assert statement.retry_policy is policy
+    assert new_statement.retry_policy is None
+
+
+def test_statement_retry_policy_returns_same_object():
+    policy = DefaultRetryPolicy()
+    statement = Statement("SELECT * FROM system.local").with_retry_policy(policy)
+
+    assert statement.retry_policy is policy
+
+
+def test_statement_is_idempotent_default():
+    statement = Statement("SELECT * FROM system.local")
+
+    assert statement.is_idempotent is False
+
+
+def test_statement_set_is_idempotent_true():
+    statement = Statement("SELECT * FROM system.local")
+
+    new_statement = statement.set_is_idempotent(True)
+
+    assert statement.is_idempotent is False
+    assert new_statement.is_idempotent is True
+
+
+def test_statement_set_is_idempotent_false():
+    statement = Statement("SELECT * FROM system.local").set_is_idempotent(True)
+
+    new_statement = statement.set_is_idempotent(False)
+
+    assert statement.is_idempotent is True
+    assert new_statement.is_idempotent is False
+
+
+def test_statement_set_is_idempotent_returns_new_instance():
+    statement = Statement("SELECT * FROM system.local")
+    new_statement = statement.set_is_idempotent(True)
+
+    assert statement is not new_statement
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_statement_retry_policy_default():
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
+    prepared = await session.prepare("SELECT * FROM system.local")
+
+    assert prepared.retry_policy is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_statement_with_retry_policy():
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
+    prepared = await session.prepare("SELECT * FROM system.local")
+    policy = DefaultRetryPolicy()
+
+    new_prepared = prepared.with_retry_policy(policy)
+
+    assert prepared.retry_policy is None
+    assert new_prepared.retry_policy is policy
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_statement_without_retry_policy():
+    policy = DefaultRetryPolicy()
+
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
+    prepared = await session.prepare("SELECT * FROM system.local")
+
+    prepared = prepared.with_retry_policy(policy)
+    new_prepared = prepared.without_retry_policy()
+
+    assert prepared.retry_policy is policy
+    assert new_prepared.retry_policy is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_statement_retry_policy_returns_same_object():
+    policy = DefaultRetryPolicy()
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
+    prepared = await session.prepare("SELECT * FROM system.local")
+
+    prepared = prepared.with_retry_policy(policy)
+
+    assert prepared.retry_policy is policy
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_statement_is_idempotent_default():
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
+    prepared = await session.prepare("SELECT * FROM system.local")
+
+    assert prepared.is_idempotent is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_statement_set_is_idempotent_true():
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
+    prepared = await session.prepare("SELECT * FROM system.local")
+
+    new_prepared = prepared.set_is_idempotent(True)
+
+    assert prepared.is_idempotent is False
+    assert new_prepared.is_idempotent is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_statement_set_is_idempotent_false():
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
+    prepared = await session.prepare("SELECT * FROM system.local")
+
+    prepared = prepared.set_is_idempotent(True)
+
+    new_prepared = prepared.set_is_idempotent(False)
+
+    assert prepared.is_idempotent is True
+    assert new_prepared.is_idempotent is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.requires_db
+async def test_prepared_statement_set_is_idempotent_returns_new_instance():
+    session = await SessionBuilder().contact_points([("127.0.0.2", 9042)]).connect()
+    prepared = await session.prepare("SELECT * FROM system.local")
+
+    new_prepared = prepared.set_is_idempotent(True)
+
+    assert prepared is not new_prepared

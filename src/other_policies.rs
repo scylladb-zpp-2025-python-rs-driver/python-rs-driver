@@ -12,6 +12,8 @@ use scylla::policies::timestamp_generator::TimestampGenerator;
 use std::net::{IpAddr, SocketAddr};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+// TODO: Split this file into separate parts and move them to the `policies` directory.
+
 #[derive(Clone)]
 #[pyclass(subclass, skip_from_py_object, name = "AuthenticatorProvider")]
 pub(crate) struct PyAuthenticatorProvider {}
@@ -327,7 +329,7 @@ impl From<&Peer> for PyPeer {
 }
 
 #[pymodule]
-pub(crate) fn policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
+pub(crate) fn other_policies(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyAuthenticatorProvider>()?;
     module.add_class::<PyAuthenticator>()?;
     module.add_class::<PyUntranslatedPeer>()?;

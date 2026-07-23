@@ -9,7 +9,7 @@ use scylla_cql::frame::Compression;
 use std::num::{NonZeroU64, NonZeroUsize};
 
 #[pyclass(name = "Consistency", eq, eq_int, frozen, from_py_object)]
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum PyConsistency {
     Any,
     One,
@@ -61,7 +61,7 @@ impl From<Consistency> for PyConsistency {
 }
 
 #[pyclass(name = "SerialConsistency", eq, eq_int, frozen, from_py_object)]
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum PySerialConsistency {
     Serial,
     LocalSerial,

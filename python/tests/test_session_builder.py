@@ -7,7 +7,7 @@ from _pytest.logging import LogCaptureFixture
 from scylla.enums import Compression, Consistency, PoolSize, SelfIdentity, SerialConsistency, WriteCoalescingDelay
 from scylla.errors import SessionConfigError
 from scylla.execution_profile import ExecutionProfile
-from scylla.policies import (
+from scylla.other_policies import (
     AddressTranslator,
     Authenticator,
     AuthenticatorProvider,

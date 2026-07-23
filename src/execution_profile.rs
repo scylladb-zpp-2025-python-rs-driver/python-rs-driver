@@ -1,30 +1,34 @@
-use pyo3::prelude::*;
-use scylla::client;
-use std::time::Duration;
-
 use crate::enums::{PyConsistency, PySerialConsistency};
 use crate::errors::DriverStatementConfigError;
+use crate::policies::retry::policies::py_any_to_arc_retry_policy;
+use pyo3::prelude::*;
+use scylla::client::execution_profile::ExecutionProfile;
+use std::time::Duration;
 
-#[pyclass(frozen, from_py_object)]
+#[pyclass(name = "ExecutionProfile", frozen, from_py_object)]
 #[derive(Clone)]
-pub(crate) struct ExecutionProfile {
-    pub(crate) _inner: client::execution_profile::ExecutionProfile,
+pub(crate) struct PyExecutionProfile {
+    pub(crate) _inner: ExecutionProfile,
+    pub(crate) retry_policy: Option<Py<PyAny>>,
 }
 
 #[pymethods]
-impl ExecutionProfile {
+impl PyExecutionProfile {
     #[new]
     #[pyo3(signature = (
         timeout=30.0,
         consistency=PyConsistency::LocalQuorum,
         serial_consistency=PySerialConsistency::LocalSerial,
+        retry_policy=None,
     ))]
     pub(crate) fn new(
         timeout: Option<f64>,
         consistency: PyConsistency,
         serial_consistency: Option<PySerialConsistency>,
+        retry_policy: Option<Py<PyAny>>,
+        py: Python,
     ) -> Result<Self, DriverStatementConfigError> {
-        let mut profile_builder = client::execution_profile::ExecutionProfile::builder();
+        let mut profile_builder = ExecutionProfile::builder();
 
         if let Some(secs) = timeout {
             let duration = Duration::try_from_secs_f64(secs)
@@ -38,8 +42,13 @@ impl ExecutionProfile {
         profile_builder =
             profile_builder.serial_consistency(serial_consistency.map(|sc| sc.into()));
 
-        Ok(ExecutionProfile {
+        if let Some(ref rp) = retry_policy {
+            profile_builder = profile_builder.retry_policy(py_any_to_arc_retry_policy(rp, py));
+        }
+
+        Ok(PyExecutionProfile {
             _inner: profile_builder.build(),
+            retry_policy,
         })
     }
 
@@ -59,10 +68,15 @@ impl ExecutionProfile {
             .get_serial_consistency()
             .map(PySerialConsistency::from)
     }
+
+    #[getter]
+    pub(crate) fn get_retry_policy(&self) -> Option<Py<PyAny>> {
+        self.retry_policy.clone()
+    }
 }
 
 #[pymodule]
 pub(crate) fn execution_profile(_py: Python<'_>, module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_class::<ExecutionProfile>()?;
+    module.add_class::<PyExecutionProfile>()?;
     Ok(())
 }

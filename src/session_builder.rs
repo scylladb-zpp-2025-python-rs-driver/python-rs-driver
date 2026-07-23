@@ -1,8 +1,8 @@
 use crate::RUNTIME;
 use crate::enums::{PyCompression, PyPoolSize, PySelfIdentity, PyWriteCoalescingDelay};
 use crate::errors::{DriverSessionConfigError, DriverSessionConnectionError};
-use crate::execution_profile::ExecutionProfile;
-use crate::policies::{
+use crate::execution_profile::PyExecutionProfile;
+use crate::other_policies::{
     InternalAddressTranslator, InternalAuthenticatorProvider, InternalHostFilter,
     InternalTimestampGenerator, PyAddressTranslator, PyAuthenticatorProvider, PyHostFilter,
     PyTimestampGenerator,
@@ -52,7 +52,7 @@ impl SessionBuilder {
     fn execution_profile<'py>(
         slf: PyRef<'py, Self>,
         py: Python<'py>,
-        execution_profile: Py<ExecutionProfile>,
+        execution_profile: Py<PyExecutionProfile>,
     ) -> PyRef<'py, Self> {
         {
             let mut inner = slf.inner.lock_py_attached(py).unwrap();
@@ -459,7 +459,7 @@ impl SessionBuilder {
 struct PySessionBuilderConfig {
     config: SessionConfig,
     #[pyo3(get)]
-    pub execution_profile: Py<ExecutionProfile>,
+    pub execution_profile: Py<PyExecutionProfile>,
     #[pyo3(get)]
     pub contact_points: Vec<ContactPoint>,
     #[pyo3(get)]
@@ -480,8 +480,9 @@ impl PySessionBuilderConfig {
 
         let execution_profile = Py::new(
             py,
-            ExecutionProfile {
+            PyExecutionProfile {
                 _inner: config.default_execution_profile_handle.to_profile(),
+                retry_policy: None,
             },
         )?;
 
